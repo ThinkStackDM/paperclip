@@ -438,4 +438,62 @@ describe("KubernetesExecutionDriver.run()", () => {
     // didn't fire.
     expect(result.errorCode).not.toBe("image_not_allowed");
   });
+
+  it("filters per-Job env Secret to the adapter-defaults envKeys, dropping foreign provider creds", async () => {
+    // Adapter type "gemini_local" → envKeys = ["GEMINI_API_KEY","GOOGLE_API_KEY"].
+    // ANTHROPIC_API_KEY is intentionally present in adapterEnv to verify the
+    // driver-side filter drops it (defence-in-depth against a server-side
+    // leak that resolves the wrong company secret).
+    const scenario: JobScenario = {
+      jobs: [
+        { metadata: { name: "j" }, status: { succeeded: 1 } } as V1Job,
+      ],
+      pod: {
+        metadata: { name: "pod-x" },
+        status: {
+          containerStatuses: [
+            { name: "agent", state: { terminated: { exitCode: 0 } } },
+          ],
+        },
+      } as V1Pod,
+    };
+    const { client, calls } = buildFakeClient(scenario);
+    installFakeApiClient(client);
+
+    const driver = createKubernetesExecutionDriver({
+      resolveConnection: async () => sampleConnection,
+      bootstrapTokenMinter: {
+        mint: async () => ({ token: "bst_x", expiresAt: new Date(Date.now() + 600_000) }),
+      },
+      resolveRunContext: async () => ({
+        ...baseRunContext,
+        adapterEnv: {
+          GEMINI_API_KEY: "gem",
+          GOOGLE_API_KEY: "g",
+          ANTHROPIC_API_KEY: "leak",
+        },
+      }),
+      pollIntervalMs: 5,
+    });
+
+    const ctx = makeCtx({
+      agent: {
+        id: "a-12345678",
+        companyId: "c-1",
+        name: "x",
+        adapterType: "gemini_local",
+        adapterConfig: {},
+      },
+    });
+    await driver.run({ ctx, target });
+
+    const secretData = calls.createdSecret?.data ?? {};
+    const b64 = (s: string) => Buffer.from(s, "utf-8").toString("base64");
+    expect(secretData.GEMINI_API_KEY).toBe(b64("gem"));
+    expect(secretData.GOOGLE_API_KEY).toBe(b64("g"));
+    // ANTHROPIC_API_KEY is NOT in gemini_local's envKeys → must be filtered out.
+    expect(secretData.ANTHROPIC_API_KEY).toBeUndefined();
+    // BOOTSTRAP_TOKEN must always be present regardless of the envKeys filter.
+    expect(secretData.BOOTSTRAP_TOKEN).toBe(b64("bst_x"));
+  });
 });

@@ -4,6 +4,7 @@ import type { V1Job, V1Pod } from "@kubernetes/client-node";
 import { ensureTenantNamespace, type EnsureTenantInput } from "./orchestrator/ensure-tenant.js";
 import { createKubernetesApiClient } from "./client.js";
 import { deriveNamespaceName } from "./orchestrator/naming.js";
+import { getAdapterDefaults } from "./orchestrator/adapter-defaults.js";
 import { buildAgentWorkspacePvc, applyAgentWorkspacePvc } from "./orchestrator/pvc.js";
 import {
   buildEphemeralSecret, applyEphemeralSecret, deleteEphemeralSecret,
@@ -90,6 +91,13 @@ export interface ResolvedRunContext {
 
 export type EnsureTenantDriverInput = Omit<EnsureTenantInput, "connection"> & {
   clusterConnectionId: string;
+  /**
+   * Optional adapter type. When provided, the driver merges
+   * `getAdapterDefaults(adapterType).allowFqdns` into the forwarded
+   * `adapterAllowFqdns`. Omit for backwards-compat callers that prefer
+   * to compute the merged list upstream themselves.
+   */
+  adapterType?: string;
 };
 
 export interface KubernetesExecutionDriver {
@@ -221,13 +229,24 @@ export function createKubernetesExecutionDriver(deps: KubernetesDriverDeps): Kub
       }
     },
 
-    async ensureTenant({ clusterConnectionId, ...rest }) {
+    async ensureTenant({ clusterConnectionId, adapterType, ...rest }) {
       const connection = await deps.resolveConnection(clusterConnectionId);
       if (!connection) {
         throw new Error(`Cluster connection ${clusterConnectionId} not found`);
       }
       const client = createKubernetesApiClient(connection);
-      return ensureTenantNamespace(client, { connection, ...rest });
+      // When adapterType is supplied, merge the adapter-defaults FQDN list
+      // into adapterAllowFqdns so the tenant's egress policy permits the
+      // adapter's required upstreams in addition to any caller-supplied
+      // FQDNs. Caller-supplied entries are preserved (set-deduped). When
+      // adapterType is omitted, we forward unchanged for backwards compat.
+      const adapterAllowFqdns = adapterType
+        ? Array.from(new Set([
+            ...(rest.adapterAllowFqdns ?? []),
+            ...getAdapterDefaults(adapterType).allowFqdns,
+          ]))
+        : rest.adapterAllowFqdns;
+      return ensureTenantNamespace(client, { connection, ...rest, adapterAllowFqdns });
     },
 
     async run(input) {
@@ -345,9 +364,23 @@ export function createKubernetesExecutionDriver(deps: KubernetesDriverDeps): Kub
       //    PATCH it after the Job is created (two-phase commit). This avoids
       //    a race where the pod starts before the Secret exists.
       const secretName = `agent-${agentSlug}-run-${runUlid}-env`;
-      const adapterEnv = { ...(runContext.adapterEnv ?? {}) };
+      const adapterType = ctx.agent.adapterType ?? "unknown";
+      // The adapter-defaults registry is the single source of truth for which
+      // provider creds may reach the agent container. We filter the Server-
+      // resolved adapterEnv map down to defaults.envKeys so a server-side
+      // misconfiguration that surfaces extra keys (e.g. a leaked Anthropic
+      // key on a Gemini run) cannot land in the per-Job Secret. Unknown
+      // adapter types resolve to envKeys=[] which intentionally drops ALL
+      // adapter-supplied env (BOOTSTRAP_TOKEN is added unconditionally below).
+      const defaults = getAdapterDefaults(adapterType);
+      const adapterEnv = runContext.adapterEnv ?? {};
+      const filteredAdapterEnv: Record<string, string> = {};
+      for (const k of defaults.envKeys) {
+        const v = adapterEnv[k];
+        if (typeof v === "string") filteredAdapterEnv[k] = v;
+      }
       const secretData: Record<string, string> = {
-        ...adapterEnv,
+        ...filteredAdapterEnv,
         BOOTSTRAP_TOKEN: minted.token,
       };
 
@@ -401,7 +434,7 @@ export function createKubernetesExecutionDriver(deps: KubernetesDriverDeps): Kub
           runUlid,
           companyId: ctx.agent.companyId,
           companySlug: runContext.companySlug,
-          adapterType: ctx.agent.adapterType ?? "unknown",
+          adapterType,
           image: target.imageOverride ?? runContext.image,
           initImage: runContext.initImage,
           imagePullSecrets: runContext.imagePullSecrets,
