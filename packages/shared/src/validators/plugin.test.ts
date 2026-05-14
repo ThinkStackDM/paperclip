@@ -104,4 +104,28 @@ describe("plugin UI slot validators", () => {
     if (parsed.success) return;
     expect(parsed.error.issues.some((issue) => issue.message.includes("reserved by the host"))).toBe(true);
   });
+
+  it("accepts execution_workspace as a detailTab entityType", () => {
+    const parsed = pluginUiSlotDeclarationSchema.parse({
+      type: "detailTab",
+      id: "workspace-diff-viewer",
+      displayName: "Diff",
+      exportName: "WorkspaceDiffViewer",
+      entityTypes: ["execution_workspace"],
+    });
+
+    expect(parsed.entityTypes).toEqual(["execution_workspace"]);
+  });
+
+  it("accepts execution_workspace as a toolbarButton entityType", () => {
+    const parsed = pluginUiSlotDeclarationSchema.parse({
+      type: "toolbarButton",
+      id: "workspace-open-diff",
+      displayName: "Open diff",
+      exportName: "OpenWorkspaceDiffButton",
+      entityTypes: ["execution_workspace"],
+    });
+
+    expect(parsed.entityTypes).toEqual(["execution_workspace"]);
+  });
 });
