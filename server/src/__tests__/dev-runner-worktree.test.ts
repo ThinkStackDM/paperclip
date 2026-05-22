@@ -73,10 +73,10 @@ describe("dev-runner worktree env bootstrap", () => {
     fs.writeFileSync(
       resolveWorktreeEnvFilePath(root),
       [
-        "PAPERCLIP_HOME=/Users/dotta/.paperclip-worktrees",
+        "PAPERCLIP_HOME=/old/home/.paperclip-worktrees",
         "PAPERCLIP_INSTANCE_ID=feature-worktree",
-        "PAPERCLIP_CONFIG=/Users/dotta/paperclip/.paperclip/worktrees/feature/.paperclip/config.json",
-        "PAPERCLIP_CONTEXT=/Users/dotta/.paperclip-worktrees/context.json",
+        "PAPERCLIP_CONFIG=/old/home/paperclip/.paperclip/worktrees/feature/.paperclip/config.json",
+        "PAPERCLIP_CONTEXT=/old/home/.paperclip-worktrees/context.json",
         "PAPERCLIP_IN_WORKTREE=true",
         "PAPERCLIP_WORKTREE_NAME=feature-worktree",
         "",

@@ -216,7 +216,7 @@ describe("worktree config repair", () => {
     const paperclipDir = path.join(worktreeRoot, ".paperclip");
     const configPath = path.join(paperclipDir, "config.json");
     const envPath = path.join(paperclipDir, ".env");
-    const oldHome = "/Users/dotta/.paperclip-worktrees";
+    const oldHome = "/old/home/.paperclip-worktrees";
     const isolatedHome = path.join(tempRoot, ".paperclip-worktrees");
 
     await fs.mkdir(paperclipDir, { recursive: true });
@@ -225,10 +225,10 @@ describe("worktree config repair", () => {
       envPath,
       [
         "# Paperclip environment variables",
-        "PAPERCLIP_HOME=/Users/dotta/.paperclip-worktrees",
+        "PAPERCLIP_HOME=/old/home/.paperclip-worktrees",
         "PAPERCLIP_INSTANCE_ID=pap-9940-what-can-we-learn",
-        "PAPERCLIP_CONFIG=/Users/dotta/paperclip/.paperclip/worktrees/PAP-9940-what-can-we-learn/.paperclip/config.json",
-        "PAPERCLIP_CONTEXT=/Users/dotta/.paperclip-worktrees/context.json",
+        "PAPERCLIP_CONFIG=/old/home/paperclip/.paperclip/worktrees/PAP-9940-what-can-we-learn/.paperclip/config.json",
+        "PAPERCLIP_CONTEXT=/old/home/.paperclip-worktrees/context.json",
         "PAPERCLIP_IN_WORKTREE=true",
         "PAPERCLIP_WORKTREE_NAME=PAP-9940-what-can-we-learn",
         "",
@@ -257,7 +257,7 @@ describe("worktree config repair", () => {
     expect(repairedConfig.secrets.localEncrypted.keyFilePath).toBe(path.join(instanceRoot, "secrets", "master.key"));
     expect(repairedEnv).toContain(`PAPERCLIP_HOME=${JSON.stringify(isolatedHome)}`);
     expect(repairedEnv).toContain(`PAPERCLIP_CONFIG=${JSON.stringify(configPath)}`);
-    expect(repairedEnv).not.toContain("/Users/dotta");
+    expect(repairedEnv).not.toContain("/old/home");
   });
 
   it("does not persist transient runtime home overrides over repo-local worktree env", async () => {

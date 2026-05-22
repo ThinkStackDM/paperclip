@@ -79,7 +79,7 @@ describe("Better Auth cookie scoping", () => {
       deploymentMode: "authenticated",
       deploymentExposure: "public",
       authBaseUrlMode: "explicit",
-      authPublicBaseUrl: "http://paperclip-dev:3100",
+      authPublicBaseUrl: "http://paperclip.local.test:3100",
       publicUrl: undefined,
     })).toBe(true);
   });
