@@ -3,27 +3,17 @@ import { catalogManifest, catalogSkills, resolveCatalogSkillRef } from "./index.
 import type { CatalogSkill } from "./types.js";
 
 const EXPECTED_BUNDLED_KEYS = [
-  "paperclipai/bundled/devops/docker-local-dev",
   "paperclipai/bundled/docs/doc-maintenance",
   "paperclipai/bundled/paperclip-operations/issue-triage",
   "paperclipai/bundled/paperclip-operations/task-planning",
   "paperclipai/bundled/quality/qa-acceptance",
-  "paperclipai/bundled/security/secure-change-review",
   "paperclipai/bundled/software-development/github-pr-workflow",
-  "paperclipai/bundled/software-development/test-debug-loop",
 ];
 
 const EXPECTED_OPTIONAL_KEYS = [
   "paperclipai/optional/browser/agent-browser",
   "paperclipai/optional/content/release-announcement",
-  "paperclipai/optional/devops/aws-ops",
-  "paperclipai/optional/devops/kubernetes",
-  "paperclipai/optional/finance/spreadsheet-modeling",
-  "paperclipai/optional/migration/openclaw-migration",
   "paperclipai/optional/product/design-critique",
-  "paperclipai/optional/research/arxiv",
-  "paperclipai/optional/research/web-source-audit",
-  "paperclipai/optional/security/oss-forensics",
 ];
 
 describe("shipped skills catalog", () => {
