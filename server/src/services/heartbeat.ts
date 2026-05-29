@@ -1947,11 +1947,11 @@ async function resolveAcceptedPlanWakeRoutingDecision(args: {
   companyId: string;
   agentId: string;
   issueId: string | null;
-  issueWorkMode: string | null | undefined;
+  acceptedPlanContinuationWake: boolean;
   contextSnapshot: Record<string, unknown>;
 }): Promise<AcceptedPlanWakeRoutingDecision | null> {
   if (args.issueId === null) return null;
-  if (args.issueWorkMode !== "planning") return null;
+  if (!args.acceptedPlanContinuationWake) return null;
 
   const activeClaims = await args.db
     .select({
@@ -2283,6 +2283,7 @@ export function buildPaperclipTaskMarkdown(input: {
     kind?: string | null;
     status?: string | null;
   } | null;
+  acceptedPlanContinuation?: boolean;
 }) {
   const quoteTaskScalar = (value: string) => JSON.stringify(value);
   const fenceTaskText = (value: string) => {
@@ -2297,8 +2298,11 @@ export function buildPaperclipTaskMarkdown(input: {
   const wakeComment = input.wakeComment ?? null;
   const acceptedPlanContinuation =
     !wakeComment &&
-    input.interaction?.kind === "request_confirmation" &&
-    input.interaction.status === "accepted";
+    (input.acceptedPlanContinuation || (
+      input.interaction?.kind === "request_confirmation" &&
+      input.interaction.status === "accepted" &&
+      issue?.workMode === "planning"
+    ));
   if (!issue && !wakeComment) return null;
 
   const lines = [
@@ -2323,6 +2327,12 @@ export function buildPaperclipTaskMarkdown(input: {
         "",
         "Planning mode directive:",
         directive,
+      );
+    } else if (acceptedPlanContinuation) {
+      lines.push(
+        "",
+        "Accepted plan directive:",
+        "Create child issues from the approved plan only. Do not write code or perform implementation work on the source issue.",
       );
     }
     const description = issue.description?.trim();
@@ -7115,7 +7125,13 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
           companyId: agent.companyId,
           agentId: agent.id,
           issueId,
-          issueWorkMode: issueContext.workMode,
+          acceptedPlanContinuationWake:
+            readNonEmptyString(context.workspaceRefreshReason) === "accepted_plan_confirmation"
+            || (
+              issueContext.workMode === "planning"
+              && readNonEmptyString(context.interactionKind) === "request_confirmation"
+              && readNonEmptyString(context.interactionStatus) === "accepted"
+            ),
           contextSnapshot: context,
         })
       : null;
@@ -7129,6 +7145,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       };
       if (acceptedPlanWakeRoutingDecision.suppressAcceptedContinuation) {
         clearInteractionContinuationWakeContext(context);
+        delete context.workspaceRefreshReason;
       }
     } else {
       delete context.acceptedPlanWakeRouting;
@@ -7232,6 +7249,9 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
         kind: readNonEmptyString(context.interactionKind),
         status: readNonEmptyString(context.interactionStatus),
       },
+      acceptedPlanContinuation:
+        readNonEmptyString(context.workspaceRefreshReason) === "accepted_plan_confirmation"
+        && !parseObject(context.acceptedPlanWakeRouting),
     });
     if (issueRef) {
       context.paperclipIssue = {

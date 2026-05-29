@@ -514,6 +514,164 @@ describeEmbeddedPostgres("accepted plan workspace refresh", () => {
     expect(adapterInput.context.paperclipTaskMarkdown).not.toContain("Create child issues from the approved plan only");
   }, 20_000);
 
+  it("guards cross-issue accepted-plan retries even when the waking issue is standard work mode", async () => {
+    const companyId = randomUUID();
+    const projectId = randomUUID();
+    const projectWorkspaceId = randomUUID();
+    const issueId = randomUUID();
+    const otherPlanningIssueId = randomUUID();
+    const agentId = randomUUID();
+    const repoRoot = await createGitRepo();
+    tempRoots.push(repoRoot);
+
+    await instanceSettingsService(db).updateExperimental({
+      enableIsolatedWorkspaces: false,
+    });
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Acme",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      status: "active",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await db.insert(projects).values({
+      id: projectId,
+      companyId,
+      name: "Accepted Plan Routing",
+      status: "active",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await db.insert(projectWorkspaces).values({
+      id: projectWorkspaceId,
+      companyId,
+      projectId,
+      name: "Primary",
+      cwd: repoRoot,
+      isPrimary: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await db.insert(agents).values({
+      id: agentId,
+      companyId,
+      name: "CodexCoder",
+      role: "engineer",
+      status: "idle",
+      adapterType: "codex_local",
+      adapterConfig: {},
+      runtimeConfig: {},
+      permissions: {},
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await db.insert(issues).values([
+      {
+        id: issueId,
+        companyId,
+        projectId,
+        projectWorkspaceId,
+        title: "Implementation wake after accepted plan",
+        status: "in_progress",
+        workMode: "standard",
+        priority: "medium",
+        assigneeAgentId: agentId,
+        identifier: "PAP-9401",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      {
+        id: otherPlanningIssueId,
+        companyId,
+        projectId,
+        projectWorkspaceId,
+        title: "Earlier accepted plan",
+        status: "in_progress",
+        workMode: "planning",
+        priority: "medium",
+        assigneeAgentId: agentId,
+        identifier: "PAP-9402",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ]);
+    await seedAcceptedPlanClaim({
+      companyId,
+      issueId: otherPlanningIssueId,
+      ownerAgentId: agentId,
+      status: "in_flight",
+    });
+    await db.insert(agentTaskSessions).values({
+      companyId,
+      agentId,
+      adapterType: "codex_local",
+      taskKey: issueId,
+      sessionParamsJson: {
+        sessionId: "stale-standard-cross-issue-session",
+        cwd: repoRoot,
+      },
+      sessionDisplayId: "stale-standard-cross-issue-session",
+    });
+    adapterExecute.mockImplementationOnce(async () => {
+      await db.update(issues).set({ status: "done", updatedAt: new Date() }).where(eq(issues.id, issueId));
+      return {
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+        sessionParams: { sessionId: "fresh-session" },
+        sessionDisplayId: "fresh-session",
+        summary: "Suppressed cross-issue accepted-plan continuation for a standard-work wake.",
+        provider: "test",
+        model: "test-model",
+      };
+    });
+
+    const heartbeat = heartbeatService(db);
+    const run = await heartbeat.wakeup(agentId, {
+      source: "automation",
+      triggerDetail: "system",
+      reason: "issue_commented",
+      payload: {
+        issueId,
+        interactionId: "interaction-standard-cross-issue",
+        interactionKind: "request_confirmation",
+        interactionStatus: "accepted",
+        mutation: "interaction",
+      },
+      contextSnapshot: {
+        issueId,
+        taskId: issueId,
+        wakeReason: "issue_commented",
+        interactionKind: "request_confirmation",
+        interactionStatus: "accepted",
+        forceFreshSession: true,
+        workspaceRefreshReason: "accepted_plan_confirmation",
+      },
+    });
+
+    expect(run).not.toBeNull();
+    await vi.waitFor(async () => {
+      const latest = await heartbeat.getRun(run!.id);
+      expect(latest?.status).toBe("succeeded");
+    }, { timeout: 10_000 });
+
+    expect(adapterExecute).toHaveBeenCalledTimes(1);
+    const adapterInput = adapterExecute.mock.calls[0]?.[0] as {
+      runtime: { sessionId: string | null; sessionParams: Record<string, unknown> | null };
+      context: Record<string, unknown>;
+    };
+    expect(adapterInput.runtime.sessionId).toBeNull();
+    expect(adapterInput.runtime.sessionParams).toBeNull();
+    expect(adapterInput.context.acceptedPlanWakeRouting).toEqual(expect.objectContaining({
+      reason: "other_issue_claim_in_flight",
+      otherActiveClaimIssueId: otherPlanningIssueId,
+      otherActiveClaimIdentifier: "PAP-9402",
+    }));
+    expect(adapterInput.context.paperclipTaskMarkdown).toContain("Issue: \"PAP-9401\"");
+    expect(adapterInput.context.paperclipTaskMarkdown).not.toContain("Create child issues from the approved plan only");
+  }, 20_000);
+
   it("preserves accepted-plan continuation resume state when the wake issue owns the in-flight claim", async () => {
     const companyId = randomUUID();
     const projectId = randomUUID();

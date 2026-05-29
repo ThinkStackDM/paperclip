@@ -154,9 +154,9 @@ If a parent is truly waiting on a child, model that with blockers. Do not rely o
 
 ## 7. Accepted-Plan Decomposition
 
-An accepted planning confirmation is permission to decompose one specific accepted plan revision into child issues.
+An accepted plan confirmation is permission to decompose one specific accepted plan revision into child issues.
 
-This complements the existing accepted-plan continuation rule: once a plan is accepted, the planning issue may create child implementation issues, but it must not start implementation work on the planning issue itself.
+This complements the existing accepted-plan continuation rule: once a plan is accepted, the source issue may create child implementation issues, but it must not start implementation work on the source issue itself during that continuation.
 
 Paperclip must treat accepted-plan decomposition as an exact-once control-plane primitive, not as a free-floating wake that any later run may interpret again.
 
@@ -168,10 +168,10 @@ The canonical decomposition fingerprint is:
 
 Where:
 
-- `sourceIssueId` is the planning issue whose plan was accepted
+- `sourceIssueId` is the issue whose `plan` document revision was accepted
 - `acceptedPlanRevisionId` is the accepted `plan` document revision
 
-This is the product contract because the accepted revision is the thing being authorized for decomposition. Re-accepting, re-waking, or re-reading the same accepted revision must not authorize a second child tree. A later accepted revision on the same planning issue is a new fingerprint and may produce a different decomposition result.
+This is the product contract because the accepted revision is the thing being authorized for decomposition. Re-accepting, re-waking, or re-reading the same accepted revision must not authorize a second child tree. A later accepted revision on the same source issue is a new fingerprint and may produce a different decomposition result.
 
 An implementation may also store the accepted interaction id, acceptance run id, or other evidence, but those values must collapse onto the same uniqueness guarantee. They must not allow a second decomposition claim for the same `(sourceIssueId, acceptedPlanRevisionId)` pair.
 
@@ -196,16 +196,16 @@ If a run creates some children and then dies, retries must continue from the sam
 
 ### Parent live path while decomposition is in flight
 
-While decomposition for an accepted fingerprint is incomplete, the parent planning issue must expose an explicit live path for that same fingerprint.
+While decomposition for an accepted fingerprint is incomplete, the source issue must expose an explicit live path for that same fingerprint.
 
-The accepted interaction by itself is only evidence that the plan was approved. It is not a sufficient live path once decomposition begins. The parent issue must make it clear what moves the fingerprint forward next, such as:
+The accepted interaction by itself is only evidence that the plan was approved. It is not a sufficient live path once decomposition begins. The source issue must make it clear what moves the fingerprint forward next, such as:
 
 - the active decomposition run
 - a queued continuation wake for the same assignee
 - a monitor or explicit recovery action tied to the same decomposition claim
 - a blocked state that names the real blocker for finishing that claimed decomposition
 
-If the live run disappears, Paperclip must repair, resume, or visibly block the existing claim. It must not leave the parent in a state where a second run can interpret the same acceptance as fresh permission to create sibling issues again.
+If the live run disappears, Paperclip must repair, resume, or visibly block the existing claim. It must not leave the source issue in a state where a second run can interpret the same acceptance as fresh permission to create sibling issues again.
 
 ### Concurrent and repeat attempts
 

@@ -301,6 +301,8 @@ function serializeAcceptedPlanDecomposition(
     acceptedInteractionId: decomposition.acceptedInteractionId,
     status: decomposition.status as AcceptedPlanDecomposition["status"],
     requestFingerprint: decomposition.requestFingerprint,
+    // Intentionally omit requestedChildren here; the API only needs stable counts
+    // and child ids, while the durable table keeps the full child draft payload.
     requestedChildCount: decomposition.requestedChildCount,
     childIssueIds: normalizeIssuePlanDecompositionChildIds(decomposition.childIssueIds),
     ownerAgentId: decomposition.ownerAgentId,
@@ -482,7 +484,7 @@ function normalizeIssuePlanDecompositionChildIds(value: unknown): string[] {
   return value.filter((item): item is string => typeof item === "string" && item.length > 0);
 }
 
-function readAcceptedPlanConfirmationTarget(payload: unknown): {
+export function readAcceptedPlanConfirmationTarget(payload: unknown): {
   revisionId: string;
   key: string;
   issueId: string;
@@ -497,6 +499,46 @@ function readAcceptedPlanConfirmationTarget(payload: unknown): {
   const issueId = readStringFromRecord(record, "issueId");
   if (!revisionId || !key || !issueId) return null;
   return { revisionId, key, issueId };
+}
+
+async function resolveAcceptedPlanClaimOwner(input: {
+  dbOrTx: Pick<Db, "select">;
+  claim: Pick<typeof issuePlanDecompositions.$inferSelect, "ownerAgentId" | "ownerUserId" | "ownerRunId">;
+  actorAgentId?: string | null;
+  actorUserId?: string | null;
+  actorRunId?: string | null;
+}) {
+  const nextOwner = {
+    ownerAgentId: input.actorAgentId ?? null,
+    ownerUserId: input.actorUserId ?? null,
+    ownerRunId: input.actorRunId ?? null,
+  };
+  if (
+    input.claim.ownerAgentId === nextOwner.ownerAgentId
+    && input.claim.ownerUserId === nextOwner.ownerUserId
+    && input.claim.ownerRunId === nextOwner.ownerRunId
+  ) {
+    return nextOwner;
+  }
+
+  if (!input.claim.ownerRunId) {
+    return nextOwner;
+  }
+
+  const existingOwnerRun = await input.dbOrTx
+    .select({ status: heartbeatRuns.status })
+    .from(heartbeatRuns)
+    .where(eq(heartbeatRuns.id, input.claim.ownerRunId))
+    .then((rows) => rows[0] ?? null);
+  if (existingOwnerRun && !TERMINAL_HEARTBEAT_RUN_STATUSES.has(existingOwnerRun.status)) {
+    return {
+      ownerAgentId: input.claim.ownerAgentId,
+      ownerUserId: input.claim.ownerUserId,
+      ownerRunId: input.claim.ownerRunId,
+    };
+  }
+
+  return nextOwner;
 }
 
 async function findAcceptedPlanDocumentInteraction(
@@ -4226,15 +4268,11 @@ export function issueService(db: Db) {
           companyId: issues.companyId,
           projectId: issues.projectId,
           goalId: issues.goalId,
-          workMode: issues.workMode,
         })
         .from(issues)
         .where(eq(issues.id, sourceIssueId))
         .then((rows) => rows[0] ?? null);
       if (!sourceIssue) throw notFound("Source issue not found");
-      if (sourceIssue.workMode !== "planning") {
-        throw unprocessable("Accepted-plan decomposition is only available for planning issues");
-      }
 
       const requestFingerprint = createAcceptedPlanDecompositionRequestFingerprint({
         acceptedPlanRevisionId: data.acceptedPlanRevisionId,
@@ -4342,15 +4380,20 @@ export function issueService(db: Db) {
             }
 
             const completedAt = claim.completedAt ?? new Date();
+            const ownerPatch = await resolveAcceptedPlanClaimOwner({
+              dbOrTx: tx,
+              claim,
+              actorAgentId: data.actorAgentId,
+              actorUserId: data.actorUserId,
+              actorRunId: data.actorRunId,
+            });
             const [completed] = await tx
               .update(issuePlanDecompositions)
               .set({
                 status: "completed",
                 childIssueIds: nextIds,
                 completedAt,
-                ownerAgentId: data.actorAgentId ?? null,
-                ownerUserId: data.actorUserId ?? null,
-                ownerRunId: data.actorRunId ?? null,
+                ...ownerPatch,
                 updatedAt: completedAt,
               })
               .where(eq(issuePlanDecompositions.id, claim.id))
@@ -4371,15 +4414,20 @@ export function issueService(db: Db) {
           const nextIds = [...existingChildIssueIds, createdChild.issue.id];
           const now = new Date();
           const nextStatus = nextIds.length === data.children.length ? "completed" : "in_flight";
+          const ownerPatch = await resolveAcceptedPlanClaimOwner({
+            dbOrTx: tx,
+            claim,
+            actorAgentId: data.actorAgentId,
+            actorUserId: data.actorUserId,
+            actorRunId: data.actorRunId,
+          });
           const [updatedClaim] = await tx
             .update(issuePlanDecompositions)
             .set({
               status: nextStatus,
               childIssueIds: nextIds,
               completedAt: nextStatus === "completed" ? now : null,
-              ownerAgentId: data.actorAgentId ?? null,
-              ownerUserId: data.actorUserId ?? null,
-              ownerRunId: data.actorRunId ?? null,
+              ...ownerPatch,
               updatedAt: now,
             })
             .where(eq(issuePlanDecompositions.id, claim.id))

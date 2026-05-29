@@ -100,6 +100,7 @@ import { assertEnvironmentSelectionForCompany } from "./environment-selection.js
 import { executionWorkspaceService as executionWorkspaceServiceDirect } from "../services/execution-workspaces.js";
 import { feedbackService } from "../services/feedback.js";
 import { instanceSettingsService } from "../services/instance-settings.js";
+import { readAcceptedPlanConfirmationTarget } from "../services/issues.js";
 import { environmentService } from "../services/environments.js";
 import { redactSensitiveText } from "../redaction.js";
 import {
@@ -5264,10 +5265,12 @@ export function issueRoutes(
         });
       }
 
+      const acceptedPlanTarget = readAcceptedPlanConfirmationTarget(interaction.payload);
       const acceptedPlanConfirmation =
         interaction.kind === "request_confirmation" &&
         interaction.status === "accepted" &&
-        issue.workMode === "planning";
+        acceptedPlanTarget?.issueId === issue.id &&
+        acceptedPlanTarget.key === "plan";
       queueResolvedInteractionContinuationWakeup({
         heartbeat,
         issue: continuationWakeIssue,
