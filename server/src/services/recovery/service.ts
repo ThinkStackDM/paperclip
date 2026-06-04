@@ -2118,7 +2118,9 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
           type: "wake_owner",
           reason: "source_scoped_recovery_action",
           ownerAgentId,
-          minRefireIntervalMs: SOURCE_SCOPED_RECOVERY_MIN_REFIRE_INTERVAL_MS,
+          ...(recoveryCause === SUCCESSFUL_RUN_MISSING_STATE_REASON
+            ? { minRefireIntervalMs: SOURCE_SCOPED_RECOVERY_MIN_REFIRE_INTERVAL_MS }
+            : {}),
         }
         : {
           type: "board_escalation",
@@ -2127,7 +2129,7 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
       monitorPolicy: null,
       maxAttempts: recoveryCause === SUCCESSFUL_RUN_MISSING_STATE_REASON
         ? MISSING_DISPOSITION_RECOVERY_MAX_ATTEMPTS
-        : CONTINUATION_RECOVERY_DEFAULT_MAX_ATTEMPTS,
+        : null,
       lastAttemptAt: now,
     });
 

@@ -251,7 +251,7 @@ A valid recovery action must name:
 - the wake, monitor, timeout, retry, or escalation policy that will move the action forward
 - the resolution outcome when closed, such as restored, delegated, false positive, blocked, escalated, or cancelled
 
-Recovery actions that re-fire owner wakes must be bounded. They must carry a finite `maxAttempts`, enforce a minimum interval between re-fires, and have one clear exhaustion path. When the finite bound is reached, Paperclip must surface or fold the action exactly once through the explicit recovery lifecycle; it must not keep issuing the same recovery wake indefinitely.
+Source-scoped status-only recovery actions that can re-fire the same owner wake, such as `missing_disposition`, must be bounded. They must carry a finite `maxAttempts`, enforce a minimum interval between re-fires, and have one clear exhaustion path. When the finite bound is reached, Paperclip must surface or fold the action exactly once through the explicit recovery lifecycle; it must not keep issuing the same recovery wake indefinitely.
 
 A source-scoped recovery action is the default form. Use it when the next safe move is to repair the source issue's liveness directly: move the source issue back to `todo` so it can be retried, clarify disposition, re-establish a monitor, record a false positive, or delegate real follow-up work from the source issue.
 

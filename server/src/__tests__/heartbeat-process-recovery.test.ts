@@ -752,7 +752,7 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
       returnOwnerAgentId: input.agentId,
       cause: input.cause ?? "stranded_assigned_issue",
       attemptCount: 1,
-      maxAttempts: 1,
+      maxAttempts: input.kind === "missing_disposition" ? 1 : null,
     });
     expect(action.evidence).toMatchObject({
       sourceIssueId: input.issueId,
@@ -766,7 +766,7 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     expect(action.wakePolicy).toMatchObject({
       type: "wake_owner",
       reason: "source_scoped_recovery_action",
-      minRefireIntervalMs: 60_000,
+      ...(input.kind === "missing_disposition" ? { minRefireIntervalMs: 60_000 } : {}),
     });
 
     const recoveryIssues = await db
@@ -1870,6 +1870,7 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
 
     const result = await heartbeat.reconcileStrandedAssignedIssues();
     expect(result.successfulRunHandoffEscalated).toBe(0);
+    expect(result.skipped).toBe(1);
 
     const [action] = await db.select().from(issueRecoveryActions).where(eq(issueRecoveryActions.sourceIssueId, issueId));
     expect(action).toMatchObject({
