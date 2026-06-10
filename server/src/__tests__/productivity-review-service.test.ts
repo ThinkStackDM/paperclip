@@ -8,6 +8,7 @@ import {
   createDb,
   heartbeatRuns,
   issueComments,
+  issueRelations,
   issues,
 } from "@paperclipai/db";
 import {
@@ -562,5 +563,139 @@ describeEmbeddedPostgres("productivity review service", () => {
     expect(result.failed).toBe(0);
     const [review] = await listProductivityReviews(seeded.companyId);
     expect(review?.requestDepth).toBe(MAX_ISSUE_REQUEST_DEPTH);
+  });
+
+  async function seedBlocker(input: {
+    companyId: string;
+    issuePrefix: string;
+    sourceIssueId: string;
+    blockerStatus: "in_progress" | "done";
+    createdAt: Date;
+  }) {
+    const blockerId = randomUUID();
+    await db.insert(issues).values({
+      id: blockerId,
+      companyId: input.companyId,
+      title: "Blocking dependency",
+      status: input.blockerStatus,
+      priority: "medium",
+      issueNumber: 2,
+      identifier: `${input.issuePrefix}-2`,
+      originKind: "manual",
+      createdAt: input.createdAt,
+      updatedAt: input.createdAt,
+    });
+    await db.insert(issueRelations).values({
+      companyId: input.companyId,
+      issueId: blockerId, // blocker BLOCKS the source
+      relatedIssueId: input.sourceIssueId,
+      type: "blocks",
+    });
+    return blockerId;
+  }
+
+  it("suppresses a new productivity review when the source has an unresolved blocker", async () => {
+    const now = new Date("2026-04-28T12:00:00.000Z");
+    const seeded = await seedAssignedIssue({
+      status: "in_progress",
+      startedAt: new Date(now.getTime() - 7 * 60 * 60 * 1000), // long_active_duration would fire
+    });
+    await seedBlocker({
+      companyId: seeded.companyId,
+      issuePrefix: seeded.issuePrefix,
+      sourceIssueId: seeded.issueId,
+      blockerStatus: "in_progress",
+      createdAt: seeded.createdAt,
+    });
+
+    const result = await productivityReviewService(db).reconcileProductivityReviews({
+      now,
+      companyId: seeded.companyId,
+    });
+
+    expect(result.created).toBe(0);
+    expect(result.suppressedBlocked).toBe(1);
+    expect(await listProductivityReviews(seeded.companyId)).toHaveLength(0);
+  });
+
+  it("does NOT suppress when the blocker is already resolved (done)", async () => {
+    const now = new Date("2026-04-28T12:00:00.000Z");
+    const seeded = await seedAssignedIssue({
+      status: "in_progress",
+      startedAt: new Date(now.getTime() - 7 * 60 * 60 * 1000),
+    });
+    await seedBlocker({
+      companyId: seeded.companyId,
+      issuePrefix: seeded.issuePrefix,
+      sourceIssueId: seeded.issueId,
+      blockerStatus: "done",
+      createdAt: seeded.createdAt,
+    });
+
+    const result = await productivityReviewService(db).reconcileProductivityReviews({
+      now,
+      companyId: seeded.companyId,
+    });
+
+    expect(result.suppressedBlocked).toBe(0);
+    expect(result.created).toBe(1);
+  });
+
+  it("suppresses a new productivity review when the source already has an open stranded recovery", async () => {
+    const now = new Date("2026-04-28T12:00:00.000Z");
+    const seeded = await seedAssignedIssue({
+      status: "in_progress",
+      startedAt: new Date(now.getTime() - 7 * 60 * 60 * 1000),
+    });
+    await db.insert(issues).values({
+      id: randomUUID(),
+      companyId: seeded.companyId,
+      title: "Recover stranded issue",
+      status: "in_progress",
+      priority: "medium",
+      issueNumber: 3,
+      identifier: `${seeded.issuePrefix}-3`,
+      originKind: "stranded_issue_recovery",
+      originId: seeded.issueId,
+      createdAt: seeded.createdAt,
+      updatedAt: seeded.createdAt,
+    });
+
+    const result = await productivityReviewService(db).reconcileProductivityReviews({
+      now,
+      companyId: seeded.companyId,
+    });
+
+    expect(result.created).toBe(0);
+    expect(result.suppressedRecovery).toBe(1);
+    expect(await listProductivityReviews(seeded.companyId)).toHaveLength(0);
+  });
+
+  it("reaps (cancels) an open review once its source goes terminal — THIAAAAA-284", async () => {
+    const now = new Date("2026-04-28T12:00:00.000Z");
+    const seeded = await seedAssignedIssue({
+      status: "in_progress",
+      startedAt: new Date(now.getTime() - 7 * 60 * 60 * 1000),
+    });
+    const service = productivityReviewService(db);
+
+    // First pass: source is active → a review is created.
+    const first = await service.reconcileProductivityReviews({ now, companyId: seeded.companyId });
+    expect(first.created).toBe(1);
+    const [openReview] = await listProductivityReviews(seeded.companyId);
+    expect(openReview?.status).not.toBe("cancelled");
+
+    // Source is cancelled (e.g. it was a duplicate the CEO cancelled).
+    await db
+      .update(issues)
+      .set({ status: "cancelled" })
+      .where(eq(issues.id, seeded.issueId));
+
+    // Second pass: the now-orphaned review is reaped automatically.
+    const second = await service.reconcileProductivityReviews({ now, companyId: seeded.companyId });
+    expect(second.orphansCancelled).toBe(1);
+    const reviews = await listProductivityReviews(seeded.companyId);
+    expect(reviews).toHaveLength(1);
+    expect(reviews[0]?.status).toBe("cancelled");
   });
 });

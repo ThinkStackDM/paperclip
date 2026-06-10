@@ -4888,6 +4888,53 @@ export function issueService(db: Db) {
         if (executionWorkspaceId) {
           await assertValidExecutionWorkspace(companyId, issueData.projectId, executionWorkspaceId, tx);
         }
+        // Near-duplicate guard for MANUAL issues (THIAAAAA-273/274): a client
+        // that double-posts a create — e.g. retrying after a response it failed
+        // to parse — would otherwise land two identical live issues minutes
+        // apart. If the SAME creator already has an active manual issue with the
+        // exact same title under the same parent within a short window, return
+        // that existing issue idempotently instead of inserting a duplicate.
+        // Scoped tightly (manual-only, same creator, same parent, exact title,
+        // short window, active source) so legitimate re-creates are never lost.
+        const MANUAL_DUPLICATE_WINDOW_MS = 120_000;
+        const resolvedOriginKind = issueData.originKind ?? "manual";
+        const dedupeTitle = typeof issueData.title === "string" ? issueData.title : null;
+        const dedupeCreatorAgentId = issueData.createdByAgentId ?? null;
+        const dedupeCreatorUserId = issueData.createdByUserId ?? null;
+        if (
+          resolvedOriginKind === "manual" &&
+          dedupeTitle &&
+          dedupeTitle.trim().length > 0 &&
+          (dedupeCreatorAgentId || dedupeCreatorUserId)
+        ) {
+          const existingDuplicate = await tx
+            .select()
+            .from(issues)
+            .where(
+              and(
+                eq(issues.companyId, companyId),
+                eq(issues.originKind, "manual"),
+                eq(issues.title, dedupeTitle),
+                issueData.parentId
+                  ? eq(issues.parentId, issueData.parentId)
+                  : isNull(issues.parentId),
+                dedupeCreatorAgentId
+                  ? eq(issues.createdByAgentId, dedupeCreatorAgentId)
+                  : eq(issues.createdByUserId, dedupeCreatorUserId as string),
+                notInArray(issues.status, ["done", "cancelled"]),
+                isNull(issues.hiddenAt),
+                gt(issues.createdAt, new Date(Date.now() - MANUAL_DUPLICATE_WINDOW_MS)),
+              ),
+            )
+            .orderBy(desc(issues.createdAt))
+            .limit(1)
+            .then((rows: Array<typeof issues.$inferSelect>) => rows[0] ?? null);
+          if (existingDuplicate) {
+            const [enrichedExisting] = await withIssueLabels(tx, [existingDuplicate]);
+            return enrichedExisting;
+          }
+        }
+
         // Self-correcting counter: use MAX(issue_number) + 1 if the counter
         // has drifted below the actual max, preventing identifier collisions.
         const [maxRow] = await tx
