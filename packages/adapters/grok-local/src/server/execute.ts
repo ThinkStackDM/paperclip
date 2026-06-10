@@ -52,6 +52,9 @@ function firstNonEmptyLine(text: string): string {
   );
 }
 
+const GROK_AUTH_REQUIRED_RE =
+  /(?:not\s+authenticated|not\s+logged\s+in|login\s+required|run\s+`?grok\s+login`?|authentication\s+required|AuthorizationRequired|unauthorized|invalid\s+credentials)/i;
+
 function hasNonEmptyEnvValue(env: Record<string, string>, key: string): boolean {
   const raw = env[key];
   return typeof raw === "string" && raw.trim().length > 0;
@@ -504,11 +507,16 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         };
       }
 
-      const failed = (attempt.proc.exitCode ?? 0) !== 0;
       const parsedError = typeof attempt.parsed.errorMessage === "string" ? attempt.parsed.errorMessage.trim() : "";
+      const cancelled = /^cancelled$/i.test(attempt.parsed.stopReason ?? "");
+      const completedTurn = /^EndTurn$/i.test(attempt.parsed.stopReason ?? "");
+      const authRequired = GROK_AUTH_REQUIRED_RE.test(`${attempt.proc.stdout}\n${attempt.proc.stderr}`);
+      const fatalAuthRequired = authRequired && !completedTurn;
+      const failed = (attempt.proc.exitCode ?? 0) !== 0 || Boolean(parsedError) || cancelled || fatalAuthRequired;
       const stderrLine = firstNonEmptyLine(attempt.proc.stderr);
       const fallbackErrorMessage =
         parsedError ||
+        (cancelled ? "Grok run was cancelled before producing a final response." : "") ||
         stderrLine ||
         `Grok exited with code ${attempt.proc.exitCode ?? -1}`;
 

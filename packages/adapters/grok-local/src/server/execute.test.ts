@@ -138,6 +138,84 @@ describe("grok_local execute", () => {
     expect(logs.map((entry) => entry.chunk)).not.toEqual([]);
   });
 
+  it("does not fail a completed turn for noisy Grok auth worker stderr", async () => {
+    const root = await makeTempRoot();
+    runProcessMock.mockResolvedValueOnce({
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+      stdout: [
+        JSON.stringify({ type: "text", data: "done" }),
+        JSON.stringify({ type: "end", stopReason: "EndTurn", sessionId: "sess-noisy-auth", requestId: "req-1" }),
+      ].join("\n"),
+      stderr: "ERROR worker quit with fatal: Transport channel closed, when Auth(AuthorizationRequired)\n",
+    });
+
+    const result = await execute({
+      runId: "run-noisy-auth",
+      agent: {
+        id: "agent-1",
+        companyId: "company-1",
+        name: "Grok Agent",
+        adapterType: "grok_local",
+        adapterConfig: {},
+      },
+      runtime: {
+        sessionId: null,
+        sessionParams: null,
+        sessionDisplayId: null,
+        taskKey: null,
+      },
+      config: { cwd: root },
+      context: {},
+      authToken: "run-token",
+      onLog: async () => {},
+    });
+
+    expect(result).toMatchObject({
+      exitCode: 0,
+      errorMessage: null,
+      summary: "done",
+      sessionId: "sess-noisy-auth",
+    });
+  });
+
+  it("still fails auth-required output when Grok does not complete a turn", async () => {
+    const root = await makeTempRoot();
+    runProcessMock.mockResolvedValueOnce({
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+      stdout: "",
+      stderr: "ERROR worker quit with fatal: Transport channel closed, when Auth(AuthorizationRequired)\n",
+    });
+
+    const result = await execute({
+      runId: "run-auth-required",
+      agent: {
+        id: "agent-1",
+        companyId: "company-1",
+        name: "Grok Agent",
+        adapterType: "grok_local",
+        adapterConfig: {},
+      },
+      runtime: {
+        sessionId: null,
+        sessionParams: null,
+        sessionDisplayId: null,
+        taskKey: null,
+      },
+      config: { cwd: root },
+      context: {},
+      authToken: "run-token",
+      onLog: async () => {},
+    });
+
+    expect(result.errorMessage).toContain("AuthorizationRequired");
+    expect(result.summary).toBe("");
+    expect(result.sessionId).toBe("");
+  });
+
   it("cleans up staged assets when setup fails before the Grok process starts", async () => {
     const root = await makeTempRoot();
     const instructionsPath = path.join(root, "managed", "AGENTS.md");
