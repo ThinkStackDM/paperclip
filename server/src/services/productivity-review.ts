@@ -334,7 +334,9 @@ export function productivityReviewService(db: Db, deps?: { enqueueWakeup?: Enque
       .from(issues)
       .innerJoin(
         source,
-        and(eq(issues.companyId, source.companyId), eq(issues.originId, source.id)),
+        // originId is a text column; source.id is uuid. Cast the uuid side to
+        // text so Postgres does not error with `operator does not exist: text = uuid`.
+        and(eq(issues.companyId, source.companyId), sql`${issues.originId} = ${source.id}::text`),
       )
       .where(
         and(
