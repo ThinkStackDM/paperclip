@@ -1,0 +1,311 @@
+/**
+ * Run gate: the single choke point that decides whether a queued heartbeat run
+ * may start executing right now. It layers, in order:
+ *
+ *   1. instance-wide pause (instance_settings.run_controls.pauseAll)
+ *   2. per-adapter-family pause (instance_settings.run_controls.adapterPauses)
+ *   3. per-company pause (companies.run_pause_state)
+ *   4. company activity window / "sprint" (companies.activity_window)
+ *   5. per-adapter-type concurrency cap (instance_settings.run_controls.adapterConcurrency)
+ *
+ * A non-null block means the run must be DEFERRED: left queued, never failed
+ * or cancelled. The periodic heartbeat scheduler retries deferred runs, so
+ * work resumes automatically when the gate opens (window opens, pause lifted,
+ * a running slot frees up).
+ *
+ * Exemptions (activity window + concurrency only — explicit pauses always win):
+ *   - adapterType "paperclip_shell_handler" (deterministic, near-zero cost)
+ *   - agents with runtimeConfig.ignoreActivityWindow === true (window only)
+ */
+import { and, eq, sql } from "drizzle-orm";
+import type { Db } from "@paperclipai/db";
+import { agents, companies, heartbeatRuns, instanceSettings } from "@paperclipai/db";
+import {
+  ACTIVITY_WINDOW_EXEMPT_ADAPTER_TYPES,
+  CONCURRENCY_EXEMPT_ADAPTER_TYPES,
+  DEFAULT_ADAPTER_CONCURRENCY,
+  IGNORE_ACTIVITY_WINDOW_RUNTIME_CONFIG_KEY,
+  formatActivityWindowOpensAt,
+  getActivityWindowState,
+  parseCompanyActivityWindow,
+  parseCompanyRunPauseState,
+  type CompanyActivityWindow,
+  type CompanyActivityWindowState,
+  type CompanyRunPauseState,
+  type InstanceRunControls,
+  type InstanceRunPause,
+} from "@paperclipai/shared";
+
+const INSTANCE_SETTINGS_SINGLETON_KEY = "default";
+
+export type RunGateBlockKind =
+  | "instance_paused"
+  | "adapter_family_paused"
+  | "company_paused"
+  | "outside_activity_window"
+  | "adapter_concurrency_limit";
+
+export interface RunGateBlock {
+  kind: RunGateBlockKind;
+  reason: string;
+  /** When the gate is expected to change next (activity windows only). */
+  nextChangeAt: Date | null;
+}
+
+export interface RunGateAgentContext {
+  companyId: string;
+  agentId: string;
+  /** Optional pre-fetched agent fields to avoid a redundant query. */
+  adapterType?: string | null;
+  agentRuntimeConfig?: Record<string, unknown> | null;
+  now?: Date;
+}
+
+// pausedAt may arrive as a Date (set in-process by the pause route via
+// `new Date()`), an ISO string (round-tripped from the DB jsonb), or an epoch
+// number. Accepting only strings silently dropped the timestamp on every fresh
+// pause, so a paused instance never rendered as paused.
+function coercePausedAt(value: unknown): Date | null {
+  let date: Date | null = null;
+  if (value instanceof Date) date = value;
+  else if (typeof value === "string" || typeof value === "number") date = new Date(value);
+  return date && !Number.isNaN(date.getTime()) ? date : null;
+}
+
+function readPauseRecord(raw: unknown): InstanceRunPause | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const candidate = raw as Record<string, unknown>;
+  return {
+    reason: typeof candidate.reason === "string" && candidate.reason.length > 0 ? candidate.reason : null,
+    pausedAt: coercePausedAt(candidate.pausedAt),
+    pausedBy: typeof candidate.pausedBy === "string" && candidate.pausedBy.length > 0 ? candidate.pausedBy : null,
+  };
+}
+
+/**
+ * Companies carry an emergency-stop state (companies.emergency_stop_state,
+ * migration 0095). The run gate treats an uncleared "stop_mutation" stop as a
+ * company-level pause: no new agent runs may start until it is cleared.
+ * "recovery" mode does NOT block run starts — recovery work itself has to run;
+ * mutation-level enforcement for both modes lives with the board-mutation
+ * guard, not here.
+ */
+function readActiveEmergencyStop(raw: unknown): { mode: string; reason: string | null } | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const candidate = raw as Record<string, unknown>;
+  if (candidate.mode !== "stop_mutation") return null;
+  if (candidate.clearedAt) return null;
+  return {
+    mode: candidate.mode,
+    reason: typeof candidate.reason === "string" && candidate.reason.length > 0 ? candidate.reason : null,
+  };
+}
+
+export function normalizeInstanceRunControls(raw: unknown): InstanceRunControls {
+  const candidate = raw && typeof raw === "object" && !Array.isArray(raw)
+    ? (raw as Record<string, unknown>)
+    : {};
+  const adapterPauses: Record<string, InstanceRunPause> = {};
+  const rawAdapterPauses = candidate.adapterPauses;
+  if (rawAdapterPauses && typeof rawAdapterPauses === "object" && !Array.isArray(rawAdapterPauses)) {
+    for (const [adapterType, value] of Object.entries(rawAdapterPauses as Record<string, unknown>)) {
+      const pause = readPauseRecord(value);
+      if (pause) adapterPauses[adapterType] = pause;
+    }
+  }
+  const adapterConcurrency: Record<string, number> = { ...DEFAULT_ADAPTER_CONCURRENCY };
+  const rawConcurrency = candidate.adapterConcurrency;
+  if (rawConcurrency && typeof rawConcurrency === "object" && !Array.isArray(rawConcurrency)) {
+    for (const [adapterType, value] of Object.entries(rawConcurrency as Record<string, unknown>)) {
+      if (typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 50) {
+        adapterConcurrency[adapterType] = value;
+      }
+    }
+  }
+  return {
+    pauseAll: candidate.pauseAll ? readPauseRecord(candidate.pauseAll) : null,
+    adapterPauses,
+    adapterConcurrency,
+  };
+}
+
+export function resolveAdapterConcurrencyCap(
+  controls: InstanceRunControls,
+  adapterType: string,
+): number | null {
+  if ((CONCURRENCY_EXEMPT_ADAPTER_TYPES as readonly string[]).includes(adapterType)) return null;
+  const explicit = controls.adapterConcurrency[adapterType];
+  if (typeof explicit === "number") return explicit;
+  const fallback = controls.adapterConcurrency.default;
+  return typeof fallback === "number" ? fallback : null;
+}
+
+export function isActivityWindowExemptAgent(input: {
+  adapterType: string | null | undefined;
+  runtimeConfig: Record<string, unknown> | null | undefined;
+}): boolean {
+  if (
+    input.adapterType &&
+    (ACTIVITY_WINDOW_EXEMPT_ADAPTER_TYPES as readonly string[]).includes(input.adapterType)
+  ) {
+    return true;
+  }
+  return input.runtimeConfig?.[IGNORE_ACTIVITY_WINDOW_RUNTIME_CONFIG_KEY] === true;
+}
+
+export interface CompanyRunGateStatus {
+  activityWindow: CompanyActivityWindow | null;
+  activityWindowState: CompanyActivityWindowState | null;
+  runPause: CompanyRunPauseState;
+  instancePause: InstanceRunPause | null;
+  adapterPauses: Record<string, InstanceRunPause>;
+}
+
+export function runGateService(db: Db) {
+  async function getInstanceRunControls(): Promise<InstanceRunControls> {
+    const row = await db
+      .select({ runControls: instanceSettings.runControls })
+      .from(instanceSettings)
+      .where(eq(instanceSettings.singletonKey, INSTANCE_SETTINGS_SINGLETON_KEY))
+      .then((rows) => rows[0] ?? null);
+    return normalizeInstanceRunControls(row?.runControls ?? {});
+  }
+
+  async function getCompanyGateRow(companyId: string) {
+    return db
+      .select({
+        id: companies.id,
+        name: companies.name,
+        activityWindow: companies.activityWindow,
+        runPauseState: companies.runPauseState,
+        emergencyStopState: companies.emergencyStopState,
+      })
+      .from(companies)
+      .where(eq(companies.id, companyId))
+      .then((rows) => rows[0] ?? null);
+  }
+
+  async function countRunningRunsForAdapterType(adapterType: string): Promise<number> {
+    const [row] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(heartbeatRuns)
+      .innerJoin(agents, eq(agents.id, heartbeatRuns.agentId))
+      .where(and(eq(heartbeatRuns.status, "running"), eq(agents.adapterType, adapterType)));
+    return Number(row?.count ?? 0);
+  }
+
+  async function getRunGateBlock(input: RunGateAgentContext): Promise<RunGateBlock | null> {
+    const now = input.now ?? new Date();
+
+    let adapterType = input.adapterType ?? null;
+    let runtimeConfig = input.agentRuntimeConfig ?? null;
+    if (adapterType === null || adapterType === undefined) {
+      const agent = await db
+        .select({ adapterType: agents.adapterType, runtimeConfig: agents.runtimeConfig })
+        .from(agents)
+        .where(eq(agents.id, input.agentId))
+        .then((rows) => rows[0] ?? null);
+      adapterType = agent?.adapterType ?? null;
+      runtimeConfig = agent?.runtimeConfig ?? runtimeConfig;
+    }
+
+    const controls = await getInstanceRunControls();
+    if (controls.pauseAll) {
+      return {
+        kind: "instance_paused",
+        reason: controls.pauseAll.reason
+          ? `Instance is paused: ${controls.pauseAll.reason}`
+          : "Instance is paused; runs are deferred until it is resumed.",
+        nextChangeAt: null,
+      };
+    }
+    if (adapterType && controls.adapterPauses[adapterType]) {
+      const pause = controls.adapterPauses[adapterType];
+      return {
+        kind: "adapter_family_paused",
+        reason: pause.reason
+          ? `Adapter family ${adapterType} is paused: ${pause.reason}`
+          : `Adapter family ${adapterType} is paused; runs are deferred until it is resumed.`,
+        nextChangeAt: null,
+      };
+    }
+
+    const company = await getCompanyGateRow(input.companyId);
+    if (company) {
+      const runPause = parseCompanyRunPauseState(company.runPauseState);
+      if (runPause.active) {
+        return {
+          kind: "company_paused",
+          reason: runPause.reason
+            ? `Company ${company.name} is paused: ${runPause.reason}`
+            : `Company ${company.name} is paused; runs are deferred until it is resumed.`,
+          nextChangeAt: null,
+        };
+      }
+
+      const emergencyStop = readActiveEmergencyStop(company.emergencyStopState);
+      if (emergencyStop) {
+        return {
+          kind: "company_paused",
+          reason: emergencyStop.reason
+            ? `Company ${company.name} is under an emergency stop (${emergencyStop.mode}): ${emergencyStop.reason}`
+            : `Company ${company.name} is under an emergency stop (${emergencyStop.mode}); runs are deferred until it is cleared.`,
+          nextChangeAt: null,
+        };
+      }
+
+      const window = parseCompanyActivityWindow(company.activityWindow);
+      if (window && !isActivityWindowExemptAgent({ adapterType, runtimeConfig })) {
+        const state = getActivityWindowState(window, now);
+        if (!state.open) {
+          return {
+            kind: "outside_activity_window",
+            reason: `Company ${company.name} is outside its sprint window; runs are deferred until it opens at ${formatActivityWindowOpensAt(window)}.`,
+            nextChangeAt: state.nextChangeAt,
+          };
+        }
+      }
+    }
+
+    if (adapterType) {
+      const cap = resolveAdapterConcurrencyCap(controls, adapterType);
+      if (cap !== null) {
+        const running = await countRunningRunsForAdapterType(adapterType);
+        if (running >= cap) {
+          return {
+            kind: "adapter_concurrency_limit",
+            reason: `Adapter type ${adapterType} is at its concurrency limit (${running}/${cap} running); run is deferred until a slot frees up.`,
+            nextChangeAt: null,
+          };
+        }
+      }
+    }
+
+    return null;
+  }
+
+  async function getCompanyRunGateStatus(
+    companyId: string,
+    now: Date = new Date(),
+  ): Promise<CompanyRunGateStatus | null> {
+    const company = await getCompanyGateRow(companyId);
+    if (!company) return null;
+    const controls = await getInstanceRunControls();
+    const window = parseCompanyActivityWindow(company.activityWindow);
+    return {
+      activityWindow: window,
+      activityWindowState: window ? getActivityWindowState(window, now) : null,
+      runPause: parseCompanyRunPauseState(company.runPauseState),
+      instancePause: controls.pauseAll,
+      adapterPauses: controls.adapterPauses,
+    };
+  }
+
+  return {
+    getInstanceRunControls,
+    getRunGateBlock,
+    getCompanyRunGateStatus,
+  };
+}
+
+export type RunGateService = ReturnType<typeof runGateService>;
