@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Start the SOURCE Paperclip instance from ~/paperclip (NOT the published
+# `paperclipai` npm package). Use this after a reboot/crash instead of
+# `paperclipai run` — the published package serves stock UI/code and ignores
+# all of your local edits, sprint windows, prefixes and the portfolio dashboard.
+set -euo pipefail
+ROOT="$HOME/paperclip"
+cd "$ROOT"
+
+echo "[start-source] stopping any published 'paperclipai run' instance..."
+pkill -f "paperclipai run" 2>/dev/null || true
+pkill -f "scripts/dev-runner.ts" 2>/dev/null || true
+pkill -f "tsx/dist/cli.mjs watch.*src/index.ts" 2>/dev/null || true
+
+# Free port 3100 if a stale listener lingers (escalate to -9).
+for sig in TERM KILL; do
+  PID=$(lsof -tiTCP:3100 -sTCP:LISTEN 2>/dev/null || true)
+  [ -z "$PID" ] && break
+  echo "[start-source] freeing port 3100 (kill -$sig $PID)"
+  kill -"$sig" $PID 2>/dev/null || true
+  sleep 2
+done
+
+mkdir -p "$ROOT/.devlogs"
+LOG="$ROOT/.devlogs/dev-$(date +%Y%m%d-%H%M%S).log"
+echo "[start-source] launching source dev server (log: $LOG)"
+PAPERCLIP_UI_DEV_MIDDLEWARE=true nohup pnpm dev > "$LOG" 2>&1 &
+echo "[start-source] supervisor pid $!"
+
+echo -n "[start-source] waiting for http://127.0.0.1:3100 "
+for i in $(seq 1 30); do
+  if curl -s --max-time 4 http://127.0.0.1:3100/api/companies -o /dev/null; then
+    echo " UP"
+    echo "[start-source] ready. Hard-refresh your browser (Cmd+Shift+R) to drop any stale assets."
+    exit 0
+  fi
+  echo -n "."; sleep 4
+done
+echo " (not up yet — check $LOG)"
+exit 1
