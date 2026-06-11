@@ -7,6 +7,13 @@ set -euo pipefail
 ROOT="$HOME/paperclip"
 cd "$ROOT"
 
+# Adapters spawn CLIs (codex, claude, grok, hermes, agy, gemini) by name, so the
+# server needs the full login-shell PATH (codex is in the Codex.app bundle,
+# claude/grok/hermes/agy in ~/.local|.grok/bin). Inherit it explicitly in case
+# this is run from a minimal environment.
+LOGIN_PATH="$(/bin/zsh -lic 'printf %s "$PATH"' 2>/dev/null)"
+[ -n "$LOGIN_PATH" ] && export PATH="$LOGIN_PATH"
+
 echo "[start-source] stopping any published 'paperclipai run' instance..."
 pkill -f "paperclipai run" 2>/dev/null || true
 pkill -f "scripts/dev-runner.ts" 2>/dev/null || true
