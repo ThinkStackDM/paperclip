@@ -9,6 +9,17 @@ import {
   getAdapterSessionManagement,
 } from "@paperclipai/adapter-utils";
 import {
+  execute as antigravityExecute,
+  listAntigravitySkills,
+  syncAntigravitySkills,
+  testEnvironment as antigravityTestEnvironment,
+  sessionCodec as antigravitySessionCodec,
+} from "@paperclipai/adapter-antigravity-local/server";
+import {
+  agentConfigurationDoc as antigravityAgentConfigurationDoc,
+  models as antigravityModels,
+} from "@paperclipai/adapter-antigravity-local";
+import {
   execute as acpxExecute,
   testEnvironment as acpxTestEnvironment,
   sessionCodec as acpxSessionCodec,
@@ -288,6 +299,27 @@ const acpxLocalAdapter: ServerAdapterModule = {
   getConfigSchema: getAcpxConfigSchema,
 };
 
+const antigravityLocalAdapter: ServerAdapterModule = {
+  type: "antigravity_local",
+  execute: antigravityExecute,
+  testEnvironment: antigravityTestEnvironment,
+  listSkills: listAntigravitySkills,
+  syncSkills: syncAntigravitySkills,
+  sessionCodec: antigravitySessionCodec,
+  sessionManagement: getAdapterSessionManagement("antigravity_local") ?? undefined,
+  models: antigravityModels,
+  supportsLocalAgentJwt: true,
+  supportsInstructionsBundle: true,
+  instructionsPathKey: "instructionsFilePath",
+  requiresMaterializedRuntimeSkills: true,
+  getRuntimeCommandSpec: (config) => ({
+    command: readConfiguredCommand(config, "agy"),
+    detectCommand: readConfiguredCommand(config, "agy"),
+    installCommand: null,
+  }),
+  agentConfigurationDoc: antigravityAgentConfigurationDoc,
+};
+
 const codexLocalAdapter: ServerAdapterModule = {
   type: "codex_local",
   execute: codexExecute,
@@ -437,51 +469,178 @@ const piLocalAdapter: ServerAdapterModule = {
 // intentional until hermes ships a matching AdapterExecutionContext type.
 const executeHermesLocal = hermesExecute as unknown as ServerAdapterModule["execute"];
 
+const FALLBACK_HERMES_PROMPT_TEMPLATE = `You are {{agentName}}, a Hermes-backed Paperclip agent.
+
+IMPORTANT: Use the terminal tool with curl for Paperclip API calls to localhost.
+
+Paperclip API safety rules:
+- Use Authorization: Bearer $PAPERCLIP_API_KEY on every Paperclip API request.
+- Use X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID on every Paperclip API request that writes or mutates data, including comments and issue updates.
+- Never use a board, browser, or local-board session for Paperclip API writes.
+- When the task asks for an issue document, create or update it through the document API. Do not embed the requested document as markdown inside a comment.
+- Issue document write pattern: PUT {{paperclipApiUrl}}/issues/<issue-id>/documents/<document-key> with JSON {"title":"<title>","format":"markdown","body":"<document body>"} and the same Authorization plus X-Paperclip-Run-Id headers.
+- Do not post a separate completion comment after a final PATCH with a comment field; use one final issue update so the status and summary are atomic.
+- The final status PATCH must use the exact authenticated curl pattern shown in the workflow. Do not shorten it, omit Authorization, or rely on local-trusted board fallback.
+- Preserve the substantive result in that final PATCH comment. The comment must contain the actual answer, work product, decision, or blocker details the task asks for, plus verification. Do not reduce it to status mechanics.
+
+Paperclip identity:
+  Agent ID: {{agentId}}
+  Company ID: {{companyId}}
+  API Base: {{paperclipApiUrl}}
+
+{{#taskId}}
+## Assigned Task
+
+Issue ID: {{taskId}}
+Title: {{taskTitle}}
+
+{{taskBody}}
+
+## Workflow
+
+1. Fetch scoped issue context first:
+   \`curl -s -H "Authorization: Bearer $PAPERCLIP_API_KEY" "{{paperclipApiUrl}}/issues/{{taskId}}/heartbeat-context"\`
+2. Work only on this scoped issue unless the issue explicitly delegates or names a blocker you must inspect.
+3. Do not run a broad inbox sweep, self-assign unrelated work, create recursive child issues, or treat a status/comment-only heartbeat as completion.
+4. If the task asks for an issue document, write it before the final status update:
+   \`curl -s -X PUT -H "Authorization: Bearer $PAPERCLIP_API_KEY" -H "X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID" -H "Content-Type: application/json" "{{paperclipApiUrl}}/issues/{{taskId}}/documents/<document-key>" -d '{"title":"<document title>","format":"markdown","body":"<document body>"}'\`
+   Then verify it exists:
+   \`curl -s -H "Authorization: Bearer $PAPERCLIP_API_KEY" "{{paperclipApiUrl}}/issues/{{taskId}}/documents/<document-key>"\`
+5. End with a real disposition: \`done\`, \`cancelled\`, \`blocked\` with exact owner/action, or a delegated child blocker. Keep \`in_progress\` only while a live continuation path exists.
+6. When complete, update the issue once with status and a substantive comment containing the actual answer/work product and verification. If you created a document, reference the document key instead of pasting the full document body into the comment. Copy this exact curl shape, including both headers; a PATCH without Authorization is a provenance failure:
+   \`curl -s -X PATCH -H "Authorization: Bearer $PAPERCLIP_API_KEY" -H "X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID" -H "Content-Type: application/json" "{{paperclipApiUrl}}/issues/{{taskId}}" -d '{"status":"done","comment":"DONE: <actual answer or work product, root cause/decision if relevant, and verification>"}'\`
+{{/taskId}}
+
+{{#commentId}}
+## Comment on This Issue
+
+Read the comment:
+   \`curl -s -H "Authorization: Bearer $PAPERCLIP_API_KEY" "{{paperclipApiUrl}}/issues/{{taskId}}/comments/{{commentId}}" | python3 -m json.tool\`
+
+Address the comment, then finish with one final authenticated PATCH update if status or summary changes.
+{{/commentId}}
+
+{{#noTask}}
+## Heartbeat Wake
+
+List open assigned issues only if no scoped task is present:
+   \`curl -s -H "Authorization: Bearer $PAPERCLIP_API_KEY" "{{paperclipApiUrl}}/companies/{{companyId}}/issues?assigneeAgentId={{agentId}}" | python3 -c "import sys,json;issues=json.loads(sys.stdin.read());[print(f'{i[\"identifier\"]} {i[\"status\"]:>12} {i[\"priority\"]:>6} {i[\"title\"]}') for i in issues if i['status'] not in ('done','cancelled')]" \`
+
+If no issues are assigned, report briefly what you checked. Do not self-assign unassigned work.
+{{/noTask}}`;
+
+function readHermesString(value: unknown): string {
+  return typeof value === "string" && value.trim().length > 0 ? value : "";
+}
+
+function buildHermesScopedConfig(
+  ctx: Parameters<ServerAdapterModule["execute"]>[0],
+): Record<string, unknown> {
+  const config = { ...(ctx.config ?? {}) };
+  const context = ctx.context && typeof ctx.context === "object" ? ctx.context as Record<string, unknown> : {};
+  const paperclipIssue = context.paperclipIssue && typeof context.paperclipIssue === "object"
+    ? context.paperclipIssue as Record<string, unknown>
+    : {};
+
+  const taskId =
+    readHermesString(config.taskId) ||
+    readHermesString(context.taskId) ||
+    readHermesString(context.issueId) ||
+    readHermesString(paperclipIssue.id);
+  const taskTitle =
+    readHermesString(config.taskTitle) ||
+    readHermesString(paperclipIssue.identifier && paperclipIssue.title
+      ? `${paperclipIssue.identifier}: ${paperclipIssue.title}`
+      : paperclipIssue.title);
+  const taskBody =
+    readHermesString(config.taskBody) ||
+    readHermesString(paperclipIssue.description) ||
+    readHermesString(context.paperclipTaskMarkdown);
+  const commentId =
+    readHermesString(config.commentId) ||
+    readHermesString(context.commentId) ||
+    readHermesString(context.wakeCommentId);
+  const wakeReason =
+    readHermesString(config.wakeReason) ||
+    readHermesString(context.wakeReason);
+
+  return {
+    ...config,
+    ...(taskId ? { taskId } : {}),
+    ...(taskTitle ? { taskTitle } : {}),
+    ...(taskBody ? { taskBody } : {}),
+    ...(commentId ? { commentId } : {}),
+    ...(wakeReason ? { wakeReason } : {}),
+  };
+}
+
 const hermesLocalAdapter: ServerAdapterModule = {
   type: "hermes_local",
   execute: async (ctx) => {
     const normalizedCtx = normalizeHermesConfig(ctx);
-    if (!normalizedCtx.authToken) return executeHermesLocal(normalizedCtx);
+    // Always apply task scoping (taskId/taskTitle/taskBody/...) — even
+    // unauthenticated runs must see the assigned-issue context.
+    const scopedConfig = buildHermesScopedConfig(normalizedCtx);
+    if (!normalizedCtx.authToken) {
+      return executeHermesLocal({ ...normalizedCtx, config: scopedConfig });
+    }
 
     const existingConfig = (normalizedCtx.agent.adapterConfig ?? {}) as Record<string, unknown>;
-    const existingEnv =
-      typeof existingConfig.env === "object" && existingConfig.env !== null && !Array.isArray(existingConfig.env)
-        ? (existingConfig.env as Record<string, string>)
+    const readEnv = (value: unknown): Record<string, string> =>
+      typeof value === "object" && value !== null && !Array.isArray(value)
+        ? (value as Record<string, string>)
         : {};
+    // Runtime config (scopedConfig) wins over the raw agent adapterConfig:
+    // it is the secrets-resolved view the adapter actually executes with.
+    const existingEnv = { ...readEnv(existingConfig.env), ...readEnv(scopedConfig.env) };
     const explicitApiKey =
       typeof existingEnv.PAPERCLIP_API_KEY === "string" && existingEnv.PAPERCLIP_API_KEY.trim().length > 0;
+    const readPromptTemplate = (value: unknown): string =>
+      typeof value === "string" && value.trim().length > 0 ? value : "";
     const promptTemplate =
-      typeof existingConfig.promptTemplate === "string" && existingConfig.promptTemplate.trim().length > 0
-        ? existingConfig.promptTemplate
-        : "";
+      readPromptTemplate(scopedConfig.promptTemplate) || readPromptTemplate(existingConfig.promptTemplate);
     const authGuardPrompt = [
       "Paperclip API safety rule:",
       "Use Authorization: Bearer $PAPERCLIP_API_KEY on every Paperclip API request.",
       "Use X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID on every Paperclip API request that writes or mutates data, including comments and issue updates.",
       "Never use a board, browser, or local-board session for Paperclip API writes.",
+      "When the task asks for an issue document, use PUT /api/issues/:id/documents/:key with {title, format:\"markdown\", body}; do not paste the requested document into a comment as a substitute.",
+      "Final status PATCH must include Authorization: Bearer $PAPERCLIP_API_KEY and X-Paperclip-Run-Id; a shorter unauthenticated PATCH is forbidden.",
+      "Preserve the substantive result in the final authenticated PATCH comment: include the actual answer, work product, decision, or blocker details plus verification, not only DONE mechanics.",
     ].join("\n");
 
-    const patchedConfig: Record<string, unknown> = {
-      ...existingConfig,
-      env: {
-        ...existingEnv,
-        ...(!explicitApiKey ? { PAPERCLIP_API_KEY: normalizedCtx.authToken } : {}),
-        PAPERCLIP_RUN_ID: normalizedCtx.runId,
-      },
+    const patchedEnv: Record<string, string> = {
+      ...existingEnv,
+      ...(!explicitApiKey ? { PAPERCLIP_API_KEY: normalizedCtx.authToken } : {}),
+      PAPERCLIP_RUN_ID: normalizedCtx.runId,
     };
+    const patchedPromptTemplate = promptTemplate
+      ? `${authGuardPrompt}\n\n${promptTemplate}`
+      : FALLBACK_HERMES_PROMPT_TEMPLATE;
 
-    // Only inject the auth guard into promptTemplate when a custom template already exists.
-    // When no custom template is set, Hermes uses its built-in default heartbeat/task prompt —
-    // overwriting it with only the auth guard text would strip the assigned issue/workflow instructions.
-    if (promptTemplate) {
-      patchedConfig.promptTemplate = `${authGuardPrompt}\n\n${promptTemplate}`;
-    }
+    // The adapter reads `ctx.config ?? ctx.agent.adapterConfig`, and the
+    // server always sets ctx.config — so the patched env/prompt must be
+    // merged into the config passed onward (ctx.config), not only onto
+    // agent.adapterConfig (which is kept patched for consumers that read it
+    // directly, without overriding runtime-config keys like hermesCommand).
+    const patchedRuntimeConfig: Record<string, unknown> = {
+      ...existingConfig,
+      ...scopedConfig,
+      env: patchedEnv,
+      promptTemplate: patchedPromptTemplate,
+    };
+    const patchedAdapterConfig: Record<string, unknown> = {
+      ...existingConfig,
+      env: patchedEnv,
+      promptTemplate: patchedPromptTemplate,
+    };
 
     const patchedCtx = {
       ...normalizedCtx,
+      config: patchedRuntimeConfig,
       agent: {
         ...normalizedCtx.agent,
-        adapterConfig: patchedConfig,
+        adapterConfig: patchedAdapterConfig,
       },
     };
 
@@ -513,6 +672,7 @@ const pausedOverrides = new Set<string>();
 function registerBuiltInAdapters() {
   for (const adapter of [
     acpxLocalAdapter,
+    antigravityLocalAdapter,
     claudeLocalAdapter,
     codexLocalAdapter,
     openCodeLocalAdapter,

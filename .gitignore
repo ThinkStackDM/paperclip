@@ -58,3 +58,9 @@ tests/release-smoke/playwright-report/
 .superpowers/
 .claude/worktrees/
 .herenow
+
+# Local scratch/debug dirs
+server/scratch/
+server/benchmark-fixture-s2/
+server/\[object Object\]/
+hermes-paperclip-adapter/

@@ -44,6 +44,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.888.0",
+    "@paperclipai/adapter-antigravity-local": "workspace:*",
     "@paperclipai/adapter-acpx-local": "workspace:*",
     "@paperclipai/adapter-claude-local": "workspace:*",
     "@paperclipai/adapter-codex-local": "workspace:*",
@@ -68,7 +69,7 @@
     "drizzle-orm": "^0.45.2",
     "embedded-postgres": "^18.1.0-beta.16",
     "express": "^5.1.0",
-    "hermes-paperclip-adapter": "^0.2.0",
+    "hermes-paperclip-adapter": "file:../hermes-paperclip-adapter",
     "jsdom": "^28.1.0",
     "multer": "^2.1.1",
     "open": "^11.0.0",

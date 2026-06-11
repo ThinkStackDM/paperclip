@@ -38,11 +38,11 @@ Also use when the user asks for forensics, root cause, or a write-up *before* an
 
 ## Three invariants you must preserve
 
-Every diagnosis and every proposed rule must hold these three invariants together. The user has restated them on at least four issues; treat them as load-bearing:
+Every diagnosis and every proposed rule must hold these three invariants together. They recur on every issue of this class; treat them as load-bearing:
 
-1. **Productive work continues.** Agents that have a clear next action must keep working without needing the user to wake them. ([PAP-2674](/PAP/issues/PAP-2674), [PAP-2708](/PAP/issues/PAP-2708))
-2. **Only real blockers stop work.** Stops happen when something genuinely cannot proceed (missing approval, missing dependency, human owner). Pseudo-stops (in_review with no action path, cancelled leaves, malformed metadata) must be detected and routed, not left silent. ([PAP-2335](/PAP/issues/PAP-2335), [PAP-2674](/PAP/issues/PAP-2674))
-3. **No infinite loops.** Stranded-work recovery and continuation loops must be bounded and distinguishable from genuinely productive continuation. ([PAP-2602](/PAP/issues/PAP-2602), [PAP-2486](/PAP/issues/PAP-2486))
+1. **Productive work continues.** Agents that have a clear next action must keep working without needing the user to wake them (`doc/execution-semantics.md` §8 "Non-Terminal Issue Liveness Contract").
+2. **Only real blockers stop work.** Stops happen when something genuinely cannot proceed (missing approval, missing dependency, human owner). Pseudo-stops (in_review with no action path, cancelled leaves, malformed metadata) must be detected and routed, not left silent (§8 `in_review` and `blocked` subsections; §3 "Status Semantics").
+3. **No infinite loops.** Stranded-work recovery and continuation loops must be bounded and distinguishable from genuinely productive continuation (§9 "Crash and Restart Recovery", §12 "Auto-Recover vs Explicit Recovery vs Human Escalation").
 
 If a proposed rule violates any of the three, drop it or rework it. State explicitly in the plan how each invariant is held.
 
@@ -66,19 +66,19 @@ Do not invent a new rule until you can state how it differs from the current exe
 Do this in the same heartbeat. Do not propose a rule until you have a concrete stop point.
 
 - Open the linked issue (and its blocker chain, parents, recovery siblings, recent runs).
-- Walk the tree node-by-node and find the exact issue + state combination that stops the world. Common shapes seen in the company so far:
-  - `in_review` with no typed execution participant, no active run, no pending interaction, no recovery issue ([PAP-2335](/PAP/issues/PAP-2335), [PAP-2674](/PAP/issues/PAP-2674)).
-  - `in_progress` after a successful run with no future action path queued ([PAP-2674](/PAP/issues/PAP-2674)).
-  - Blocker chain whose leaf is `cancelled` / malformed / cross-company-inaccessible ([PAP-2602](/PAP/issues/PAP-2602)).
-  - `issue.continuation_recovery` waking the same issue >N times after successful runs ([PAP-2602](/PAP/issues/PAP-2602)).
-  - Stranded-work recovery treating its own recovery issues as more recoverable source work ([PAP-2486](/PAP/issues/PAP-2486)).
-- Quote the evidence: run ids, comment timestamps, status transitions. "Inferred" is acceptable only when an API boundary blocks direct evidence — say so explicitly and mark the claim provisional ([PAP-2631](/PAP/issues/PAP-2631)).
+- Walk the tree node-by-node and find the exact issue + state combination that stops the world. Recurring failure shapes (all defined precisely in `doc/execution-semantics.md`):
+  - `in_review` with no typed execution participant, no active run, no pending interaction, no recovery issue — a stalled review state per §8 `in_review`.
+  - `in_progress` after a successful run with no future action path queued — an invalid post-run disposition per §8 agent-assigned `in_progress`.
+  - Blocker chain whose leaf is `cancelled` / malformed / cross-company-inaccessible — `cancelled` blockers do not auto-resolve; see §6 "Parent/Sub-Issue vs Blockers".
+  - `issue.continuation_recovery` waking the same issue >N times after successful runs — continuation must stay bounded per §12.
+  - Stranded-work recovery treating its own recovery issues as more recoverable source work — recursive recovery, forbidden per §9 and the §11 watchdog's no-recursive-recovery rule.
+- Quote the evidence: run ids, comment timestamps, status transitions. "Inferred" is acceptable only when an API boundary blocks direct evidence — say so explicitly and mark the claim provisional.
 
-Respect the API boundary. If the linked issue is in another company and your agent token returns 403, do not bypass scoping. Either request a board-approved diagnostic path or proceed from inferred PAP-side evidence and label it.
+Respect the API boundary. If the linked issue is in another company and your agent token returns 403, do not bypass scoping. Either request a board-approved diagnostic path or proceed from inferred evidence visible from your own company and label it.
 
 ### 2. Survey recent related work
 
-Before proposing a new product rule, read what already shipped this week in the same area. The user has explicitly called this out: ([PAP-2602](/PAP/issues/PAP-2602)) "review our recent work on liveness that we shipped in the last couple of days." A new rule that contradicts code merged 48 hours ago is rework, not improvement.
+Before proposing a new product rule, read what already shipped this week in the same area. A recurring instruction on these diagnostics is to review the liveness/recovery work shipped in the last couple of days before writing anything new. A new rule that contradicts code merged 48 hours ago is rework, not improvement.
 
 Quick survey:
 - Recent merged PRs in the affected area.
@@ -95,13 +95,13 @@ For every issue in the affected tree that is not `done` / `cancelled` / actively
 - **Agent-actionable but not currently routed** — name the rule that would have routed it, and the agent that should have been waked.
 - **Already covered** — point at the active run, queued wake, recovery issue, or pending interaction.
 
-This is the table the user has asked for repeatedly ([PAP-2335](/PAP/issues/PAP-2335)). Without it the plan is abstract.
+This classification table is requested on virtually every issue of this class. Without it the plan is abstract.
 
 ### 4. Frame as a general product rule
 
 The user does not want a one-off patch on the named tree. They want the rule. Two checks:
 
-- The rule is **stated as a contract**, not as an if/else patch. Example contract: "every agent-owned non-terminal issue must finish each heartbeat with a terminal state, an explicit waiting path, or an explicit live path" ([PAP-2674](/PAP/issues/PAP-2674)).
+- The rule is **stated as a contract**, not as an if/else patch. Example contract: "every agent-owned non-terminal issue must finish each heartbeat with a terminal state, an explicit waiting path, or an explicit live path" — this is the `doc/execution-semantics.md` §8 liveness contract restated.
 - The rule is reconciled against `doc/execution-semantics.md`. Prefer citing and applying the existing contract; propose a document change only when the current doc is incomplete or contradicted by accepted/implemented behavior.
 - The rule **explicitly preserves the three invariants** above. Show the work.
 
@@ -123,14 +123,14 @@ Do not create the child issues yet. Do not push code.
 ### 6. Request approval, then decompose
 
 - Open a `request_confirmation` interaction targeting the latest plan revision. Idempotency key `confirmation:{issueId}:plan:{revisionId}`.
-- Wait for board/CTO acceptance. If the user posts a new comment that supersedes the plan, the prior confirmation is invalidated — open a fresh confirmation tied to the new revision ([PAP-2602](/PAP/issues/PAP-2602) cycled three revisions; that is fine).
+- Wait for board/CTO acceptance. If the user posts a new comment that supersedes the plan, the prior confirmation is invalidated — open a fresh confirmation tied to the new revision (plans on these issues commonly cycle through several revisions; that is fine).
 - Only after acceptance: create the phased child issues with the right assignees and dependencies, then block this parent on the final QA / CTO review issue so the parent only wakes when the chain finishes.
 
 ### 7. Phase 0 hygiene on the named tree
 
 Phase 0 cleans up the live tree without papering over evidence:
 
-- Move stalled `in_review` leaves with no participant to `todo` with a precise next action and named owner ([PAP-2335](/PAP/issues/PAP-2335)).
+- Move stalled `in_review` leaves with no participant to `todo` with a precise next action and named owner (the §8 stalled-`in_review` repair).
 - Detach cancelled/dead blockers from chains they were holding hostage; do not silently mark issues `done` to clear backlog.
 - Leave a comment on the original named issue summarizing what changed and why; never hide the recovery chain history.
 
@@ -145,7 +145,7 @@ When the phase chain is complete, post a board-level summary comment on the pare
 - **Skipping the recent-work survey.** Proposing a contract that contradicts what shipped 24 hours ago is the easiest way to get the plan rejected.
 - **Letting "in_review" mean done.** A leaf assigned to another agent with no participant or active run is not progress; treat it as a stop.
 - **Bypassing company scoping.** Cross-company forensics needs a board-approved diagnostic path, not a database read.
-- **Recursive recovery.** Stranded-work recovery that recovers its own recovery issues is the canonical infinite loop ([PAP-2486](/PAP/issues/PAP-2486)). Detect it and refuse to deepen.
+- **Recursive recovery.** Stranded-work recovery that recovers its own recovery issues is the canonical infinite loop (`doc/execution-semantics.md` §9 and the §11 no-recursive-recovery rule). Detect it and refuse to deepen.
 - **Hiding the chain.** Don't silently delete or hide the symptomatic recovery issues — the operator needs the audit trail.
 
 ## Verification checklist (before posting the plan)

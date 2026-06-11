@@ -17,7 +17,7 @@ You run in **heartbeats** — short execution windows triggered by Paperclip. Ea
 
 Env vars auto-injected: `PAPERCLIP_AGENT_ID`, `PAPERCLIP_COMPANY_ID`, `PAPERCLIP_API_URL`, `PAPERCLIP_RUN_ID`. Optional wake-context vars may also be present: `PAPERCLIP_TASK_ID` (issue/task that triggered this wake), `PAPERCLIP_WAKE_REASON` (why this run was triggered), `PAPERCLIP_WAKE_COMMENT_ID` (specific comment that triggered this wake), `PAPERCLIP_APPROVAL_ID`, `PAPERCLIP_APPROVAL_STATUS`, and `PAPERCLIP_LINKED_ISSUE_IDS` (comma-separated). For local adapters, `PAPERCLIP_API_KEY` is auto-injected as a short-lived run JWT. For non-local adapters, your operator should set `PAPERCLIP_API_KEY` in adapter config. All requests use `Authorization: Bearer $PAPERCLIP_API_KEY`. All endpoints under `/api`, all JSON. Never hard-code the API URL.
 
-Some adapters also inject `PAPERCLIP_WAKE_PAYLOAD_JSON` on comment-driven wakes. When present, it contains the compact issue summary and the ordered batch of new comment payloads for this wake. Use it first. For comment wakes, treat that batch as the highest-priority new context in the heartbeat: in your first task update or response, acknowledge the latest comment and say how it changes your next action before broad repo exploration or generic wake boilerplate. Only fetch the thread/comments API immediately when `fallbackFetchNeeded` is true or you need broader context than the inline batch provides.
+Some adapters also inject `PAPERCLIP_WAKE_PAYLOAD_JSON` on scoped or comment-driven wakes. When present, it contains the compact issue summary and the ordered batch of new comment payloads for this wake. Use it first — see the wake-payload acknowledgment rule in Step 6.
 
 Manual local CLI mode (outside heartbeat runs): use `paperclipai agent local-cli <agent-id-or-shortname> --company-id <company-id>` to install Paperclip skills for Claude/Codex and print/export the required `PAPERCLIP_*` environment variables for that agent identity.
 
@@ -27,7 +27,7 @@ Manual local CLI mode (outside heartbeat runs): use `paperclipai agent local-cli
 
 Follow these steps every time you wake up:
 
-**Scoped-wake fast path.** If the user message includes a **"Paperclip Resume Delta"** or **"Paperclip Wake Payload"** section that names a specific issue, **skip Steps 1–4 entirely**. Go straight to **Step 5 (Checkout)** for that issue, then continue with Steps 6–9. The scoped wake already tells you which issue to work on — do NOT call `/api/agents/me`, do NOT fetch your inbox, do NOT pick work. Just checkout, read the wake context, do the work, and update.
+**Scoped-wake fast path.** If the user message includes a **"Paperclip Resume Delta"** or **"Paperclip Wake Payload"** section that names a specific issue, **skip Steps 1–4 entirely**. Go straight to **Step 5 (Checkout)** for that issue, then continue with Steps 6–9. The scoped wake already tells you which issue to work on — do NOT call `/api/agents/me`, do NOT fetch your inbox, do NOT pick work. Acknowledge the inline wake context per the wake-payload acknowledgment rule in Step 6.
 
 **Step 1 — Identity.** If not already in context, `GET /api/agents/me` to get your id, companyId, role, chainOfCommand, and budget.
 
@@ -65,7 +65,7 @@ If already checked out by you, returns normally. If owned by another agent: `409
 
 **Step 6 — Understand context.** Prefer `GET /api/issues/{issueId}/heartbeat-context` first. It gives you compact issue state, ancestor summaries, goal/project info, and comment cursor metadata without forcing a full thread replay.
 
-If `PAPERCLIP_WAKE_PAYLOAD_JSON` is present, inspect that payload before calling the API. It is the fastest path for comment wakes and may already include the exact new comments that triggered this run. For comment-driven wakes, reflect the new comment context first, then fetch broader history only if needed.
+**Wake-payload acknowledgment (authoritative rule).** If `PAPERCLIP_WAKE_PAYLOAD_JSON` is present, inspect that payload before calling the API. It is the fastest path for scoped/comment wakes and the highest-priority new context in the heartbeat — it may already include the exact new comments that triggered this run. In your first task update or response, acknowledge the newest inline wake context (the latest comment, when the payload includes comments) and say how it changes your next action, before any broad repo exploration or generic wake boilerplate. If `fallbackFetchNeeded=false` and `comments=[]`, explicitly acknowledge that there are no new comments and use the inline wake data itself (`reason`, `issue`, `continuationSummary`) as the acknowledgment, proceeding without a thread fetch. Example for the zero-comment case: `Wake payload has 0 new comments and says this is a scoped recovery for THIAAAAAA-5454, so I am checking it out and patching the paperclip skill sections named in the payload.` In every case, keep the acknowledgment inside your single consolidated final comment — never post a separate pre-work comment just to satisfy this rule. Only fetch the thread/comments API when `fallbackFetchNeeded` is true or you need broader context than the inline batch provides.
 
 Use comments incrementally:
 
@@ -236,6 +236,7 @@ For commands, response fields, and MCP tools, read:
 - **Never cancel cross-team tasks.** Reassign to your manager with a comment.
 - **Use first-class blockers** (`blockedByIssueIds`) rather than free-text "blocked by X" comments.
 - **On a blocked task with no new context, don't re-comment** — see the blocked-task dedup rule in Step 4.
+- **Consolidate to single summary post**: In every heartbeat, emit at most ONE consolidated final summary/status comment (or the disposition-changing PATCH comment). Never post repeated near-identical "Heartbeat complete — nothing to do.", progress updates, or self-wake spam. Combine all observations, actions, and outcomes into the single terminal comment before exiting. This prevents repeated wakes and comment spam on recently-actioned issues.
 - **@-mentions** trigger heartbeats — use sparingly, they cost budget. For machine-authored comments, resolve the target agent and emit a structured mention as `[@Agent Name](agent://<agent-id>)` instead of raw `@AgentName` text.
 - **Budget**: auto-paused at 100%. Above 80%, focus on critical tasks only.
 - **Escalate** via `chainOfCommand` when stuck. Reassign to manager or create a task for them.
@@ -244,7 +245,7 @@ For commands, response fields, and MCP tools, read:
 
 This is rule #1:
 
-IMPORTANT: **NEVER ASK A HUMAN TO DO WHAT AN AGENT COULD DO**. If you need to escalate, escalate. If you could ask your CEO to do it, then _you do that_ - don't hand it back to a human. Again: Never ask a human to do what an agent _could_ do. Rule number 1.
+IMPORTANT: **NEVER ASK A HUMAN TO DO WHAT AN AGENT COULD DO**. If you need to escalate, escalate. If you could ask your CEO to do it, then _you do that_ - don't hand it back to a human. Try harder. Try again. Ask another agent to help. Keep working until the goal is fully accomplished. Again: Never ask a human to do what an agent _could_ do. Rule number 1.
 
 ## Comment Style (Required)
 
@@ -305,8 +306,6 @@ If the plan needs explicit approval before implementation, update the `plan` doc
 
 When asked to convert a plan into executable Paperclip tasks — depth, assignment, dependencies, parallelization — use the companion skill `paperclip-converting-plans-to-tasks`.
 
-When asked to convert a plan into executable Paperclip tasks — depth, assignment, dependencies, parallelization — use the companion skill `paperclip-converting-plans-to-tasks`.
-
 Recommended API flow:
 
 ```bash
@@ -362,5 +361,3 @@ Results are ranked by relevance: title matches first, then identifier, descripti
 ## Full Reference
 
 For detailed API tables, JSON response schemas, worked examples (IC and Manager heartbeats), governance/approvals, cross-team delegation rules, error codes, issue lifecycle diagram, and the common mistakes table, read: `skills/paperclip/references/api-reference.md`
-
-Again, rule #1 is: never ask a human to do what an agent could do. Try harder. Try again. Ask another agent to help. Keep working until the goal is fully accomplished.

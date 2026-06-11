@@ -1,13 +1,20 @@
 import type { AdapterExecutionContext, AdapterExecutionResult } from "../types.js";
 import { asString, asNumber, parseObject } from "../utils.js";
 
+/**
+ * Default request timeout when `timeoutMs` is unset. Without a default, an
+ * unresponsive endpoint would hold the run open indefinitely. An explicit
+ * `timeoutMs: 0` still means "no timeout" for endpoints that need it.
+ */
+const DEFAULT_TIMEOUT_MS = 120_000;
+
 export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExecutionResult> {
   const { config, runId, agent, context } = ctx;
   const url = asString(config.url, "");
   if (!url) throw new Error("HTTP adapter missing url");
 
   const method = asString(config.method, "POST");
-  const timeoutMs = asNumber(config.timeoutMs, 0);
+  const timeoutMs = asNumber(config.timeoutMs, DEFAULT_TIMEOUT_MS);
   const headers = parseObject(config.headers) as Record<string, string>;
   const payloadTemplate = parseObject(config.payloadTemplate);
   const body = { ...payloadTemplate, agentId: agent.id, runId, context };

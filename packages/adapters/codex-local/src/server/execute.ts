@@ -741,11 +741,17 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     isRetry = false,
   ): AdapterExecutionResult => {
     if (attempt.proc.timedOut) {
+      // Include whatever the JSONL parser saw before the timeout so partial
+      // usage/session data is not lost on timed-out runs.
       return {
         exitCode: attempt.proc.exitCode,
         signal: attempt.proc.signal,
         timedOut: true,
         errorMessage: `Timed out after ${timeoutSec}s`,
+        usage: attempt.parsed.usage,
+        ...(attempt.parsed.sessionId
+          ? { sessionId: attempt.parsed.sessionId, sessionDisplayId: attempt.parsed.sessionId }
+          : {}),
         clearSession: clearSessionOnMissingSession,
       };
     }

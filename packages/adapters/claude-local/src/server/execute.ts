@@ -790,6 +790,8 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         : undefined;
 
     if (proc.timedOut) {
+      // Include whatever the stream parser saw before the timeout so partial
+      // usage/cost/session data is not lost on timed-out runs.
       return {
         exitCode: proc.exitCode,
         signal: proc.signal,
@@ -797,6 +799,11 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         errorMessage: `Timed out after ${timeoutSec}s`,
         errorCode: "timeout",
         errorMeta,
+        ...(parsedStream.usage ? { usage: parsedStream.usage } : {}),
+        ...(parsedStream.costUsd != null ? { costUsd: parsedStream.costUsd } : {}),
+        ...(parsedStream.sessionId
+          ? { sessionId: parsedStream.sessionId, sessionDisplayId: parsedStream.sessionId }
+          : {}),
         clearSession: Boolean(opts.clearSessionOnMissingSession),
       };
     }

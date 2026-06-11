@@ -6,7 +6,7 @@ description: >
   latest head SHA to appear and finish, investigates failing checks, fixes
   actionable code or test issues, pushes, and repeats. Escalates with a precise
   blocker when failures are external, flaky, or not safely fixable. Use when a
-  PR still has unsuccessful checks after review fixes, including after greploop.
+  PR still has unsuccessful checks after review fixes have been applied.
 ---
 
 # PRCheckloop
@@ -15,10 +15,13 @@ Get a GitHub PR to a fully green check state, or exit with a concrete blocker.
 
 ## Scope
 
-- GitHub PRs only. If the repo is GitLab, stop and use `check-pr`.
+- GitHub PRs only. If the repo is hosted elsewhere (e.g. GitLab), stop and
+  report that this skill does not apply.
 - Focus on checks for the latest PR head SHA, not old commits.
 - Focus on CI/status checks, not review comments or PR template cleanup.
-- If the user also wants review-comment cleanup, pair this with `check-pr`.
+- If the user also wants review-comment cleanup, handle that as a separate
+  pass after the checks are green: fetch unresolved review threads with
+  `gh api`, address each comment in code or reply with a rationale, and push.
 
 ## Inputs
 
@@ -203,7 +206,12 @@ When the skill completes, report:
 
 ## Notes
 
-- This skill is intentionally narrower than `check-pr`: it is a repair loop for
-  PR checks.
-- This skill complements `greploop`: Greptile can be perfect while CI is still
-  red.
+- This skill is intentionally narrow: it is a repair loop for PR checks only.
+  Review-comment cleanup, code-review tooling, and PR description hygiene are
+  out of scope.
+- A PR can pass external review tooling while CI is still red — green checks
+  on the latest head SHA are the only exit criterion here.
+- When you escalate, do it concretely: post the blocker details (failing check
+  names, details URLs, what you tried, who should act next) to the maintainer —
+  on the PR thread, or if you are running as a Paperclip agent, by moving the
+  issue to `blocked` with that blocker summary and a named unblock owner.
