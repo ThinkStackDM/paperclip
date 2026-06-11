@@ -27,12 +27,11 @@ const ACTIVE_NOW_CAP = 30;
 const TS_GRADIENT = "linear-gradient(90deg, #e85d4a, #f5a623, #f7d038, #5cb85c)";
 
 /**
- * Hardcoded company sprint windows (Dublin time). The company API does not
- * expose an activity-window/status field yet, so the schedule lives behind a
- * popover and the per-card "active now" dot is derived from this table by
- * fuzzy name match. Replace with server data once a window field ships.
+ * Sprint windows come from the company API (`company.activityWindow` /
+ * `activeNow` / `paused`). The table below is only a name-matching fallback
+ * for companies that have no window configured server-side yet.
  */
-const SPRINT_WINDOWS: Array<{ match: string; label: string; window: string; startHour?: number; endHour?: number; alwaysOn?: boolean }> = [
+const FALLBACK_SPRINT_WINDOWS: Array<{ match: string; label: string; window: string; startHour?: number; endHour?: number; alwaysOn?: boolean }> = [
   { match: "books", label: "Books", window: "00–04", startHour: 0, endHour: 4 },
   { match: "kiss", label: "KISS", window: "04–08", startHour: 4, endHour: 8 },
   { match: "dastardly", label: "Dastardly", window: "08–12", startHour: 8, endHour: 12 },
@@ -42,20 +41,64 @@ const SPRINT_WINDOWS: Array<{ match: string; label: string; window: string; star
   { match: "tsmc", label: "TSMC", window: "always-on", alwaysOn: true },
 ];
 
+type SprintWindowInfo = {
+  label: string;
+  window: string;
+  activeNow: boolean;
+  paused: boolean;
+  fromServer: boolean;
+};
+
 function dublinHour(now: Date = new Date()): number {
   return Number(
     new Intl.DateTimeFormat("en-IE", { hour: "numeric", hourCycle: "h23", timeZone: "Europe/Dublin" }).format(now),
   );
 }
 
-function findSprintWindow(company: Pick<Company, "name" | "issuePrefix">) {
+function findFallbackSprintWindow(company: Pick<Company, "name" | "issuePrefix">) {
   const haystack = `${company.name} ${company.issuePrefix}`.toLowerCase();
-  return SPRINT_WINDOWS.find((entry) => haystack.includes(entry.match)) ?? null;
+  return FALLBACK_SPRINT_WINDOWS.find((entry) => haystack.includes(entry.match)) ?? null;
 }
 
-function isSprintWindowActive(entry: (typeof SPRINT_WINDOWS)[number], hour: number): boolean {
+function isFallbackSprintWindowActive(entry: (typeof FALLBACK_SPRINT_WINDOWS)[number], hour: number): boolean {
   if (entry.alwaysOn) return true;
   return entry.startHour != null && entry.endHour != null && hour >= entry.startHour && hour < entry.endHour;
+}
+
+function formatWindowHours(startHour: number, endHour: number): string {
+  const pad = (value: number) => String(value % 24).padStart(2, "0");
+  return `${pad(startHour)}–${pad(endHour)}`;
+}
+
+function resolveSprintWindow(company: Company, hour: number): SprintWindowInfo {
+  const fallback = findFallbackSprintWindow(company);
+  const label = fallback?.label ?? company.name;
+  const paused = company.paused === true;
+  if (company.activityWindow) {
+    return {
+      label,
+      window: formatWindowHours(company.activityWindow.startHour, company.activityWindow.endHour),
+      activeNow: typeof company.activeNow === "boolean"
+        ? company.activeNow
+        : company.activityWindowState?.open !== false,
+      paused,
+      fromServer: true,
+    };
+  }
+  if (typeof company.activeNow === "boolean") {
+    // Server data, but no window configured: always-on unless paused.
+    return { label, window: "always-on", activeNow: company.activeNow, paused, fromServer: true };
+  }
+  if (fallback) {
+    return {
+      label,
+      window: fallback.window,
+      activeNow: !paused && isFallbackSprintWindowActive(fallback, hour),
+      paused,
+      fromServer: false,
+    };
+  }
+  return { label, window: "always-on", activeNow: !paused, paused, fromServer: false };
 }
 
 function isSameLocalDay(value: Date | string, now: Date): boolean {
@@ -90,7 +133,7 @@ type CompanyPortfolioData = {
   primaryAgentCount: number;
   laneAgentCounts: Map<string, number>;
   agentNameById: Map<string, string>;
-  sprintWindow: (typeof SPRINT_WINDOWS)[number] | null;
+  sprintWindow: SprintWindowInfo;
   activeNow: boolean;
 };
 
@@ -109,7 +152,16 @@ function SectionHeading({ title, count, subtitle }: { title: string; count?: num
   );
 }
 
-function SprintWindowsPopover({ hour }: { hour: number }) {
+// Sort order for the sprint-windows popover: TSMC (always-on) at the top,
+// then chronological by window start hour (00–04 down to 20–00).
+function sprintWindowSortKey(sprint: SprintWindowInfo): number {
+  if (sprint.window === "always-on") return -1;
+  const startHour = Number.parseInt(sprint.window, 10);
+  return Number.isNaN(startHour) ? 99 : startHour;
+}
+
+function SprintWindowsPopover({ rows }: { rows: Array<{ companyId: string; sprint: SprintWindowInfo }> }) {
+  const orderedRows = [...rows].sort((a, b) => sprintWindowSortKey(a.sprint) - sprintWindowSortKey(b.sprint));
   return (
     <Popover>
       <PopoverTrigger className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground">
@@ -122,25 +174,23 @@ function SprintWindowsPopover({ hour }: { hour: number }) {
         </p>
         <table className="mt-2 w-full text-xs">
           <tbody>
-            {SPRINT_WINDOWS.map((entry) => {
-              const active = isSprintWindowActive(entry, hour);
-              return (
-                <tr key={entry.match} className={cn(!active && "text-muted-foreground")}>
-                  <td className="py-1 pr-2 font-medium">
-                    <span className="flex items-center gap-1.5">
-                      {entry.label}
-                      {active && <span className="h-1.5 w-1.5 rounded-full bg-green-500" aria-label="Active now" />}
-                    </span>
-                  </td>
-                  <td className="py-1 text-right font-mono">{entry.window}</td>
-                </tr>
-              );
-            })}
+            {orderedRows.map(({ companyId, sprint }) => (
+              <tr key={companyId} className={cn(!sprint.activeNow && "text-muted-foreground")}>
+                <td className="py-1 pr-2 font-medium">
+                  <span className="flex items-center gap-1.5">
+                    {sprint.label}
+                    {sprint.paused ? (
+                      <span className="rounded-full bg-orange-500/15 px-1.5 text-[10px] font-medium text-orange-400">paused</span>
+                    ) : (
+                      sprint.activeNow && <span className="h-1.5 w-1.5 rounded-full bg-green-500" aria-label="Active now" />
+                    )}
+                  </span>
+                </td>
+                <td className="py-1 text-right font-mono">{sprint.window}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
-        <p className="mt-2 text-[10px] text-muted-foreground">
-          Hardcoded schedule — the company API does not expose activity windows yet.
-        </p>
       </PopoverContent>
     </Popover>
   );
@@ -160,12 +210,16 @@ function CompanyCard({ data }: { data: CompanyPortfolioData }) {
             {company.name}
           </Link>
           <span className="font-mono text-xs text-muted-foreground">{company.issuePrefix}</span>
-          {activeNow && (
+          {sprintWindow.paused ? (
+            <span className="ml-auto shrink-0 rounded-full bg-orange-500/15 px-1.5 py-0.5 text-[10px] font-medium text-orange-400">
+              paused
+            </span>
+          ) : activeNow ? (
             <span
               className="ml-auto h-2 w-2 shrink-0 animate-pulse rounded-full bg-green-500"
-              title={`Sprint window active now (${sprintWindow?.window ?? ""} Dublin)`}
+              title={`Sprint window active now (${sprintWindow.window} Dublin)`}
             />
-          )}
+          ) : null}
         </div>
         <div className="grid grid-cols-4 gap-1">
           {OPEN_STATUS_ORDER.map((status) => (
@@ -290,7 +344,7 @@ export function Portfolio() {
       }
       const agentNameById = new Map((agents ?? []).map((agent) => [agent.id, agent.name]));
 
-      const sprintWindow = findSprintWindow(company);
+      const sprintWindow = resolveSprintWindow(company, hour);
 
       return {
         company,
@@ -307,7 +361,7 @@ export function Portfolio() {
         laneAgentCounts,
         agentNameById,
         sprintWindow,
-        activeNow: sprintWindow != null && isSprintWindowActive(sprintWindow, hour),
+        activeNow: sprintWindow.activeNow && !sprintWindow.paused,
       };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -342,7 +396,9 @@ export function Portfolio() {
           </div>
           <div className="ml-auto flex items-center gap-2">
             {anyLoading && <span className="text-xs text-muted-foreground">Refreshing…</span>}
-            <SprintWindowsPopover hour={hour} />
+            <SprintWindowsPopover
+              rows={companyData.map((data) => ({ companyId: data.company.id, sprint: data.sprintWindow }))}
+            />
           </div>
         </header>
 
