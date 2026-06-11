@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, integer, pgTable, text, timestamp, uuid, uniqueIndex } from "drizzle-orm/pg-core";
+import { check, index, integer, pgTable, text, timestamp, uuid, uniqueIndex } from "drizzle-orm/pg-core";
 import { approvals } from "./approvals.js";
 import { budgetPolicies } from "./budget_policies.js";
 import { companies } from "./companies.js";
@@ -38,5 +38,9 @@ export const budgetIncidents = pgTable(
       table.windowStart,
       table.thresholdType,
     ).where(sql`${table.status} <> 'dismissed'`),
+    metricCheck: check(
+      "budget_incidents_metric_check",
+      sql`${table.metric} in ('billed_cents', 'runs', 'total_tokens')`,
+    ),
   }),
 );

@@ -308,4 +308,220 @@ describe("budgetService", () => {
       }),
     );
   });
+
+  it("creates a hard-stop incident and pauses an agent when run count exceeds a runs budget", async () => {
+    const policy = {
+      id: "policy-runs-1",
+      companyId: "company-1",
+      scopeType: "agent",
+      scopeId: "agent-1",
+      metric: "runs",
+      windowKind: "calendar_month_utc",
+      amount: 40,
+      warnPercent: 80,
+      hardStopEnabled: true,
+      notifyEnabled: false,
+      isActive: true,
+    };
+
+    const dbStub = createDbStub([
+      [policy],
+      [{ total: 44 }],
+      [],
+      [{
+        companyId: "company-1",
+        name: "Heartbeat Agent",
+        status: "running",
+        pauseReason: null,
+      }],
+    ]);
+
+    dbStub.queueInsert([{
+      id: "approval-1",
+      companyId: "company-1",
+      status: "pending",
+    }]);
+    dbStub.queueInsert([{
+      id: "incident-1",
+      companyId: "company-1",
+      policyId: "policy-runs-1",
+      approvalId: "approval-1",
+    }]);
+    dbStub.queueUpdate([]);
+    const cancelWorkForScope = vi.fn().mockResolvedValue(undefined);
+
+    const service = budgetService(dbStub.db as any, { cancelWorkForScope });
+    await service.evaluateCostEvent({
+      companyId: "company-1",
+      agentId: "agent-1",
+      projectId: null,
+    } as any);
+
+    expect(dbStub.insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        companyId: "company-1",
+        policyId: "policy-runs-1",
+        metric: "runs",
+        thresholdType: "hard",
+        amountLimit: 40,
+        amountObserved: 44,
+        approvalId: "approval-1",
+      }),
+    );
+    expect(dbStub.updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "paused",
+        pauseReason: "budget",
+        pausedAt: expect.any(Date),
+      }),
+    );
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "budget.hard_threshold_crossed",
+        entityId: "incident-1",
+        details: expect.objectContaining({ metric: "runs" }),
+      }),
+    );
+    expect(cancelWorkForScope).toHaveBeenCalledWith({
+      companyId: "company-1",
+      scopeType: "agent",
+      scopeId: "agent-1",
+    });
+  });
+
+  it("blocks new work when an agent token budget hard-stop is exceeded", async () => {
+    const tokenPolicy = {
+      id: "policy-tokens-1",
+      companyId: "company-1",
+      scopeType: "agent",
+      scopeId: "agent-1",
+      metric: "total_tokens",
+      windowKind: "calendar_month_utc",
+      amount: 2_000_000,
+      warnPercent: 80,
+      hardStopEnabled: true,
+      notifyEnabled: true,
+      isActive: true,
+    };
+
+    const dbStub = createDbStub([
+      [{
+        status: "running",
+        pauseReason: null,
+        companyId: "company-1",
+        name: "Token Agent",
+      }],
+      [{
+        status: "active",
+        name: "Paperclip",
+      }],
+      [],
+      [tokenPolicy],
+      [{ total: 2_100_000 }],
+    ]);
+
+    const service = budgetService(dbStub.db as any);
+    const block = await service.getInvocationBlock("company-1", "agent-1");
+
+    expect(block).toEqual({
+      scopeType: "agent",
+      scopeId: "agent-1",
+      scopeName: "Token Agent",
+      reason: "Agent cannot start because its token budget hard-stop is still exceeded.",
+    });
+  });
+
+  it("blocks new work when the company runs budget hard-stop is exceeded", async () => {
+    const runsPolicy = {
+      id: "policy-runs-company",
+      companyId: "company-1",
+      scopeType: "company",
+      scopeId: "company-1",
+      metric: "runs",
+      windowKind: "calendar_month_utc",
+      amount: 40_000,
+      warnPercent: 80,
+      hardStopEnabled: true,
+      notifyEnabled: true,
+      isActive: true,
+    };
+
+    const dbStub = createDbStub([
+      [{
+        status: "idle",
+        pauseReason: null,
+        companyId: "company-1",
+        name: "Heartbeat Agent",
+      }],
+      [{
+        status: "active",
+        name: "Paperclip",
+      }],
+      [runsPolicy],
+      [{ total: 44_000 }],
+    ]);
+
+    const service = budgetService(dbStub.db as any);
+    const block = await service.getInvocationBlock("company-1", "agent-1");
+
+    expect(block).toEqual({
+      scopeType: "company",
+      scopeId: "company-1",
+      scopeName: "Paperclip",
+      reason: "Company cannot start new work because its run budget hard-stop is exceeded.",
+    });
+  });
+
+  it("does not sync monthly cents columns when upserting a runs policy", async () => {
+    const companyRow = {
+      companyId: "company-1",
+      name: "Paperclip",
+      status: "active",
+      pauseReason: null,
+      pausedAt: null,
+    };
+    const policyRow = {
+      id: "policy-runs-company",
+      companyId: "company-1",
+      scopeType: "company",
+      scopeId: "company-1",
+      metric: "runs",
+      windowKind: "calendar_month_utc",
+      amount: 1000,
+      warnPercent: 80,
+      hardStopEnabled: true,
+      notifyEnabled: true,
+      isActive: true,
+    };
+
+    const dbStub = createDbStub([
+      [companyRow],
+      [],
+      [{ total: 5 }],
+      [],
+      [companyRow],
+      [{ total: 5 }],
+    ]);
+    dbStub.queueInsert([policyRow]);
+
+    const service = budgetService(dbStub.db as any);
+    const summary = await service.upsertPolicy(
+      "company-1",
+      {
+        scopeType: "company",
+        scopeId: "company-1",
+        metric: "runs",
+        windowKind: "calendar_month_utc",
+        amount: 1000,
+      } as any,
+      "board-user",
+    );
+
+    expect(summary.metric).toBe("runs");
+    expect(summary.observedAmount).toBe(5);
+    for (const call of dbStub.updateSet.mock.calls) {
+      expect(call[0]).not.toHaveProperty("budgetMonthlyCents");
+    }
+  });
 });

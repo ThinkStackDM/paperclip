@@ -659,6 +659,27 @@
       "when": 1780040470886,
       "tag": "0093_giant_green_goblin",
       "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1780041100000,
+      "tag": "0094_warded_herbie",
+      "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1780162500000,
+      "tag": "0095_emergency_stop_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1781136000000,
+      "tag": "0096_budget_metric_enum",
+      "breakpoints": true
     }
   ]
 }

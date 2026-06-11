@@ -1,4 +1,5 @@
-import { boolean, index, integer, pgTable, text, timestamp, uuid, uniqueIndex } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { boolean, check, index, integer, pgTable, text, timestamp, uuid, uniqueIndex } from "drizzle-orm/pg-core";
 import { companies } from "./companies.js";
 
 export const budgetPolicies = pgTable(
@@ -38,6 +39,10 @@ export const budgetPolicies = pgTable(
       table.scopeId,
       table.metric,
       table.windowKind,
+    ),
+    metricCheck: check(
+      "budget_policies_metric_check",
+      sql`${table.metric} in ('billed_cents', 'runs', 'total_tokens')`,
     ),
   }),
 );
