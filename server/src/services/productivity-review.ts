@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, gt, inArray, isNull, notInArray, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import type { Db } from "@paperclipai/db";
 import { clampIssueRequestDepth } from "@paperclipai/shared";
 import {
@@ -7,6 +8,7 @@ import {
   costEvents,
   heartbeatRuns,
   issueComments,
+  issueRelations,
   issues,
   projects,
 } from "@paperclipai/db";
@@ -19,6 +21,10 @@ import {
   withRecoveryModelProfileHint,
 } from "./recovery/model-profile-hint.js";
 import { RECOVERY_ORIGIN_KINDS } from "./recovery/origins.js";
+import {
+  isCompanyRecoveryDormant,
+  resolveCheapRecoveryReviewerAgentId,
+} from "./recovery/cheap-reviewer.js";
 
 export const PRODUCTIVITY_REVIEW_ORIGIN_KIND = RECOVERY_ORIGIN_KINDS.issueProductivityReview;
 export const DEFAULT_PRODUCTIVITY_REVIEW_NO_COMMENT_STREAK_RUNS = 10;
@@ -257,6 +263,119 @@ export function productivityReviewService(db: Db, deps?: { enqueueWakeup?: Enque
       .orderBy(desc(issues.updatedAt))
       .limit(1)
       .then((rows) => rows[0] ?? null);
+  }
+
+  // Statuses that mean a source issue is no longer actively burning agent work.
+  // A productivity review only ever exists to prod an agent about a STILL-active
+  // source; once the source is terminal the review is moot.
+  const SOURCE_TERMINAL_STATUSES = ["done", "cancelled"] as const;
+
+  /**
+   * Returns the identifier of an unresolved issue that BLOCKS the candidate, if
+   * any. An intentionally-blocked source with a named blocker/owner should not
+   * accrue derivative productivity-review nags — the blocker, not the assignee's
+   * cadence, is the thing that needs attention. We only count blockers that are
+   * themselves still open (a done/cancelled blocker no longer blocks).
+   */
+  async function findActiveBlockerIdentifier(candidate: Pick<IssueRow, "companyId" | "id">) {
+    const blocker = alias(issues, "blocker_issue");
+    return db
+      .select({ identifier: blocker.identifier })
+      .from(issueRelations)
+      .innerJoin(
+        blocker,
+        and(eq(issueRelations.companyId, blocker.companyId), eq(issueRelations.issueId, blocker.id)),
+      )
+      .where(
+        and(
+          eq(issueRelations.companyId, candidate.companyId),
+          eq(issueRelations.relatedIssueId, candidate.id),
+          eq(issueRelations.type, "blocks"),
+          isNull(blocker.hiddenAt),
+          notInArray(blocker.status, [...SOURCE_TERMINAL_STATUSES]),
+        ),
+      )
+      .limit(1)
+      .then((rows) => rows[0]?.identifier ?? null);
+  }
+
+  /**
+   * Returns an open stranded-issue-recovery issue targeting this source, if any.
+   * When the platform has already opened a recovery issue for a stranded source,
+   * a productivity review is pure duplicate noise — the recovery path owns the
+   * unstick. (Recovery issues set originId = the stranded source's id.)
+   */
+  async function findOpenStrandedRecovery(companyId: string, sourceIssueId: string) {
+    return db
+      .select({ id: issues.id, identifier: issues.identifier })
+      .from(issues)
+      .where(
+        and(
+          eq(issues.companyId, companyId),
+          eq(issues.originKind, RECOVERY_ORIGIN_KINDS.strandedIssueRecovery),
+          eq(issues.originId, sourceIssueId),
+          isNull(issues.hiddenAt),
+          notInArray(issues.status, [...SOURCE_TERMINAL_STATUSES]),
+        ),
+      )
+      .limit(1)
+      .then((rows) => rows[0] ?? null);
+  }
+
+  /**
+   * Cancel any open productivity-review issue whose source has since gone
+   * terminal (cancelled/done) or hidden. This is the THIAAAAA-284 fix: a review
+   * was created for THIAAAAA-274 while it was in_progress, then 274 was cancelled
+   * as a duplicate — leaving the review as orphaned noise a human had to close by
+   * hand. We reap these on the same heartbeat cadence as creation. Direct status
+   * write (no issueService.update) so we do NOT wake the review's assignee for a
+   * review we are tearing down.
+   */
+  async function reapTerminalSourceReviews(opts: { now: Date; companyId?: string }) {
+    const source = alias(issues, "review_source");
+    const orphans = await db
+      .select({ id: issues.id, identifier: issues.identifier, companyId: issues.companyId, sourceIdentifier: source.identifier })
+      .from(issues)
+      .innerJoin(
+        source,
+        // originId is a text column; source.id is uuid. Cast the uuid side to
+        // text so Postgres does not error with `operator does not exist: text = uuid`.
+        and(eq(issues.companyId, source.companyId), sql`${issues.originId} = ${source.id}::text`),
+      )
+      .where(
+        and(
+          opts.companyId ? eq(issues.companyId, opts.companyId) : undefined,
+          eq(issues.originKind, PRODUCTIVITY_REVIEW_ORIGIN_KIND),
+          isNull(issues.hiddenAt),
+          notInArray(issues.status, [...SOURCE_TERMINAL_STATUSES]),
+          sql`(${source.status} in ('done', 'cancelled') or ${source.hiddenAt} is not null)`,
+        ),
+      )
+      .limit(MAX_CANDIDATE_ISSUES);
+
+    let cancelled = 0;
+    for (const orphan of orphans) {
+      await db
+        .update(issues)
+        .set({ status: "cancelled", updatedAt: opts.now })
+        .where(and(eq(issues.id, orphan.id), notInArray(issues.status, [...SOURCE_TERMINAL_STATUSES])));
+      await logActivity(db, {
+        companyId: orphan.companyId,
+        actorType: "system",
+        actorId: "system",
+        action: "issue.productivity_review_cancelled",
+        entityType: "issue",
+        entityId: orphan.id,
+        agentId: null,
+        details: {
+          source: "productivity_review.reap_terminal_source",
+          reviewIssueId: orphan.id,
+          sourceIdentifier: orphan.sourceIdentifier,
+        },
+      });
+      cancelled += 1;
+    }
+    return cancelled;
   }
 
   async function findRecentResolvedProductivityReview(
@@ -524,6 +643,12 @@ export function productivityReviewService(db: Db, deps?: { enqueueWakeup?: Enque
 
   async function resolveReviewOwnerAgentId(sourceIssue: IssueRow, sourceAgent: AgentRow) {
     const candidateIds: string[] = [];
+    // Cheap-lane first: productivity reviews are cheap triage, not leadership
+    // work — route to the company's shell-handler Compiler / Fallback-Compiler
+    // so the CEO/CTO is not paged on every productivity flag. The manager chain
+    // below stays as a fallback when no cheap reviewer is available.
+    const cheapReviewerId = await resolveCheapRecoveryReviewerAgentId(db, sourceIssue.companyId);
+    if (cheapReviewerId) candidateIds.push(cheapReviewerId);
     if (sourceAgent.reportsTo) candidateIds.push(sourceAgent.reportsTo);
     if (sourceIssue.createdByAgentId) candidateIds.push(sourceIssue.createdByAgentId);
     if (sourceIssue.projectId) {
@@ -765,6 +890,9 @@ export function productivityReviewService(db: Db, deps?: { enqueueWakeup?: Enque
   }) {
     const now = opts?.now ?? new Date();
     const thresholds = buildThresholds(opts?.thresholds);
+    // Reap reviews whose source has since gone terminal/hidden (THIAAAAA-284),
+    // before scanning for new candidates.
+    const orphansCancelled = await reapTerminalSourceReviews({ now, companyId: opts?.companyId });
     const candidates = await db
       .select()
       .from(issues)
@@ -788,16 +916,35 @@ export function productivityReviewService(db: Db, deps?: { enqueueWakeup?: Enque
       existing: 0,
       snoozed: 0,
       creationCapped: 0,
+      suppressedBlocked: 0,
+      suppressedRecovery: 0,
+      dormantSkipped: 0,
+      orphansCancelled,
       skipped: 0,
       failed: 0,
       reviewIssueIds: [] as string[],
       failedIssueIds: [] as string[],
     };
 
+    // Dormancy: do not generate productivity-review churn for companies that are
+    // intentionally outside their activity window (sleeping, not failing).
+    const dormancyCache = new Map<string, boolean>();
+    const isDormant = async (companyId: string) => {
+      const cached = dormancyCache.get(companyId);
+      if (cached !== undefined) return cached;
+      const dormant = await isCompanyRecoveryDormant(db, companyId);
+      dormancyCache.set(companyId, dormant);
+      return dormant;
+    };
+
     const prefixCache = new Map<string, string>();
     for (const candidate of candidates) {
       if (!candidate.assigneeAgentId) {
         result.skipped += 1;
+        continue;
+      }
+      if (await isDormant(candidate.companyId)) {
+        result.dormantSkipped += 1;
         continue;
       }
       if (await isProductivityReviewDescendant(candidate)) {
@@ -807,6 +954,21 @@ export function productivityReviewService(db: Db, deps?: { enqueueWakeup?: Enque
       if (await findRecentResolvedProductivityReview(candidate.companyId, candidate.id, thresholds, now)) {
         result.snoozed += 1;
         continue;
+      }
+      // Suppress derivative reviews for intentionally-blocked sources (a named
+      // blocker/owner already owns the unstick) and for stranded sources the
+      // recovery path already adopted. Only suppress when no review is open yet —
+      // an already-open review still refreshes/reaps through the normal path.
+      const hasOpenReview = (await findOpenProductivityReview(candidate.companyId, candidate.id)) !== null;
+      if (!hasOpenReview) {
+        if (await findActiveBlockerIdentifier(candidate)) {
+          result.suppressedBlocked += 1;
+          continue;
+        }
+        if (await findOpenStrandedRecovery(candidate.companyId, candidate.id)) {
+          result.suppressedRecovery += 1;
+          continue;
+        }
       }
       const sourceAgent = await getAgent(candidate.assigneeAgentId);
       if (!sourceAgent || sourceAgent.companyId !== candidate.companyId) {

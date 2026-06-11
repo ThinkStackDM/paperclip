@@ -719,6 +719,17 @@ export async function startServer(): Promise<StartedServer> {
   if (config.heartbeatSchedulerEnabled) {
     const heartbeat = heartbeatService(db as any, { pluginWorkerManager });
     const routines = routineService(db as any, { pluginWorkerManager });
+
+    // Recovery-review cadence: the silent-run watchdog and productivity reviews
+    // are expensive, churny scans that page reviewers. They do NOT need to run
+    // on every 30s operational tick (orphan reaping / queued-run resumption do).
+    // Run them on a widened, deduped cadence (default 20 min, env-overridable)
+    // so a single unresolved case does not spawn a storm of review issues.
+    const recoveryReviewIntervalMs = Math.max(
+      5 * 60 * 1000,
+      Number(process.env.RECOVERY_REVIEW_SCAN_INTERVAL_MS) || 20 * 60 * 1000,
+    );
+    let lastRecoveryReviewScanAt = 0;
   
     // Reap orphaned running runs at startup while in-memory execution state is empty,
     // then resume any persisted queued runs that were waiting on the previous process.
@@ -785,6 +796,19 @@ export async function startServer(): Promise<StartedServer> {
         .catch((err) => {
           logger.error({ err }, "routine scheduler tick failed");
         });
+
+      // Sprint-end session purge: clear agent sessions for companies whose
+      // activity window has just closed so the next sprint starts fresh.
+      void heartbeat
+        .sweepActivityWindowSessionPurges(new Date())
+        .then((result) => {
+          if (result.companies > 0 || result.agents > 0) {
+            logger.info({ ...result }, "sprint window session purge cleared agent sessions");
+          }
+        })
+        .catch((err) => {
+          logger.error({ err }, "sprint window session purge failed");
+        });
   
       // Periodically reap orphaned runs (5-min staleness threshold) and make sure
       // persisted queued work is still being driven forward.
@@ -815,12 +839,18 @@ export async function startServer(): Promise<StartedServer> {
           }
         })
         .then(async () => {
+          // Widened, deduped cadence for the churny review scans: only run them
+          // when at least recoveryReviewIntervalMs has elapsed since the last
+          // pass. The per-source dedup (one open review issue per run/source at
+          // a time) lives in the recovery service itself; this gate keeps the
+          // whole scan from re-running every 30s.
+          const nowMs = Date.now();
+          if (nowMs - lastRecoveryReviewScanAt < recoveryReviewIntervalMs) return;
+          lastRecoveryReviewScanAt = nowMs;
           const scanned = await heartbeat.scanSilentActiveRuns();
           if (scanned.created > 0 || scanned.escalated > 0) {
             logger.warn({ ...scanned }, "periodic active-run output watchdog created review work");
           }
-        })
-        .then(async () => {
           const reviewed = await heartbeat.reconcileProductivityReviews();
           if (reviewed.created > 0 || reviewed.updated > 0 || reviewed.failed > 0) {
             logger.warn({ ...reviewed }, "periodic productivity reconciliation created or updated review work");

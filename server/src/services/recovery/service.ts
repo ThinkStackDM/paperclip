@@ -42,6 +42,7 @@ import {
   FINISH_SUCCESSFUL_RUN_HANDOFF_REASON,
   SUCCESSFUL_RUN_MISSING_STATE_REASON,
   buildSuccessfulRunHandoffExhaustedNotice,
+  hasEventDrivenHubIdlePath,
   noticeMetadataReferencesRecoveryAction,
   type SuccessfulRunHandoffNotice,
 } from "./successful-run-handoff.js";
@@ -60,6 +61,13 @@ import {
   withRecoveryModelProfileHint,
 } from "./model-profile-hint.js";
 import { isAutomaticRecoverySuppressedByPauseHold } from "./pause-hold-guard.js";
+import {
+  RECOVERY_REVIEW_ESCALATION_THRESHOLD,
+  bumpConsecutiveReviewCount,
+  isCompanyRecoveryDormant,
+  resetConsecutiveReviewCount,
+  resolveCheapRecoveryReviewerAgentId,
+} from "./cheap-reviewer.js";
 
 const EXECUTION_PATH_HEARTBEAT_RUN_STATUSES = ["queued", "running", "scheduled_retry"] as const;
 const UNSUCCESSFUL_HEARTBEAT_RUN_TERMINAL_STATUSES = ["failed", "cancelled", "timed_out"] as const;
@@ -178,6 +186,8 @@ const NON_RETRYABLE_CONTINUATION_ERROR_CODES = new Set<string>([
 const CONTINUATION_RECOVERY_TRANSIENT_MAX_ATTEMPTS = 3;
 const CONTINUATION_RECOVERY_DEFAULT_MAX_ATTEMPTS = 1;
 const CONTINUATION_RECOVERY_TRANSIENT_BASE_BACKOFF_MS = 60_000;
+const SOURCE_SCOPED_RECOVERY_MIN_REFIRE_INTERVAL_MS = 60_000;
+const MISSING_DISPOSITION_RECOVERY_MAX_ATTEMPTS = CONTINUATION_RECOVERY_DEFAULT_MAX_ATTEMPTS;
 
 type ContinuationRetryClassification = {
   kind: "transient_infra" | "non_retryable" | "default";
@@ -840,6 +850,55 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
     return row ?? null;
   }
 
+  /**
+   * Count how many silent-run review issues have ever been opened for the same
+   * run (origin = the run id). Each closed-then-reopened review is one "review
+   * cycle" on the same unresolved case. We use this to escalate to leadership
+   * only after RECOVERY_REVIEW_ESCALATION_THRESHOLD consecutive cycles, instead
+   * of paging the CEO/CTO on the very first silent run. `cancelled` reviews are
+   * benign/self-resolved (per the silent-run-review skill) and do NOT count as
+   * an unresolved cycle.
+   */
+  async function countStaleRunReviewCycles(companyId: string, runId: string) {
+    const [row] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(issues)
+      .where(
+        and(
+          eq(issues.companyId, companyId),
+          eq(issues.originKind, STALE_ACTIVE_RUN_EVALUATION_ORIGIN_KIND),
+          eq(issues.originId, runId),
+          isNull(issues.hiddenAt),
+          notInArray(issues.status, ["cancelled"]),
+        ),
+      );
+    return Number(row?.count ?? 0);
+  }
+
+  /**
+   * Has this run already been escalated to leadership at least once? Escalation
+   * issues are titled "Escalated: silent active run ..."; we count any
+   * non-cancelled review for the run with that title prefix. Used so escalation
+   * fires ONCE per unresolved case and does not re-page leadership every cycle
+   * after the threshold is first crossed.
+   */
+  async function hasEscalatedStaleRunReview(companyId: string, runId: string) {
+    const [row] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(issues)
+      .where(
+        and(
+          eq(issues.companyId, companyId),
+          eq(issues.originKind, STALE_ACTIVE_RUN_EVALUATION_ORIGIN_KIND),
+          eq(issues.originId, runId),
+          isNull(issues.hiddenAt),
+          notInArray(issues.status, ["cancelled"]),
+          sql`${issues.title} like 'Escalated: silent active run%'`,
+        ),
+      );
+    return Number(row?.count ?? 0) > 0;
+  }
+
   async function buildRunOutputSilence(
     run: Pick<
       typeof heartbeatRuns.$inferSelect,
@@ -1222,8 +1281,18 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
     run: typeof heartbeatRuns.$inferSelect;
     runningAgent: typeof agents.$inferSelect;
     sourceIssue: typeof issues.$inferSelect | null;
+    excludeAgentIds?: string[];
   }) {
     const candidateIds: string[] = [];
+    const excluded = new Set(input.excludeAgentIds ?? []);
+    // Cheap-lane first: a silent-run review is a cheap triage, not leadership
+    // work. Route it to the company's deterministic shell-handler Compiler /
+    // Fallback-Compiler so the CEO/CTO is not paged on every silent run. The
+    // leadership chain below stays as a fallback if no cheap reviewer exists.
+    // When escalating (cycle >= threshold) the caller passes the cheap reviewer
+    // in excludeAgentIds so this resolves to the next leadership candidate.
+    const cheapReviewerId = await resolveCheapRecoveryReviewerAgentId(db, input.run.companyId);
+    if (cheapReviewerId && !excluded.has(cheapReviewerId)) candidateIds.push(cheapReviewerId);
     if (input.sourceIssue?.assigneeAgentId) {
       const sourceAssignee = await getAgent(input.sourceIssue.assigneeAgentId);
       if (sourceAssignee?.reportsTo) candidateIds.push(sourceAssignee.reportsTo);
@@ -1240,6 +1309,7 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
     for (const agentId of candidateIds) {
       if (seen.has(agentId)) continue;
       seen.add(agentId);
+      if (excluded.has(agentId)) continue;
       const candidate = await getAgent(agentId);
       if (!candidate || candidate.companyId !== input.run.companyId) continue;
       const budgetBlock = await budgets.getInvocationBlock(input.run.companyId, candidate.id, {
@@ -1529,7 +1599,41 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
       return { kind: "existing" as const, evaluationIssueId: existing.id };
     }
 
-    const ownerAgentId = await resolveStaleRunOwnerAgentId({ run: input.run, runningAgent, sourceIssue });
+    // Consecutive-review escalation: count prior review cycles for THIS run
+    // (closed reviews that did not resolve the silence). The cheap shell-handler
+    // reviewer owns the first reviews; only once the case has come back
+    // unresolved RECOVERY_REVIEW_ESCALATION_THRESHOLD times do we hand this
+    // review to the leadership chain instead of the cheap lane, so escalation is
+    // rare rather than per-failure. Escalation fires ONCE: if this run was
+    // already escalated on a prior cycle, we keep it on the cheap lane rather
+    // than re-paging leadership every subsequent cycle.
+    const [priorReviewCycles, alreadyEscalated] = await Promise.all([
+      countStaleRunReviewCycles(input.run.companyId, input.run.id),
+      hasEscalatedStaleRunReview(input.run.companyId, input.run.id),
+    ]);
+    const reviewCycle = priorReviewCycles + 1;
+    const escalateToLeadership =
+      reviewCycle >= RECOVERY_REVIEW_ESCALATION_THRESHOLD && !alreadyEscalated;
+    const cheapReviewerId = await resolveCheapRecoveryReviewerAgentId(db, input.run.companyId);
+    const leadershipOwnerId = await resolveStaleRunOwnerAgentId({
+      run: input.run,
+      runningAgent,
+      sourceIssue,
+    });
+    // Cheap reviewer for early cycles; leadership chain once escalation fires.
+    // (resolveStaleRunOwnerAgentId already prepends the cheap reviewer, so when
+    //  escalating we skip it and take the next leadership candidate.)
+    let ownerAgentId: string | null;
+    if (escalateToLeadership) {
+      ownerAgentId = await resolveStaleRunOwnerAgentId({
+        run: input.run,
+        runningAgent,
+        sourceIssue,
+        excludeAgentIds: cheapReviewerId ? [cheapReviewerId] : [],
+      });
+    } else {
+      ownerAgentId = cheapReviewerId ?? leadershipOwnerId;
+    }
     const description = buildStaleRunEvaluationDescription({
       run: input.run,
       runningAgent,
@@ -1542,10 +1646,12 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
     let evaluation: Awaited<ReturnType<typeof issuesSvc.create>>;
     try {
       evaluation = await issuesSvc.create(input.run.companyId, {
-        title: `Review silent active run for ${runningAgent.name}`,
+        title: escalateToLeadership
+          ? `Escalated: silent active run for ${runningAgent.name} (review cycle ${reviewCycle})`
+          : `Review silent active run for ${runningAgent.name}`,
         description,
         status: "todo",
-        priority: level === "critical" ? "high" : "medium",
+        priority: escalateToLeadership || level === "critical" ? "high" : "medium",
         parentId: sourceIssue && !["done", "cancelled"].includes(sourceIssue.status) ? sourceIssue.id : null,
         projectId: sourceIssue?.projectId ?? null,
         goalId: sourceIssue?.goalId ?? null,
@@ -1564,13 +1670,29 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
       return { kind: "existing" as const, evaluationIssueId: raced.id };
     }
 
+    // Record the consecutive-review cycle marker on the review issue so the
+    // count and escalation state are auditable on the issue itself.
+    await bumpConsecutiveReviewCount(db, input.run.companyId, evaluation.id, {
+      markEscalated: escalateToLeadership,
+      now: input.now,
+    });
+    if (escalateToLeadership) {
+      await issuesSvc.addComment(evaluation.id, [
+        `Escalated to leadership after ${reviewCycle} consecutive unresolved review cycles on this run.`,
+        "",
+        `- Run: \`${input.run.id}\``,
+        `- Escalation threshold: ${RECOVERY_REVIEW_ESCALATION_THRESHOLD} consecutive reviews`,
+        `- Cheap-lane reviewer could not resolve this case; assigning the leadership chain.`,
+      ].join("\n"), { runId: input.run.id });
+    }
+
     await logActivity(db, {
       companyId: input.run.companyId,
       actorType: "system",
       actorId: "system",
       agentId: ownerAgentId,
       runId: input.run.id,
-      action: "heartbeat.output_stale_detected",
+      action: escalateToLeadership ? "heartbeat.output_stale_escalated" : "heartbeat.output_stale_detected",
       entityType: "issue",
       entityId: evaluation.id,
       details: {
@@ -1579,6 +1701,9 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
         sourceIssueId: sourceIssue?.id ?? null,
         silenceAgeMs: evidence.silenceAgeMs,
         lastOutputAt: input.run.lastOutputAt?.toISOString() ?? null,
+        reviewCycle,
+        escalatedToLeadership: escalateToLeadership,
+        cheapReviewerAgentId: cheapReviewerId,
       },
     });
     if (level === "critical") {
@@ -1610,6 +1735,9 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
         }, "status_only"),
       });
     }
+    if (escalateToLeadership) {
+      return { kind: "escalated" as const, evaluationIssueId: evaluation.id };
+    }
     return { kind: "created" as const, evaluationIssueId: evaluation.id };
   }
 
@@ -1637,10 +1765,29 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
       folded: 0,
       snoozed: 0,
       skipped: 0,
+      dormantSkipped: 0,
       evaluationIssueIds: [] as string[],
     };
 
+    // Respect dormancy: a company that is intentionally outside its activity
+    // window ("dormant") has sleeping, not failing, agents. Do not generate
+    // silent-run review churn for it — its runs will look silent precisely
+    // because the company is asleep. Cache the per-company dormancy decision so
+    // we hit the companies table at most once per company per scan.
+    const dormancyCache = new Map<string, boolean>();
+    const isDormant = async (companyId: string) => {
+      const cached = dormancyCache.get(companyId);
+      if (cached !== undefined) return cached;
+      const dormant = await isCompanyRecoveryDormant(db, companyId);
+      dormancyCache.set(companyId, dormant);
+      return dormant;
+    };
+
     for (const run of candidates) {
+      if (await isDormant(run.companyId)) {
+        result.dormantSkipped += 1;
+        continue;
+      }
       if (await latestActiveOutputQuietUntilDecision(run.companyId, run.id, now)) {
         result.snoozed += 1;
         continue;
@@ -1841,6 +1988,20 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
 
   async function resolveStrandedIssueRecoveryOwnerAgentId(issue: typeof issues.$inferSelect) {
     const candidateIds: string[] = [];
+    // Cheap-lane first: deterministic shell-handler Compiler triages the stranded
+    // case and only escalates after repeated unresolved reviews. The configured
+    // per-company strandedRecoveryOwnerAgentId and the leadership chain remain as
+    // fallbacks when no cheap reviewer is available.
+    const cheapReviewerId = await resolveCheapRecoveryReviewerAgentId(db, issue.companyId);
+    if (cheapReviewerId) candidateIds.push(cheapReviewerId);
+    const company = await db
+      .select({ strandedRecoveryOwnerAgentId: companies.strandedRecoveryOwnerAgentId })
+      .from(companies)
+      .where(eq(companies.id, issue.companyId))
+      .then((rows) => rows[0] ?? null);
+    if (company?.strandedRecoveryOwnerAgentId) {
+      candidateIds.push(company.strandedRecoveryOwnerAgentId);
+    }
     if (issue.assigneeAgentId) {
       const assignee = await getAgent(issue.assigneeAgentId);
       if (assignee?.reportsTo) candidateIds.push(assignee.reportsTo);
@@ -1937,7 +2098,7 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
       "",
       "## Ownership",
       "",
-      "- Selected owner: the first invokable manager/creator/executive candidate with budget available.",
+      "- Selected owner: the first invokable company-level recovery owner, manager, or creator candidate with budget available.",
       "",
       "## Required Action",
       "",
@@ -2115,17 +2276,90 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
           type: "wake_owner",
           reason: "source_scoped_recovery_action",
           ownerAgentId,
+          ...(recoveryCause === SUCCESSFUL_RUN_MISSING_STATE_REASON
+            ? { minRefireIntervalMs: SOURCE_SCOPED_RECOVERY_MIN_REFIRE_INTERVAL_MS }
+            : {}),
         }
         : {
           type: "board_escalation",
           reason: "no_invokable_recovery_owner",
         },
       monitorPolicy: null,
-      maxAttempts: null,
+      maxAttempts: recoveryCause === SUCCESSFUL_RUN_MISSING_STATE_REASON
+        ? MISSING_DISPOSITION_RECOVERY_MAX_ATTEMPTS
+        : null,
       lastAttemptAt: now,
     });
 
     return action;
+  }
+
+  async function foldActiveRecoveryAction(input: {
+    companyId: string;
+    sourceIssueId: string;
+    actionId: string;
+    outcome: "false_positive" | "restored" | "cancelled";
+    resolutionNote: string;
+  }) {
+    return recoveryActionsSvc.resolveActiveForIssue({
+      companyId: input.companyId,
+      sourceIssueId: input.sourceIssueId,
+      actionId: input.actionId,
+      status: "resolved",
+      outcome: input.outcome,
+      resolutionNote: input.resolutionNote,
+    });
+  }
+
+  async function shouldFoldOrDelayMissingDispositionRecovery(input: {
+    issue: typeof issues.$inferSelect;
+    action: Awaited<ReturnType<typeof recoveryActionsSvc.getActiveForIssue>> | null;
+  }) {
+    const action = input.action;
+    if (!action || action.kind !== "missing_disposition") return false;
+
+    if (input.issue.status !== "in_progress") {
+      await foldActiveRecoveryAction({
+        companyId: input.issue.companyId,
+        sourceIssueId: input.issue.id,
+        actionId: action.id,
+        outcome: "restored",
+        resolutionNote: `Missing-disposition recovery folded because the source issue is now ${input.issue.status}.`,
+      });
+      return true;
+    }
+
+    if (hasEventDrivenHubIdlePath(input.issue)) {
+      await foldActiveRecoveryAction({
+        companyId: input.issue.companyId,
+        sourceIssueId: input.issue.id,
+        actionId: action.id,
+        outcome: "false_positive",
+        resolutionNote: "Missing-disposition recovery folded because the source issue exposes an event-driven hub idle path.",
+      });
+      return true;
+    }
+
+    if (action.maxAttempts !== null && action.attemptCount >= action.maxAttempts) {
+      await foldActiveRecoveryAction({
+        companyId: input.issue.companyId,
+        sourceIssueId: input.issue.id,
+        actionId: action.id,
+        outcome: "false_positive",
+        resolutionNote: "Missing-disposition recovery reached its finite attempt bound; the status-only recovery wake cannot produce the demanded disposition.",
+      });
+      return true;
+    }
+
+    const lastAttemptAtMs = action.lastAttemptAt ? new Date(action.lastAttemptAt).getTime() : Number.NaN;
+    if (
+      Number.isFinite(lastAttemptAtMs) &&
+      Date.now() - lastAttemptAtMs < SOURCE_SCOPED_RECOVERY_MIN_REFIRE_INTERVAL_MS
+    ) {
+      return true;
+    }
+
+    return false;
   }
 
   async function enqueueSourceScopedStrandedRecoveryWake(input: {
@@ -2467,7 +2701,7 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
       }
 
       const agent = await getAgent(agentId);
-      if (!agent || agent.companyId !== issue.companyId || !isAgentInvokable(agent)) {
+      if (!agent || agent.companyId !== issue.companyId) {
         result.skipped += 1;
         continue;
       }
@@ -2477,7 +2711,20 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
         continue;
       }
 
+      // Skip issues that have a scheduled monitor wake in the future — they have a valid
+      // continuation path and should not be treated as stranded.
+      if (issue.monitorNextCheckAt && issue.monitorNextCheckAt > new Date()) {
+        result.skipped += 1;
+        continue;
+      }
+
       if (await isAutomaticRecoverySuppressedByPauseHold(db, issue.companyId, issue.id, treeControlSvc)) {
+        result.skipped += 1;
+        continue;
+      }
+
+      const activeRecoveryAction = await recoveryActionsSvc.getActiveForIssue(issue.companyId, issue.id);
+      if (await shouldFoldOrDelayMissingDispositionRecovery({ issue, action: activeRecoveryAction })) {
         result.skipped += 1;
         continue;
       }
@@ -2501,6 +2748,10 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
       if (issue.status === "todo") {
         if (!latestRun) {
           if (await hasQueuedIssueWake(issue.companyId, issue.id)) {
+            result.skipped += 1;
+            continue;
+          }
+          if (!isAgentInvokable(agent)) {
             result.skipped += 1;
             continue;
           }

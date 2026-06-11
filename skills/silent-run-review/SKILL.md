@@ -7,6 +7,16 @@ description: Fast triage checklist for system-generated run-health review issues
 
 Paperclip's recovery service files `Review silent active run for <Agent>` when an active run stops producing output, and `Review productivity for <ISSUE-ID>` when a source issue shows unusual progression (no-comment run streaks, long active duration, high churn). These are bounded triage tasks, not investigations. The contract behind them is `doc/execution-semantics.md` §11 "Silent Active-Run Watchdog" (silence levels, watchdog decisions, source-aware folding) — read it if any step below is ambiguous.
 
+## Cheap-lane review + escalate-after-3 (the routing contract)
+
+Recovery / failed-status / silent-run / productivity reviews are CHEAP triage, not leadership work, and are routed accordingly:
+
+- **Cheap lane owns the review.** These review issues are now assigned to the company's deterministic shell-handler Compiler — `MC-Compiler` (TSMC), `KISS-Compiler` (KISS), or each OpCo's `Fallback-Compiler` — NOT to the CEO/CTO. The reviewer triages with the tree below and sets the case to a disposition (`done`/`cancelled`, or `blocked` with a named owner). The CEO/CTO chain remains only as a fallback when no cheap reviewer exists.
+- **Escalate only after 3 consecutive reviews on the SAME case.** Each new review for the same run/source is one "review cycle". A consecutive-review counter is tracked on the review issue (a `Recovery review cycle tracker.` marker comment). Cycles 1–2 stay on the cheap lane. On the **3rd** consecutive unresolved cycle the review escalates to the leadership chain ONCE (titled `Escalated: silent active run ... (review cycle N)`, priority high). It does NOT re-page leadership on cycle 4, 5, … — escalation fires once per unresolved case.
+- **Resolution resets.** If the underlying case resolves (review closed clean / source healthy), the counter resets to 0, so a later unrelated silence starts fresh from cycle 1.
+- **Dedup + cadence.** One open review issue per run/source at a time. The watchdog/productivity scans run on a widened, deduped cadence (~20 min, `RECOVERY_REVIEW_SCAN_INTERVAL_MS`) rather than every operational tick, so a single unresolved case cannot spawn a storm of review issues.
+- **Dormancy.** Companies intentionally outside their activity window are "dormant" — their agents are sleeping, not failing. The recovery scans skip dormant companies entirely, so no silent-run / productivity churn is generated while a company is asleep.
+
 Both issue types arrive with the evidence already collected in the description (run id, silence age, last-output timestamp, source issue link, latest runs/comments, thresholds). Read that first; only fetch more when the description is insufficient.
 
 ## 5-minute classification tree
@@ -41,6 +51,7 @@ For productivity reviews specifically, the manager decision menu is in the issue
 
 - **Never leave the review issue itself `in_progress`** at heartbeat end. It is a triage task: `done` (triaged, action recorded), `cancelled` (noise/self-resolved), or — rarely — `blocked` with a named owner when the unblock genuinely belongs to someone else (e.g. only the board can unpause an agent).
 - Do not silently delete or hide review issues; they are the watchdog audit trail.
+- Do not edit or remove the `Recovery review cycle tracker.` marker comment by hand — it carries the consecutive-review count and escalation state. Closing the review clean lets the recovery service reset it; tampering breaks the escalate-after-3 contract.
 - One review per run is the invariant — if you find duplicates, keep the canonical one and cancel the rest with a link to the keeper.
 - Critical-level reviews may have **blocked the source issue** on the evaluation. Closing the review must also restore the source issue's path: clear the blocker and leave the source in a healthy state (`todo` with a next action, an active run, or a real waiting path).
 
