@@ -43,9 +43,16 @@ import { isGrokUnknownSessionError, parseGrokJsonl } from "./parse.js";
 
 const __moduleDir = path.dirname(fileURLToPath(import.meta.url));
 
+// eslint-disable-next-line no-control-regex
+const ANSI_ESCAPE_RE = /\u001B\[[0-9;]*m/g;
+
+function stripAnsi(text: string): string {
+  return text.replace(ANSI_ESCAPE_RE, "");
+}
+
 function firstNonEmptyLine(text: string): string {
   return (
-    text
+    stripAnsi(text)
       .split(/\r?\n/)
       .map((line) => line.trim())
       .find(Boolean) ?? ""
@@ -54,6 +61,19 @@ function firstNonEmptyLine(text: string): string {
 
 const GROK_AUTH_REQUIRED_RE =
   /(?:not\s+authenticated|not\s+logged\s+in|login\s+required|run\s+`?grok\s+login`?|authentication\s+required|AuthorizationRequired|unauthorized|invalid\s+credentials)/i;
+
+/**
+ * Upstream/infrastructure failures that are worth retrying with backoff
+ * instead of counting toward the agent's consecutive-failure error state.
+ *
+ * The dominant real-world signature in this fleet is the Grok CLI worker
+ * dying mid-stream with "worker quit with fatal: Transport channel closed,
+ * when Auth(AuthorizationRequired)" (a credential-refresh race when several
+ * Grok agents share one credentials file). Those runs exit 0 with
+ * stopReason "cancelled" and recover on a later attempt without re-login.
+ */
+const GROK_TRANSIENT_UPSTREAM_RE =
+  /(?:transport\s+channel\s+closed|worker\s+quit\s+with\s+fatal|stream\s+(?:disconnected|closed|error)|connection\s+(?:reset|refused|closed)|rate[-\s]?limit(?:ed)?|too\s+many\s+requests|\b429\b|\b502\b|\b503\b|\b529\b|overloaded|service\s+unavailable|temporarily\s+unavailable|try\s+again\s+later|gateway\s+time(?:d\s*)?out|upstream\s+error)/i;
 
 function hasNonEmptyEnvValue(env: Record<string, string>, key: string): boolean {
   const raw = env[key];
@@ -496,33 +516,70 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       },
       clearSessionOnMissingSession = false,
       isRetry = false,
+      attemptedResumeSessionId: string | null = null,
     ): AdapterExecutionResult => {
       if (attempt.proc.timedOut) {
+        const timedOutSessionId = attempt.parsed.sessionId ?? null;
         return {
           exitCode: attempt.proc.exitCode,
           signal: attempt.proc.signal,
           timedOut: true,
           errorMessage: `Timed out after ${timeoutSec}s`,
+          errorCode: "timeout",
+          ...(timedOutSessionId
+            ? { sessionId: timedOutSessionId, sessionDisplayId: timedOutSessionId }
+            : {}),
+          ...(attempt.parsed.summary ? { summary: attempt.parsed.summary } : {}),
+          resultJson: {
+            stopReason: attempt.parsed.stopReason,
+            requestId: attempt.parsed.requestId,
+          },
           clearSession: clearSessionOnMissingSession,
         };
       }
 
+      const combinedOutput = `${attempt.proc.stdout}\n${attempt.proc.stderr}`;
       const parsedError = typeof attempt.parsed.errorMessage === "string" ? attempt.parsed.errorMessage.trim() : "";
       const cancelled = /^cancelled$/i.test(attempt.parsed.stopReason ?? "");
       const completedTurn = /^EndTurn$/i.test(attempt.parsed.stopReason ?? "");
-      const authRequired = GROK_AUTH_REQUIRED_RE.test(`${attempt.proc.stdout}\n${attempt.proc.stderr}`);
+      const authRequired = GROK_AUTH_REQUIRED_RE.test(combinedOutput);
       const fatalAuthRequired = authRequired && !completedTurn;
-      const failed = (attempt.proc.exitCode ?? 0) !== 0 || Boolean(parsedError) || cancelled || fatalAuthRequired;
+      // A stream "error" event followed by a completed turn means the CLI
+      // recovered on its own; only treat parsed errors as fatal when the turn
+      // never completed (mirrors the hermes fix gating stderr-sniffed errors
+      // on the process outcome).
+      const fatalParsedError = Boolean(parsedError) && !completedTurn;
+      const failed = (attempt.proc.exitCode ?? 0) !== 0 || fatalParsedError || cancelled || fatalAuthRequired;
       const stderrLine = firstNonEmptyLine(attempt.proc.stderr);
       const fallbackErrorMessage =
         parsedError ||
-        (cancelled ? "Grok run was cancelled before producing a final response." : "") ||
+        (cancelled
+          ? `Grok run was cancelled before producing a final response.${stderrLine ? ` Worker stderr: ${stderrLine}` : ""}`
+          : "") ||
         stderrLine ||
         `Grok exited with code ${attempt.proc.exitCode ?? -1}`;
 
-      const canFallbackToRuntimeSession = !isRetry;
+      // The resume id was rejected by the CLI -- never re-persist it, and ask
+      // the server to drop it unless this attempt produced a fresh session.
+      const unknownSessionFailure =
+        failed &&
+        Boolean(attemptedResumeSessionId) &&
+        isGrokUnknownSessionError(attempt.proc.stdout, attempt.proc.stderr);
+      const transientUpstream =
+        failed && !unknownSessionFailure && GROK_TRANSIENT_UPSTREAM_RE.test(stripAnsi(combinedOutput));
+      const errorCode = !failed
+        ? null
+        : transientUpstream
+        ? "grok_transient_upstream"
+        : fatalAuthRequired
+        ? "grok_auth_required"
+        : unknownSessionFailure
+        ? "grok_unknown_session"
+        : null;
+
+      const canFallbackToRuntimeSession = !isRetry && !unknownSessionFailure;
       const resolvedSessionId = attempt.parsed.sessionId
-        ?? (canFallbackToRuntimeSession ? (runtimeSessionId ?? runtime.sessionId ?? null) : null);
+        ?? (canFallbackToRuntimeSession ? (runtimeSessionId || runtime.sessionId || null) : null);
       const resolvedSessionParams = resolvedSessionId
         ? ({
           sessionId: resolvedSessionId,
@@ -543,6 +600,8 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         signal: attempt.proc.signal,
         timedOut: false,
         errorMessage: failed ? fallbackErrorMessage : null,
+        errorCode,
+        errorFamily: transientUpstream ? "transient_upstream" : null,
         usage: {
           inputTokens: 0,
           outputTokens: 0,
@@ -559,18 +618,22 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         resultJson: {
           stopReason: attempt.parsed.stopReason,
           requestId: attempt.parsed.requestId,
+          ...(transientUpstream ? { errorFamily: "transient_upstream" } : {}),
           ...(failed ? { stderr: attempt.proc.stderr } : {}),
         },
         summary: attempt.parsed.summary,
-        clearSession: Boolean(clearSessionOnMissingSession && !resolvedSessionId),
+        clearSession: Boolean(
+          (clearSessionOnMissingSession || unknownSessionFailure) && !resolvedSessionId,
+        ),
       };
     };
 
     const initial = await runAttempt(sessionId);
+    const initialCompletedTurn = /^EndTurn$/i.test(initial.parsed.stopReason ?? "");
     if (
       sessionId &&
       !initial.proc.timedOut &&
-      (initial.proc.exitCode ?? 0) !== 0 &&
+      !initialCompletedTurn &&
       isGrokUnknownSessionError(initial.proc.stdout, initial.proc.stderr)
     ) {
       await onLog(
@@ -581,7 +644,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       return toResult(retry, true, true);
     }
 
-    return toResult(initial);
+    return toResult(initial, false, false, sessionId);
   } finally {
     await Promise.all([
       restoreRemoteWorkspace?.(),

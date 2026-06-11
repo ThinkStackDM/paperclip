@@ -213,7 +213,239 @@ describe("grok_local execute", () => {
 
     expect(result.errorMessage).toContain("AuthorizationRequired");
     expect(result.summary).toBe("");
-    expect(result.sessionId).toBe("");
+    expect(result.sessionId).toBeNull();
+    // Worker transport death is retried with backoff instead of counting
+    // toward the agent's consecutive-failure error state.
+    expect(result.errorCode).toBe("grok_transient_upstream");
+    expect(result.errorFamily).toBe("transient_upstream");
+    expect(result.resultJson).toMatchObject({ errorFamily: "transient_upstream" });
+  });
+
+  it("classifies a cancelled turn with worker transport death as transient upstream", async () => {
+    const root = await makeTempRoot();
+    runProcessMock.mockResolvedValueOnce({
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+      stdout: [
+        JSON.stringify({ type: "thought", data: "thinking" }),
+        JSON.stringify({ type: "end", stopReason: "cancelled", sessionId: "sess-cancelled", requestId: "req-1" }),
+      ].join("\n"),
+      stderr: "\u001B[2m2026-06-10T22:08:50.893501Z\u001B[0m \u001B[31mERROR\u001B[0m worker quit with fatal: Transport channel closed, when Auth(AuthorizationRequired)\n",
+    });
+
+    const result = await execute({
+      runId: "run-cancelled-transient",
+      agent: {
+        id: "agent-1",
+        companyId: "company-1",
+        name: "Grok Agent",
+        adapterType: "grok_local",
+        adapterConfig: {},
+      },
+      runtime: {
+        sessionId: null,
+        sessionParams: null,
+        sessionDisplayId: null,
+        taskKey: null,
+      },
+      config: { cwd: root },
+      context: {},
+      authToken: "run-token",
+      onLog: async () => {},
+    });
+
+    expect(result.errorCode).toBe("grok_transient_upstream");
+    expect(result.errorFamily).toBe("transient_upstream");
+    expect(result.errorMessage).toContain("cancelled before producing a final response");
+    expect(result.errorMessage).toContain("Transport channel closed");
+    // ANSI escapes are stripped from the surfaced error message.
+    expect(result.errorMessage).not.toContain("\u001B[");
+    expect(result.resultJson).toMatchObject({ errorFamily: "transient_upstream" });
+  });
+
+  it("does not fail a completed turn for a recovered mid-stream error event", async () => {
+    const root = await makeTempRoot();
+    runProcessMock.mockResolvedValueOnce({
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+      stdout: [
+        JSON.stringify({ type: "error", error: { message: "stream hiccup, retrying" } }),
+        JSON.stringify({ type: "text", data: "all done" }),
+        JSON.stringify({ type: "end", stopReason: "EndTurn", sessionId: "sess-recovered", requestId: "req-1" }),
+      ].join("\n"),
+      stderr: "",
+    });
+
+    const result = await execute({
+      runId: "run-recovered-error",
+      agent: {
+        id: "agent-1",
+        companyId: "company-1",
+        name: "Grok Agent",
+        adapterType: "grok_local",
+        adapterConfig: {},
+      },
+      runtime: {
+        sessionId: null,
+        sessionParams: null,
+        sessionDisplayId: null,
+        taskKey: null,
+      },
+      config: { cwd: root },
+      context: {},
+      authToken: "run-token",
+      onLog: async () => {},
+    });
+
+    expect(result).toMatchObject({
+      exitCode: 0,
+      errorMessage: null,
+      errorCode: null,
+      summary: "all done",
+      sessionId: "sess-recovered",
+    });
+  });
+
+  it("retries with a fresh session when the resume id is rejected on an exit-0 run", async () => {
+    const root = await makeTempRoot();
+    runProcessMock
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+        stdout: "",
+        stderr: "Session not found: bogus-session\n",
+      })
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+        stdout: [
+          JSON.stringify({ type: "text", data: "fresh run done" }),
+          JSON.stringify({ type: "end", stopReason: "EndTurn", sessionId: "sess-fresh", requestId: "req-2" }),
+        ].join("\n"),
+        stderr: "",
+      });
+
+    const result = await execute({
+      runId: "run-unknown-session-retry",
+      agent: {
+        id: "agent-1",
+        companyId: "company-1",
+        name: "Grok Agent",
+        adapterType: "grok_local",
+        adapterConfig: {},
+      },
+      runtime: {
+        sessionId: "bogus-session",
+        sessionParams: { sessionId: "bogus-session", cwd: root },
+        sessionDisplayId: "bogus-session",
+        taskKey: null,
+      },
+      config: { cwd: root },
+      context: {},
+      authToken: "run-token",
+      onLog: async () => {},
+    });
+
+    expect(runProcessMock).toHaveBeenCalledTimes(2);
+    const firstArgs = runProcessMock.mock.calls[0]?.[3] as string[];
+    const secondArgs = runProcessMock.mock.calls[1]?.[3] as string[];
+    expect(firstArgs).toEqual(expect.arrayContaining(["--resume", "bogus-session"]));
+    expect(secondArgs).not.toContain("--resume");
+    expect(result).toMatchObject({
+      errorMessage: null,
+      summary: "fresh run done",
+      sessionId: "sess-fresh",
+      clearSession: false,
+    });
+  });
+
+  it("clears a rejected resume session when the fresh retry yields no new session", async () => {
+    const root = await makeTempRoot();
+    runProcessMock
+      .mockResolvedValueOnce({
+        exitCode: 1,
+        signal: null,
+        timedOut: false,
+        stdout: "",
+        stderr: "Session not found: bogus-session\n",
+      })
+      .mockResolvedValueOnce({
+        exitCode: 1,
+        signal: null,
+        timedOut: false,
+        stdout: "",
+        stderr: "some other failure\n",
+      });
+
+    const result = await execute({
+      runId: "run-unknown-session-clear",
+      agent: {
+        id: "agent-1",
+        companyId: "company-1",
+        name: "Grok Agent",
+        adapterType: "grok_local",
+        adapterConfig: {},
+      },
+      runtime: {
+        sessionId: "bogus-session",
+        sessionParams: { sessionId: "bogus-session", cwd: root },
+        sessionDisplayId: "bogus-session",
+        taskKey: null,
+      },
+      config: { cwd: root },
+      context: {},
+      authToken: "run-token",
+      onLog: async () => {},
+    });
+
+    expect(runProcessMock).toHaveBeenCalledTimes(2);
+    expect(result.sessionId).toBeNull();
+    expect(result.clearSession).toBe(true);
+    expect(result.errorMessage).toContain("some other failure");
+  });
+
+  it("reports timeout with errorCode and preserves any parsed session id", async () => {
+    const root = await makeTempRoot();
+    runProcessMock.mockResolvedValueOnce({
+      exitCode: null,
+      signal: "SIGTERM",
+      timedOut: true,
+      stdout: [
+        JSON.stringify({ type: "text", data: "partial" }),
+        JSON.stringify({ type: "end", stopReason: "cancelled", sessionId: "sess-timeout", requestId: "req-1" }),
+      ].join("\n"),
+      stderr: "",
+    });
+
+    const result = await execute({
+      runId: "run-timeout",
+      agent: {
+        id: "agent-1",
+        companyId: "company-1",
+        name: "Grok Agent",
+        adapterType: "grok_local",
+        adapterConfig: {},
+      },
+      runtime: {
+        sessionId: null,
+        sessionParams: null,
+        sessionDisplayId: null,
+        taskKey: null,
+      },
+      config: { cwd: root, timeoutSec: 30 },
+      context: {},
+      authToken: "run-token",
+      onLog: async () => {},
+    });
+
+    expect(result.timedOut).toBe(true);
+    expect(result.errorCode).toBe("timeout");
+    expect(result.errorMessage).toContain("Timed out after 30s");
+    expect(result.sessionId).toBe("sess-timeout");
   });
 
   it("cleans up staged assets when setup fails before the Grok process starts", async () => {
