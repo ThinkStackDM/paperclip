@@ -26,8 +26,19 @@ if [ "${AVAIL_KB:-0}" -lt "$MIN_KB" ]; then
 fi
 
 if [ ! -x "$PY" ]; then
-  echo "[setup-local] creating venv at $VENV"
-  python3 -m venv "$VENV"
+  # mflux needs Python 3.10+ (PEP 604 unions). macOS system python3 is 3.9,
+  # so pick the newest supported interpreter we can find (avoid 3.14 — torch
+  # wheels lag the newest release).
+  PYBIN=""
+  for cand in python3.13 python3.12 python3.11 python3.10; do
+    if command -v "$cand" >/dev/null 2>&1; then PYBIN="$cand"; break; fi
+  done
+  if [ -z "$PYBIN" ]; then
+    echo "[setup-local] ERROR: need Python 3.10-3.13; install one (e.g. 'brew install python@3.11')." >&2
+    exit 1
+  fi
+  echo "[setup-local] creating venv at $VENV using $PYBIN ($($PYBIN --version 2>&1))"
+  "$PYBIN" -m venv "$VENV"
 fi
 
 echo "[setup-local] upgrading pip"

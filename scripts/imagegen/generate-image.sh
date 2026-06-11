@@ -46,7 +46,7 @@ or set IMAGE_PROVIDER=cloudflare with CF_IMAGE_API_TOKEN (and CF_ACCOUNT_ID).
 MSG
       exit 3
     fi
-    exec "$HERE/local-image.sh" "$PROMPT" "$OUTFILE" "${EXTRA_ARGS[@]}"
+    exec "$HERE/local-image.sh" "$PROMPT" "$OUTFILE" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
     ;;
 
   cloudflare)

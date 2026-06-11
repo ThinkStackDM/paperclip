@@ -26,7 +26,9 @@ OUTFILE="${2:-}"
 if [ "$#" -ge 2 ]; then shift 2; else set --; fi
 
 STEPS="${MLX_STEPS:-2}"
-SIZE="${MLX_SIZE:-1024x1024}"
+# 768x768 default keeps unified-memory use modest while the Paperclip fleet is
+# running on the same machine. Override with MLX_SIZE=1024x1024 when idle.
+SIZE="${MLX_SIZE:-768x768}"
 SEED="${MLX_SEED:-42}"
 MODEL="${MLX_MODEL:-schnell}"
 # Default to an UNGATED, Apache-2.0, mflux-format 4-bit FLUX.1-schnell mirror.
@@ -60,6 +62,8 @@ HEIGHT="${SIZE#*x}"
 
 # mflux-generate writes to --output; it downloads the model on first run.
 # HF_HUB_ENABLE_HF_TRANSFER speeds up the one-time weight download.
+# --low-ram keeps peak unified-memory use down so generation succeeds while the
+# Paperclip fleet shares the GPU. MLX_CACHE_GB caps the MLX buffer cache.
 HF_HUB_ENABLE_HF_TRANSFER=1 "$GEN" \
   --model "$MODEL_REPO" \
   --base-model "$MODEL" \
@@ -68,6 +72,8 @@ HF_HUB_ENABLE_HF_TRANSFER=1 "$GEN" \
   --height "$HEIGHT" \
   --width "$WIDTH" \
   --seed "$SEED" \
+  --low-ram \
+  --mlx-cache-limit-gb "${MLX_CACHE_GB:-2}" \
   --output "$OUTFILE" \
   || { echo "ERROR: mflux generation failed" >&2; exit 4; }
 
