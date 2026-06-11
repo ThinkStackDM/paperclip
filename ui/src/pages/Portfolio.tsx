@@ -47,7 +47,15 @@ type SprintWindowInfo = {
   activeNow: boolean;
   paused: boolean;
   fromServer: boolean;
+  /** Local "HH:00 Dublin" the window next opens, shown while the company is dormant. */
+  opensAtLabel: string | null;
 };
+
+/** "HH:00" for a window start hour (e.g. 12 -> "12:00"), or null when unknown. */
+function formatWindowOpensAt(startHour: number | null | undefined): string | null {
+  if (startHour == null || !Number.isFinite(startHour)) return null;
+  return `${String(startHour % 24).padStart(2, "0")}:00`;
+}
 
 function dublinHour(now: Date = new Date()): number {
   return Number(
@@ -83,11 +91,12 @@ function resolveSprintWindow(company: Company, hour: number): SprintWindowInfo {
         : company.activityWindowState?.open !== false,
       paused,
       fromServer: true,
+      opensAtLabel: formatWindowOpensAt(company.activityWindow.startHour),
     };
   }
   if (typeof company.activeNow === "boolean") {
     // Server data, but no window configured: always-on unless paused.
-    return { label, window: "always-on", activeNow: company.activeNow, paused, fromServer: true };
+    return { label, window: "always-on", activeNow: company.activeNow, paused, fromServer: true, opensAtLabel: null };
   }
   if (fallback) {
     return {
@@ -96,9 +105,10 @@ function resolveSprintWindow(company: Company, hour: number): SprintWindowInfo {
       activeNow: !paused && isFallbackSprintWindowActive(fallback, hour),
       paused,
       fromServer: false,
+      opensAtLabel: formatWindowOpensAt(fallback.startHour),
     };
   }
-  return { label, window: "always-on", activeNow: !paused, paused, fromServer: false };
+  return { label, window: "always-on", activeNow: !paused, paused, fromServer: false, opensAtLabel: null };
 }
 
 function isSameLocalDay(value: Date | string, now: Date): boolean {
@@ -219,7 +229,18 @@ function CompanyCard({ data }: { data: CompanyPortfolioData }) {
               className="ml-auto h-2 w-2 shrink-0 animate-pulse rounded-full bg-green-500"
               title={`Sprint window active now (${sprintWindow.window} Dublin)`}
             />
-          ) : null}
+          ) : (
+            // Dormant outside its sprint window: agents aren't scheduled now (no
+            // queued pile-up); pending work sits as todo issues until it reopens.
+            <span
+              className="ml-auto shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+              title={`Outside sprint window (${sprintWindow.window} Dublin) — agents are dormant${
+                sprintWindow.opensAtLabel ? `, reopens at ${sprintWindow.opensAtLabel} Dublin` : ""
+              }`}
+            >
+              {sprintWindow.opensAtLabel ? `dormant · opens ${sprintWindow.opensAtLabel}` : "dormant"}
+            </span>
+          )}
         </div>
         <div className="grid grid-cols-4 gap-1">
           {OPEN_STATUS_ORDER.map((status) => (

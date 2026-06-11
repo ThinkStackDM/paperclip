@@ -3,13 +3,15 @@ import path from "node:path";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, getTableColumns, gt, inArray, isNull, lt, lte, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, gt, inArray, isNotNull, isNull, lt, lte, notInArray, or, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   AGENT_DEFAULT_MAX_CONCURRENT_RUNS,
   ISSUE_CONTINUATION_SUMMARY_DOCUMENT_KEY,
   MODEL_PROFILE_KEYS,
+  getActivityWindowState,
   isEnvironmentDriverSupportedForAdapter,
+  parseCompanyActivityWindow,
   type BillingType,
   type EnvironmentLeaseStatus,
   type ExecutionWorkspace,
@@ -28,6 +30,7 @@ import {
   agentWakeupRequests,
   activityLog,
   approvals,
+  companies,
   companySkills as companySkillsTable,
   documentAnnotationComments,
   documentAnnotationThreads,
@@ -68,6 +71,11 @@ import { trackAgentFirstHeartbeat } from "@paperclipai/shared/telemetry";
 import { getTelemetryClient } from "../telemetry.js";
 import { companySkillService } from "./company-skills.js";
 import { budgetService, type BudgetEnforcementScope } from "./budgets.js";
+import {
+  getActivityWindowScheduleSkip,
+  isActivityWindowExemptAgent,
+  runGateService,
+} from "./run-gate.js";
 import { secretService } from "./secrets.js";
 import { resolveDefaultAgentWorkspaceDir, resolveManagedProjectWorkspaceDir } from "../home-paths.js";
 import {
@@ -1425,9 +1433,9 @@ export function buildExplicitResumeSessionOverride(input: {
   taskSession: ResumeSessionRow | null;
   sessionCodec: AdapterSessionCodec;
 }) {
-  const desiredDisplayId = truncateDisplayId(
-    input.resumeRunSessionIdAfter ?? input.resumeRunSessionIdBefore,
-  );
+  const desiredSessionId = readNonEmptyString(input.resumeRunSessionIdAfter) ??
+    readNonEmptyString(input.resumeRunSessionIdBefore);
+  const desiredDisplayId = desiredSessionId; // preserve full Hermes session id for resume overrides (no display truncation)
   const taskSessionParams = normalizeSessionParams(
     input.sessionCodec.deserialize(input.taskSession?.sessionParamsJson ?? null),
   );
@@ -1445,8 +1453,8 @@ export function buildExplicitResumeSessionOverride(input: {
   const sessionParams =
     canReuseTaskSessionParams
       ? taskSessionParams
-      : desiredDisplayId
-        ? { sessionId: desiredDisplayId }
+      : desiredSessionId
+        ? { sessionId: desiredSessionId }
         : null;
   const sessionDisplayId = desiredDisplayId ?? (canReuseTaskSessionParams ? taskSessionDisplayId : null);
 
@@ -2568,6 +2576,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     cancelWorkForScope: cancelBudgetScopeWork,
   };
   const budgets = budgetService(db, budgetHooks);
+  const runGate = runGateService(db);
   const recovery = recoveryService(db, { enqueueWakeup });
   const productivityReviews = productivityReviewService(db, { enqueueWakeup });
   let unsafeTextProjectionPromise: Promise<boolean> | null = null;
@@ -2900,6 +2909,24 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     ].join("\n");
   }
 
+  function monitorRecoveryConsolidationComment(input: {
+    issue: IssueMonitorDispatchRow;
+    clearReason: IssueExecutionMonitorClearReason;
+    nextAttemptCount: number;
+  }) {
+    const label = formatIssueIdentifierLink(input.issue.identifier, input.issue.id);
+    const reason =
+      input.clearReason === "timeout_exceeded"
+        ? "its timeout was reached again"
+        : "its maximum attempt count was reached again";
+    return [
+      `Paperclip consolidated a duplicate external-service monitor recovery alert for ${label} because ${reason}.`,
+      "",
+      `- Attempt count: ${input.nextAttemptCount}`,
+      `- Consolidation: reused the existing open recovery issue instead of waking the owner again`,
+    ].join("\n");
+  }
+
   async function findOpenIssueMonitorRecoveryIssue(claimed: IssueMonitorDispatchRow) {
     return db
       .select()
@@ -2943,6 +2970,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
 
     if (input.recoveryPolicy === "create_recovery_issue") {
       let recoveryIssue = await findOpenIssueMonitorRecoveryIssue(input.claimed);
+      let createdRecoveryIssue = false;
       if (!recoveryIssue) {
         recoveryIssue = await issuesSvc.create(input.claimed.companyId, {
           title: `Recover external-service monitor for ${input.claimed.identifier ?? input.claimed.title}`,
@@ -2964,9 +2992,20 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
           originFingerprint: `issue_monitor:${input.clearReason}`,
           billingCode: input.claimed.billingCode,
         });
+        createdRecoveryIssue = true;
+      } else {
+        await issuesSvc.addComment(
+          recoveryIssue.id,
+          monitorRecoveryConsolidationComment({
+            issue: input.claimed,
+            clearReason: input.clearReason,
+            nextAttemptCount: input.nextAttemptCount,
+          }),
+          { runId: input.runId ?? null },
+        );
       }
 
-      if (recoveryIssue.assigneeAgentId) {
+      if (createdRecoveryIssue && recoveryIssue.assigneeAgentId) {
         await enqueueWakeup(recoveryIssue.assigneeAgentId, {
           source: "automation",
           triggerDetail: "system",
@@ -2997,6 +3036,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
           ...details,
           recoveryIssueId: recoveryIssue.id,
           recoveryIdentifier: recoveryIssue.identifier,
+          consolidated: !createdRecoveryIssue,
         },
       });
       return;
@@ -3405,8 +3445,61 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
 
     let triggered = 0;
     let skipped = 0;
+    let windowSkipped = 0;
+
+    // Skip-at-schedule for closed companies (same policy as the timer scheduler
+    // and the run gate): if the monitored issue's company is outside its activity
+    // window and the assignee agent is not window-exempt, do NOT claim or dispatch
+    // the monitor. Crucially this check runs BEFORE the claim transaction, so
+    // `monitorWakeRequestedAt` / `monitorNextCheckAt` stay untouched and the
+    // monitor remains due — it dispatches normally on the first in-window tick.
+    const monitorCompanyIds = Array.from(
+      new Set(dueMonitors.map((due) => due.companyId).filter((id): id is string => Boolean(id))),
+    );
+    const monitorAgentIds = Array.from(
+      new Set(dueMonitors.map((due) => due.assigneeAgentId).filter((id): id is string => Boolean(id))),
+    );
+    const monitorCompanyById = new Map<string, { name: string; activityWindow: unknown }>();
+    if (monitorCompanyIds.length > 0) {
+      const rows = await db
+        .select({ id: companies.id, name: companies.name, activityWindow: companies.activityWindow })
+        .from(companies)
+        .where(inArray(companies.id, monitorCompanyIds));
+      for (const row of rows) {
+        monitorCompanyById.set(row.id, { name: row.name, activityWindow: row.activityWindow });
+      }
+    }
+    const monitorAgentById = new Map<
+      string,
+      { adapterType: string | null; runtimeConfig: Record<string, unknown> | null }
+    >();
+    if (monitorAgentIds.length > 0) {
+      const rows = await db
+        .select({ id: agents.id, adapterType: agents.adapterType, runtimeConfig: agents.runtimeConfig })
+        .from(agents)
+        .where(inArray(agents.id, monitorAgentIds));
+      for (const row of rows) {
+        monitorAgentById.set(row.id, { adapterType: row.adapterType, runtimeConfig: row.runtimeConfig });
+      }
+    }
 
     for (const due of dueMonitors) {
+      const monitorCompany = due.companyId ? monitorCompanyById.get(due.companyId) : undefined;
+      if (monitorCompany) {
+        const monitorAgent = due.assigneeAgentId ? monitorAgentById.get(due.assigneeAgentId) : undefined;
+        const skip = getActivityWindowScheduleSkip({
+          activityWindow: monitorCompany.activityWindow,
+          adapterType: monitorAgent?.adapterType ?? null,
+          runtimeConfig: monitorAgent?.runtimeConfig ?? null,
+          companyName: monitorCompany.name,
+          now,
+        });
+        if (skip) {
+          windowSkipped += 1;
+          continue;
+        }
+      }
+
       const claimed = await db.transaction(async (tx) => {
         const [updated] = await tx
           .update(issues)
@@ -3457,7 +3550,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     return {
       checked: dueMonitors.length,
       triggered,
-      skipped,
+      skipped: skipped + windowSkipped,
     };
   }
 
@@ -4279,7 +4372,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     return issuesSvc.addComment(
       input.issue.id,
       notice.body,
-      { runId: input.run.id },
+      { agentId: input.agent.id, runId: input.run.id },
       {
         authorType: "system",
         presentation: notice.presentation,
@@ -4303,7 +4396,9 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
         status: issues.status,
         assigneeAgentId: issues.assigneeAgentId,
         assigneeUserId: issues.assigneeUserId,
+        executionPolicy: issues.executionPolicy,
         executionState: issues.executionState,
+        monitorNextCheckAt: issues.monitorNextCheckAt,
         projectId: issues.projectId,
       })
       .from(issues)
@@ -6071,6 +6166,23 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       return null;
     }
 
+    // Run gate (activity windows, pause controls, adapter concurrency caps):
+    // unlike budget blocks below, a gate block DEFERS the run — it stays
+    // queued and the periodic scheduler retries it when the gate opens.
+    const runGateBlock = await runGate.getRunGateBlock({
+      companyId: run.companyId,
+      agentId: run.agentId,
+      adapterType: agent.adapterType,
+      agentRuntimeConfig: parseObject(agent.runtimeConfig),
+    });
+    if (runGateBlock) {
+      logger.debug(
+        { runId: run.id, agentId: run.agentId, kind: runGateBlock.kind, reason: runGateBlock.reason },
+        "claimQueuedRun: run deferred by run gate",
+      );
+      return null;
+    }
+
     const context = parseObject(run.contextSnapshot);
     const budgetBlock = await budgets.getInvocationBlock(run.companyId, run.agentId, {
       issueId: readNonEmptyString(context.issueId),
@@ -6867,6 +6979,103 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     }
   }
 
+  /**
+   * Sprint-end session purge: when a company's activity window closes, clear
+   * the persisted agent task sessions (and legacy runtime session pointers) so
+   * the next sprint starts with a fresh context instead of resuming a bloated
+   * session. Window-exempt agents (paperclip_shell_handler, agents with
+   * runtimeConfig.ignoreActivityWindow) are skipped, as are agents that still
+   * have a run executing — the purge retries on the next sweep until every
+   * eligible agent has been cleared, then records the purge key so the same
+   * closed period is not purged twice.
+   */
+  async function sweepActivityWindowSessionPurges(now = new Date()) {
+    const windowedCompanies = await db
+      .select({
+        id: companies.id,
+        name: companies.name,
+        activityWindow: companies.activityWindow,
+        activityWindowState: companies.activityWindowState,
+      })
+      .from(companies)
+      .where(isNotNull(companies.activityWindow));
+
+    let purgedAgents = 0;
+    const purgedCompanyIds: string[] = [];
+
+    for (const company of windowedCompanies) {
+      const window = parseCompanyActivityWindow(company.activityWindow);
+      if (!window || window.sessionPurgeOnClose === false) continue;
+      const state = getActivityWindowState(window, now);
+      if (state.open || !state.lastChangeAt) continue;
+
+      const purgeKey = state.lastChangeAt.toISOString();
+      const persistedState = parseObject(company.activityWindowState);
+      if (persistedState.lastSessionPurgeKey === purgeKey) continue;
+
+      const companyAgents = await db
+        .select({
+          id: agents.id,
+          adapterType: agents.adapterType,
+          runtimeConfig: agents.runtimeConfig,
+        })
+        .from(agents)
+        .where(eq(agents.companyId, company.id));
+
+      let skippedRunningAgents = 0;
+      for (const agent of companyAgents) {
+        if (
+          isActivityWindowExemptAgent({
+            adapterType: agent.adapterType,
+            runtimeConfig: parseObject(agent.runtimeConfig),
+          })
+        ) {
+          continue;
+        }
+        const runningCount = await countRunningRunsForAgent(agent.id);
+        if (runningCount > 0) {
+          // Don't clear a session a live run may still write back to; the
+          // sweep retries after the run finishes.
+          skippedRunningAgents += 1;
+          continue;
+        }
+        await clearTaskSessions(company.id, agent.id);
+        await db
+          .update(agentRuntimeState)
+          .set({ sessionId: null, updatedAt: new Date() })
+          .where(eq(agentRuntimeState.agentId, agent.id));
+        purgedAgents += 1;
+      }
+
+      if (skippedRunningAgents > 0) continue;
+
+      await db
+        .update(companies)
+        .set({
+          activityWindowState: {
+            ...persistedState,
+            lastSessionPurgeKey: purgeKey,
+            lastSessionPurgeAt: now.toISOString(),
+          },
+          updatedAt: new Date(),
+        })
+        .where(eq(companies.id, company.id));
+      purgedCompanyIds.push(company.id);
+
+      await logActivity(db, {
+        companyId: company.id,
+        actorType: "system",
+        actorId: "run_gate",
+        action: "company.sprint_session_purge",
+        entityType: "company",
+        entityId: company.id,
+        details: { purgeKey, windowTimezone: window.timezone },
+      });
+    }
+
+    return { companies: purgedCompanyIds.length, companyIds: purgedCompanyIds, agents: purgedAgents };
+  }
+
   async function reconcileStrandedAssignedIssues() {
     return recovery.reconcileStrandedAssignedIssues();
   }
@@ -7200,7 +7409,6 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     );
     const previousSessionParams =
       explicitResumeSessionParams ??
-      (explicitResumeSessionDisplayId ? { sessionId: explicitResumeSessionDisplayId } : null) ??
       normalizeSessionParams(sessionCodec.deserialize(taskSessionForRun?.sessionParamsJson ?? null));
     const config = parseObject(agent.adapterConfig);
     const requestedExecutionWorkspaceMode = resolveExecutionWorkspaceMode({
@@ -7943,6 +8151,21 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
           },
         });
       };
+      const onEvent = async (event: {
+        eventType: string;
+        stream?: string;
+        level?: string;
+        message?: string;
+        payload?: Record<string, unknown>;
+      }) => {
+        await appendRunEvent(run, seq++, {
+          eventType: event.eventType,
+          stream: event.stream ?? "system",
+          level: event.level ?? "info",
+          message: event.message ?? "",
+          payload: event.payload,
+        });
+      };
       if (runScopedMentionedSkillKeys.length > 0) {
         await onLog(
           "stdout",
@@ -8072,6 +8295,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
             ? { remoteExecution: remoteExecution as unknown as Record<string, unknown> }
             : undefined,
           onLog,
+          onEvent,
           onMeta: onAdapterMeta,
           onSpawn: async (meta) => {
             await persistRunProcessMetadata(run.id, {
@@ -10192,6 +10416,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     retryScheduledRetryNow,
 
     resumeQueuedRuns,
+    sweepActivityWindowSessionPurges,
 
     scheduleBoundedRetry: async (
       runId: string,
@@ -10228,6 +10453,35 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       let checked = 0;
       let enqueued = 0;
       let skipped = 0;
+      let windowSkipped = 0;
+
+      // Skip-at-schedule for closed companies: a company outside its activity
+      // window should go cleanly DORMANT rather than accumulate queued runs that
+      // the run gate defers every tick (which reads as "frozen"). We fetch the
+      // activity windows for every company that owns a due agent once per tick,
+      // then suppress the scheduled wakeup at the source using the SAME window +
+      // exemption rules as the run gate. This deliberately does NOT advance the
+      // agent's lastHeartbeatAt / due-time, so the agent stays due and the first
+      // in-window tick enqueues it normally (resume correctness). Shell-handler
+      // / compiler adapters and runtimeConfig.ignoreActivityWindow agents are
+      // exempt and continue to run while their company is closed.
+      const companyIds = Array.from(
+        new Set(allAgents.map((agent) => agent.companyId).filter((id): id is string => Boolean(id))),
+      );
+      const companyWindowById = new Map<string, { name: string; activityWindow: unknown }>();
+      if (companyIds.length > 0) {
+        const companyRows = await db
+          .select({
+            id: companies.id,
+            name: companies.name,
+            activityWindow: companies.activityWindow,
+          })
+          .from(companies)
+          .where(inArray(companies.id, companyIds));
+        for (const row of companyRows) {
+          companyWindowById.set(row.id, { name: row.name, activityWindow: row.activityWindow });
+        }
+      }
 
       for (const agent of allAgents) {
         if (agent.status === "paused" || agent.status === "terminated" || agent.status === "pending_approval") continue;
@@ -10238,6 +10492,24 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
         const baseline = new Date(agent.lastHeartbeatAt ?? agent.createdAt).getTime();
         const elapsedMs = now.getTime() - baseline;
         if (elapsedMs < policy.intervalSec * 1000) continue;
+
+        // Suppress scheduled wakeups for a company that is currently outside its
+        // activity window (unless the agent is window-exempt). Leaves due-time
+        // untouched so the agent re-enqueues normally once the window opens.
+        const company = agent.companyId ? companyWindowById.get(agent.companyId) : undefined;
+        if (company) {
+          const skip = getActivityWindowScheduleSkip({
+            activityWindow: company.activityWindow,
+            adapterType: agent.adapterType,
+            runtimeConfig: agent.runtimeConfig,
+            companyName: company.name,
+            now,
+          });
+          if (skip) {
+            windowSkipped += 1;
+            continue;
+          }
+        }
 
         const run = await enqueueWakeup(agent.id, {
           source: "timer",
@@ -10261,6 +10533,10 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
         checked: checked + issueMonitors.checked,
         enqueued: enqueued + issueMonitors.triggered,
         skipped: skipped + issueMonitors.skipped,
+        // Agents left dormant this tick because their company is outside its
+        // activity window (not enqueued, due-time untouched, will re-enqueue
+        // when the window opens).
+        windowSkipped,
       };
     },
 

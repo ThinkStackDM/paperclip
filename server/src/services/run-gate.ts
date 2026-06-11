@@ -153,6 +153,55 @@ export function isActivityWindowExemptAgent(input: {
   return input.runtimeConfig?.[IGNORE_ACTIVITY_WINDOW_RUNTIME_CONFIG_KEY] === true;
 }
 
+export interface ActivityWindowScheduleSkip {
+  /** Human-readable reason, mirrors the run-gate's outside_activity_window text. */
+  reason: string;
+  /** When the window next opens (the boundary at which the agent should be re-enqueued). */
+  nextChangeAt: Date | null;
+}
+
+/**
+ * Skip-at-schedule companion to the run gate's `outside_activity_window` block.
+ *
+ * The run gate is a DEFER-and-retry choke point: an out-of-window run is left
+ * queued and re-evaluated every tick, so scheduled wakeups for a closed company
+ * pile up and read as "frozen". This helper lets the *scheduler* suppress those
+ * automated wakeups at the source — if it returns non-null, the caller must NOT
+ * enqueue the run, so nothing queues in the first place.
+ *
+ * It reuses the EXACT same window + exemption rules as `getRunGateBlock`:
+ *   - shell-handler / compiler adapters (ACTIVITY_WINDOW_EXEMPT_ADAPTER_TYPES)
+ *     and `runtimeConfig.ignoreActivityWindow` agents are exempt -> never skipped
+ *     (they run the around-window handshake/liveness and the hourly evals).
+ *   - a company with no window, or one whose window is currently open, is never
+ *     skipped.
+ *
+ * Importantly this does NOT touch the agent's due-time / lastHeartbeatAt: a
+ * skipped tick leaves the agent due, so the first in-window tick enqueues it
+ * normally. The run-gate `outside_activity_window` defer remains as a safety net
+ * for any run created via another path.
+ */
+export function getActivityWindowScheduleSkip(input: {
+  activityWindow: unknown;
+  adapterType: string | null | undefined;
+  runtimeConfig: Record<string, unknown> | null | undefined;
+  companyName?: string | null;
+  now?: Date;
+}): ActivityWindowScheduleSkip | null {
+  const window = parseCompanyActivityWindow(input.activityWindow);
+  if (!window) return null;
+  if (isActivityWindowExemptAgent({ adapterType: input.adapterType, runtimeConfig: input.runtimeConfig })) {
+    return null;
+  }
+  const state = getActivityWindowState(window, input.now ?? new Date());
+  if (state.open) return null;
+  const label = input.companyName ? `Company ${input.companyName}` : "Company";
+  return {
+    reason: `${label} is outside its sprint window; scheduled wakeup skipped until it opens at ${formatActivityWindowOpensAt(window)}.`,
+    nextChangeAt: state.nextChangeAt,
+  };
+}
+
 export interface CompanyRunGateStatus {
   activityWindow: CompanyActivityWindow | null;
   activityWindowState: CompanyActivityWindowState | null;

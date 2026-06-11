@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@/lib/router";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { companiesApi } from "../api/companies";
 import { dashboardApi } from "../api/dashboard";
 import { activityApi } from "../api/activity";
 import { accessApi } from "../api/access";
@@ -20,7 +21,8 @@ import { ActivityRow } from "../components/ActivityRow";
 import { Identity } from "../components/Identity";
 import { timeAgo } from "../lib/timeAgo";
 import { cn, formatCents } from "../lib/utils";
-import { Bot, CircleDot, DollarSign, ShieldCheck, LayoutDashboard, PauseCircle } from "lucide-react";
+import { Bot, CircleDot, DollarSign, Play, ShieldCheck, LayoutDashboard, PauseCircle } from "lucide-react";
+import { Button } from "../components/ui/button";
 import { ActiveAgentsPanel } from "../components/ActiveAgentsPanel";
 import { ChartCard, RunActivityChart, PriorityChart, IssueStatusChart, SuccessRateChart } from "../components/ActivityCharts";
 import { PageSkeleton } from "../components/PageSkeleton";
@@ -38,10 +40,25 @@ export function Dashboard() {
   const { selectedCompanyId, companies } = useCompany();
   const { openOnboarding } = useDialogActions();
   const { setBreadcrumbs } = useBreadcrumbs();
+  const queryClient = useQueryClient();
   const [animatedActivityIds, setAnimatedActivityIds] = useState<Set<string>>(new Set());
   const seenActivityIdsRef = useRef<Set<string>>(new Set());
   const hydratedActivityRef = useRef(false);
   const activityAnimationTimersRef = useRef<number[]>([]);
+
+  const selectedCompany = companies.find((company) => company.id === selectedCompanyId) ?? null;
+
+  const pauseToggleMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedCompanyId) return null;
+      return selectedCompany?.paused
+        ? companiesApi.resumeRuns(selectedCompanyId)
+        : companiesApi.pauseRuns(selectedCompanyId, "Paused from company dashboard");
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.companies.all });
+    },
+  });
 
   const { data: agents } = useQuery({
     queryKey: queryKeys.agents.list(selectedCompanyId!),
@@ -196,6 +213,61 @@ export function Dashboard() {
   return (
     <div className="space-y-6">
       {error && <p className="text-sm text-destructive">{error.message}</p>}
+
+      {selectedCompany && (
+        <div className="flex flex-wrap items-center gap-2.5 rounded-md border border-border bg-card px-4 py-2.5">
+          <h1 className="truncate text-xl font-bold leading-tight">{selectedCompany.name}</h1>
+          {selectedCompany.paused ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-orange-500/15 px-2 py-0.5 text-xs font-medium text-orange-400">
+              <PauseCircle className="h-3.5 w-3.5" />
+              Runs paused
+              {selectedCompany.runPause?.reason ? ` · ${selectedCompany.runPause.reason}` : ""}
+            </span>
+          ) : selectedCompany.activityWindow ? (
+            <span
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium",
+                selectedCompany.activityWindowState?.open
+                  ? "bg-green-500/15 text-green-400"
+                  : "bg-muted text-muted-foreground",
+              )}
+              title={`Sprint window in ${selectedCompany.activityWindow.timezone}`}
+            >
+              <CircleDot className="h-3.5 w-3.5" />
+              Sprint {String(selectedCompany.activityWindow.startHour).padStart(2, "0")}:00–
+              {String(selectedCompany.activityWindow.endHour).padStart(2, "0")}:00{" "}
+              {selectedCompany.activityWindow.timezone.split("/").pop()?.replaceAll("_", " ")}
+              {" · "}
+              {selectedCompany.activityWindowState?.open
+                ? "open"
+                : `dormant · opens ${String(selectedCompany.activityWindow.startHour).padStart(2, "0")}:00`}
+            </span>
+          ) : (
+            <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+              Always active
+            </span>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="ml-auto"
+            disabled={pauseToggleMutation.isPending}
+            onClick={() => pauseToggleMutation.mutate()}
+          >
+            {selectedCompany.paused ? (
+              <>
+                <Play className="size-4" />
+                Resume runs
+              </>
+            ) : (
+              <>
+                <PauseCircle className="size-4" />
+                Pause runs
+              </>
+            )}
+          </Button>
+        </div>
+      )}
 
       {hasNoAgents && (
         <div className="flex items-center justify-between gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-500/25 dark:bg-amber-950/60">
