@@ -85,13 +85,7 @@ function trimToLatestUsagePanel(text: string): string | null {
   return tail;
 }
 
-async function readClaudeTokenFromFile(credPath: string): Promise<string | null> {
-  let raw: string;
-  try {
-    raw = await fs.readFile(credPath, "utf8");
-  } catch {
-    return null;
-  }
+function extractClaudeTokenFromCredentialsJson(raw: string): string | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -104,6 +98,37 @@ async function readClaudeTokenFromFile(credPath: string): Promise<string | null>
   if (typeof oauth !== "object" || oauth === null) return null;
   const token = (oauth as Record<string, unknown>)["accessToken"];
   return typeof token === "string" && token.length > 0 ? token : null;
+}
+
+async function readClaudeTokenFromFile(credPath: string): Promise<string | null> {
+  let raw: string;
+  try {
+    raw = await fs.readFile(credPath, "utf8");
+  } catch {
+    return null;
+  }
+  return extractClaudeTokenFromCredentialsJson(raw);
+}
+
+/**
+ * On macOS, Claude Code stores its OAuth credentials in the login keychain
+ * (generic password "Claude Code-credentials") instead of a credentials file.
+ * Read it the same way the CLI does so the direct usage-API path works without
+ * falling back to the slow, timing-fragile interactive `/usage` probe.
+ */
+async function readClaudeTokenFromKeychain(): Promise<string | null> {
+  if (process.platform !== "darwin") return null;
+  try {
+    const { stdout } = await execFileAsync(
+      "security",
+      ["find-generic-password", "-s", "Claude Code-credentials", "-w"],
+      { timeout: 5_000, maxBuffer: 1024 * 1024 },
+    );
+    return extractClaudeTokenFromCredentialsJson(stdout.trim());
+  } catch {
+    // Keychain entry absent or keychain locked — fall through to other sources.
+    return null;
+  }
 }
 
 interface ClaudeAuthStatus {
@@ -143,7 +168,7 @@ export async function readClaudeToken(): Promise<string | null> {
     const token = await readClaudeTokenFromFile(path.join(configDir, filename));
     if (token) return token;
   }
-  return null;
+  return readClaudeTokenFromKeychain();
 }
 
 interface AnthropicUsageWindow {

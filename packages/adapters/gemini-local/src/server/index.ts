@@ -6,8 +6,20 @@ export {
   isGeminiUnknownSessionError,
   describeGeminiFailure,
   detectGeminiAuthRequired,
+  detectGeminiQuotaExhausted,
   isGeminiTurnLimitResult,
 } from "./parse.js";
+export {
+  getQuotaWindows,
+  fetchGeminiCodeAssistQuota,
+  mapGeminiQuotaBuckets,
+  buildGeminiReactiveWindows,
+  readGeminiOAuthCreds,
+  geminiConfigDir,
+  GEMINI_QUOTA_SOURCE_CODE_ASSIST,
+  GEMINI_QUOTA_SOURCE_HEARTBEAT_ESTIMATE,
+} from "./quota.js";
+export type { GeminiQuotaRunSample, GeminiReactiveOptions, GeminiCodeAssistQuota } from "./quota.js";
 import type { AdapterSessionCodec } from "@paperclipai/adapter-utils";
 
 function readNonEmptyString(value: unknown): string | null {

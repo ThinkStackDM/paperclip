@@ -53,7 +53,12 @@ PY
 
 if [ "$HTTP_CODE" != "200" ]; then
   echo "ERROR: Gemini API returned HTTP $HTTP_CODE for model $MODEL" >&2
-  python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print(d.get('error',{}).get('message','(no error message)'),file=sys.stderr)" "$RESP" 2>/dev/null || head -c 400 "$RESP" >&2
+  # NB: don't 2>/dev/null the whole python command — the intended message goes
+  # to stderr too, so that silently swallowed the API's error detail.
+  if ! ERR_MSG=$(python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print(d.get('error',{}).get('message','(no error message)'))" "$RESP" 2>/dev/null); then
+    ERR_MSG=$(head -c 400 "$RESP")
+  fi
+  echo "$ERR_MSG" >&2
   exit 4
 fi
 
