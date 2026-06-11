@@ -126,6 +126,7 @@ import { PageSkeleton } from "@/components/PageSkeleton";
 import { Identity } from "@/components/Identity";
 import { IssueReferencePill } from "@/components/IssueReferencePill";
 import { MembershipAction } from "@/components/MembershipAction";
+import { ThinkStackLogo } from "@/components/ThinkStackLogo";
 
 /* ------------------------------------------------------------------ */
 /*  Section wrapper                                                    */
@@ -389,6 +390,29 @@ export function DesignGuide() {
             <Badge variant="destructive">Destructive</Badge>
             <Badge variant="ghost">Ghost</Badge>
           </div>
+        </SubSection>
+      </Section>
+
+      {/* ============================================================ */}
+      {/*  BRAND                                                        */}
+      {/* ============================================================ */}
+      <Section title="Brand">
+        <SubSection title="ThinkStackLogo (16 / 24 / 36 / 48)">
+          <div className="flex items-end gap-4 rounded-lg bg-neutral-950 p-4">
+            <ThinkStackLogo size={16} />
+            <ThinkStackLogo size={24} />
+            <ThinkStackLogo size={36} />
+            <ThinkStackLogo size={48} />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Inline SVG approximation of the ThinkStack mark. Used as the Portfolio nav icon and page
+            header. The matching accent ramp is{" "}
+            <span className="font-mono">#e85d4a → #f5a623 → #f7d038 → #5cb85c</span>:
+          </p>
+          <div
+            className="h-1 w-48 rounded-full"
+            style={{ background: "linear-gradient(90deg, #e85d4a, #f5a623, #f7d038, #5cb85c)" }}
+          />
         </SubSection>
       </Section>
 

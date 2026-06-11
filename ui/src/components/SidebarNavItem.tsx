@@ -2,12 +2,13 @@ import { NavLink } from "@/lib/router";
 import { SIDEBAR_SCROLL_RESET_STATE } from "../lib/navigation-scroll";
 import { cn } from "../lib/utils";
 import { useSidebar } from "../context/SidebarContext";
-import type { LucideIcon } from "lucide-react";
+import type { ComponentType } from "react";
 
 interface SidebarNavItemProps {
   to: string;
   label: string;
-  icon: LucideIcon;
+  /** Lucide icon or any component that renders from a className (e.g. ThinkStackLogo). */
+  icon: ComponentType<{ className?: string }>;
   end?: boolean;
   className?: string;
   badge?: number;

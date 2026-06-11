@@ -72,6 +72,9 @@ export function Issues() {
     return urlSearch;
   }, [searchOverride, urlSearch, location.search]);
   const participantAgentId = searchParams.get("participantAgentId") ?? undefined;
+  // `?noise=show` deep links (e.g. the Portfolio noise ledger) open with the
+  // coordination-noise filter off so the hidden traffic is visible.
+  const initialHideNoiseIssues = searchParams.get("noise") === "show" ? false : undefined;
   const initialWorkspaces = searchParams.getAll("workspace").filter((workspaceId) => workspaceId.length > 0);
   const workspaceIdFilter = initialWorkspaces.length === 1 ? initialWorkspaces[0] : undefined;
   const handleSearchChange = useCallback((search: string) => {
@@ -192,6 +195,7 @@ export function Issues() {
       initialAssignees={searchParams.get("assignee") ? [searchParams.get("assignee")!] : undefined}
       initialWorkspaces={initialWorkspaces.length > 0 ? initialWorkspaces : undefined}
       initialSearch={syncedSearch}
+      initialHideNoiseIssues={initialHideNoiseIssues}
       onSearchChange={handleSearchChange}
       enableRoutineVisibilityFilter
       hasMoreIssues={hasMoreServerIssues}

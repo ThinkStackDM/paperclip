@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { PluginSlotOutlet } from "@/plugins/slots";
 import { PluginLauncherOutlet } from "@/plugins/launchers";
 import { SidebarCompanyMenu } from "./SidebarCompanyMenu";
+import { ThinkStackLogo } from "./ThinkStackLogo";
 
 export function Sidebar() {
   const { openNewIssue } = useDialogActions();
@@ -83,6 +84,7 @@ export function Sidebar() {
             <span className="truncate">New Issue</span>
           </button>
           <SidebarNavItem to="/dashboard" label="Dashboard" icon={LayoutDashboard} liveCount={liveRunCount} />
+          <SidebarNavItem to="/portfolio" label="Portfolio" icon={ThinkStackLogo} />
           <SidebarNavItem
             to="/inbox"
             label="Inbox"

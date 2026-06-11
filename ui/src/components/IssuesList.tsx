@@ -208,11 +208,15 @@ function getInitialWorkspaceViewState(
   initialAssignees?: string[],
   initialWorkspaces?: string[],
   defaultSortField?: IssueSortField,
+  initialHideNoiseIssues?: boolean,
 ): IssueViewState {
   const stored = getInitialViewState(key, initialAssignees, defaultSortField);
-  if (!initialWorkspaces) return stored;
+  const base = initialHideNoiseIssues === undefined
+    ? stored
+    : { ...stored, hideNoiseIssues: initialHideNoiseIssues };
+  if (!initialWorkspaces) return base;
   return {
-    ...stored,
+    ...base,
     workspaces: initialWorkspaces,
     statuses: [],
   };
@@ -396,6 +400,8 @@ interface IssuesListProps {
   initialAssignees?: string[];
   initialWorkspaces?: string[];
   initialSearch?: string;
+  /** Overrides the persisted "Hide coordination noise" toggle on mount (e.g. `?noise=show` deep links). */
+  initialHideNoiseIssues?: boolean;
   searchFilters?: Omit<IssueListRequestFilters, "q" | "projectId" | "limit" | "includeRoutineExecutions">;
   searchWithinLoadedIssues?: boolean;
   baseCreateIssueDefaults?: Record<string, unknown>;
@@ -608,6 +614,7 @@ export function IssuesList({
   initialAssignees,
   initialWorkspaces,
   initialSearch,
+  initialHideNoiseIssues,
   searchFilters,
   searchWithinLoadedIssues = false,
   baseCreateIssueDefaults,
@@ -650,7 +657,7 @@ export function IssuesList({
   const initialWorkspacesKey = initialWorkspaces?.join("|") ?? "";
 
   const [viewState, setViewState] = useState<IssueViewState>(() =>
-    getInitialWorkspaceViewState(scopedKey, initialAssignees, initialWorkspaces, defaultSortField),
+    getInitialWorkspaceViewState(scopedKey, initialAssignees, initialWorkspaces, defaultSortField, initialHideNoiseIssues),
   );
   const [assigneePickerIssueId, setAssigneePickerIssueId] = useState<string | null>(null);
   const [assigneeSearch, setAssigneeSearch] = useState("");
@@ -667,14 +674,15 @@ export function IssuesList({
   }, [initialSearch]);
 
   // Reload view state whenever the persisted context changes.
-  const prevViewStateContextKey = useRef(`${scopedKey}::${initialAssigneesKey}::${initialWorkspacesKey}`);
+  const initialHideNoiseIssuesKey = initialHideNoiseIssues === undefined ? "" : String(initialHideNoiseIssues);
+  const prevViewStateContextKey = useRef(`${scopedKey}::${initialAssigneesKey}::${initialWorkspacesKey}::${initialHideNoiseIssuesKey}`);
   useEffect(() => {
-    const nextContextKey = `${scopedKey}::${initialAssigneesKey}::${initialWorkspacesKey}`;
+    const nextContextKey = `${scopedKey}::${initialAssigneesKey}::${initialWorkspacesKey}::${initialHideNoiseIssuesKey}`;
     if (prevViewStateContextKey.current !== nextContextKey) {
       prevViewStateContextKey.current = nextContextKey;
-      setViewState(getInitialWorkspaceViewState(scopedKey, initialAssignees, initialWorkspaces, defaultSortField));
+      setViewState(getInitialWorkspaceViewState(scopedKey, initialAssignees, initialWorkspaces, defaultSortField, initialHideNoiseIssues));
     }
-  }, [scopedKey, initialAssignees, initialAssigneesKey, initialWorkspaces, initialWorkspacesKey, defaultSortField]);
+  }, [scopedKey, initialAssignees, initialAssigneesKey, initialWorkspaces, initialWorkspacesKey, defaultSortField, initialHideNoiseIssues, initialHideNoiseIssuesKey]);
 
   const prevColumnsScopedKey = useRef(scopedKey);
   useEffect(() => {

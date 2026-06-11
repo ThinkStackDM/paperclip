@@ -117,6 +117,16 @@ Wrap multiple EntityRows in a `border border-border rounded-md` container.
 <AgentLaneBadge lane="Codex" />
 ```
 
+### ThinkStackLogo
+
+**File:** `ThinkStackLogo.tsx`
+**Props:** `size?: number` (default 24), `className?`
+**Usage:** Inline SVG approximation of the ThinkStack brand mark (dark rounded tile, white diagonal pickaxe channel, red→orange→yellow→green gradient shapes). Used as the Portfolio sidebar nav icon and the Portfolio page header. The matching accent ramp for underlines/strips is `linear-gradient(90deg, #e85d4a, #f5a623, #f7d038, #5cb85c)` — use sparingly, on the dark Portfolio surface only.
+
+```tsx
+<ThinkStackLogo size={36} />
+```
+
 ### MetricCard
 
 **File:** `MetricCard.tsx`
