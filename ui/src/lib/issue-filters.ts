@@ -1,4 +1,5 @@
 import type { Issue } from "@paperclipai/shared";
+import { isCoordinationNoiseIssue } from "./issue-noise";
 
 export type IssueFilterWorkspaceLookup = {
   mode?: string | null;
@@ -20,6 +21,14 @@ export type IssueFilterState = {
   workspaces: string[];
   liveOnly?: boolean;
   hideRoutineExecutions: boolean;
+  /**
+   * Hides machine-generated coordination noise (synthetic probes, watchdog
+   * fires — see issue-noise.ts). Defaults to ON so high-volume views stay
+   * scannable; views surface a "N hidden" count so nothing disappears
+   * silently. Only applied where `enableRoutineVisibilityFilter` is set
+   * (the all-issues views).
+   */
+  hideNoiseIssues: boolean;
 };
 
 export const defaultIssueFilterState: IssueFilterState = {
@@ -32,6 +41,7 @@ export const defaultIssueFilterState: IssueFilterState = {
   workspaces: [],
   liveOnly: false,
   hideRoutineExecutions: false,
+  hideNoiseIssues: true,
 };
 
 export const issueStatusOrder = ["in_progress", "todo", "backlog", "in_review", "blocked", "done", "cancelled"];
@@ -73,6 +83,8 @@ export function normalizeIssueFilterState(value: unknown): IssueFilterState {
     workspaces: normalizeIssueFilterValueArray(candidate.workspaces),
     liveOnly: candidate.liveOnly === true,
     hideRoutineExecutions: candidate.hideRoutineExecutions === true,
+    // Missing key (older persisted view states) means default ON.
+    hideNoiseIssues: candidate.hideNoiseIssues !== false,
   };
 }
 
@@ -132,6 +144,9 @@ export function applyIssueFilters(
   }
   if (enableRoutineVisibilityFilter && state.hideRoutineExecutions) {
     result = result.filter((issue) => issue.originKind !== "routine_execution");
+  }
+  if (enableRoutineVisibilityFilter && state.hideNoiseIssues) {
+    result = result.filter((issue) => !isCoordinationNoiseIssue(issue));
   }
   if (state.statuses.length > 0) result = result.filter((issue) => state.statuses.includes(issue.status));
   if (state.priorities.length > 0) result = result.filter((issue) => state.priorities.includes(issue.priority));

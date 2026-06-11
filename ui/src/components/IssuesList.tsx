@@ -69,6 +69,7 @@ import {
   KANBAN_COLUMN_PAGE_SIZE_OPTIONS,
   type KanbanColumnPageSize,
 } from "./KanbanBoard";
+import { isCoordinationNoiseIssue } from "../lib/issue-noise";
 import { buildIssueTree, countDescendants } from "../lib/issue-tree";
 import { buildSubIssueDefaultsForViewer } from "../lib/subIssueDefaults";
 import { statusBadge } from "../lib/status-colors";
@@ -962,7 +963,7 @@ export function IssuesList({
     [boardIssueQueries, searchWithinLoadedIssues, viewState.viewMode],
   );
 
-  const filtered = useMemo(() => {
+  const { filtered, hiddenNoiseCount } = useMemo(() => {
     const useRemoteSearch = normalizedIssueSearch.length > 0 && !searchWithinLoadedIssues;
     const sourceIssues = boardIssues ?? (useRemoteSearch ? searchedIssues : issues);
     const searchScopedIssues = normalizedIssueSearch.length > 0 && searchWithinLoadedIssues
@@ -976,7 +977,22 @@ export function IssuesList({
       liveIssueIds,
       issueFilterWorkspaceContext,
     );
-    return sortIssues(filteredByControls, viewState);
+    // Count what the noise filter alone removed so it is never silently invisible.
+    const noiseFilterActive = enableRoutineVisibilityFilter && viewState.hideNoiseIssues;
+    const hiddenByNoiseFilter = noiseFilterActive
+      ? applyIssueFilters(
+        searchScopedIssues,
+        { ...viewState, hideNoiseIssues: false },
+        currentUserId,
+        enableRoutineVisibilityFilter,
+        liveIssueIds,
+        issueFilterWorkspaceContext,
+      ).length - filteredByControls.length
+      : 0;
+    return {
+      filtered: sortIssues(filteredByControls, viewState),
+      hiddenNoiseCount: hiddenByNoiseFilter,
+    };
   }, [
     boardIssues,
     issues,
@@ -1572,6 +1588,18 @@ export function IssuesList({
           Some board columns are showing up to {ISSUE_BOARD_COLUMN_RESULT_LIMIT} issues. Refine filters or search to reveal the rest.
         </p>
       )}
+      {!isLoading && hiddenNoiseCount > 0 && (
+        <p className="text-xs text-muted-foreground" data-testid="issues-noise-hidden-note">
+          {hiddenNoiseCount} coordination-noise issue{hiddenNoiseCount === 1 ? "" : "s"} hidden.{" "}
+          <button
+            type="button"
+            className="underline underline-offset-2 hover:text-foreground"
+            onClick={() => updateView({ hideNoiseIssues: false })}
+          >
+            Show
+          </button>
+        </p>
+      )}
       {!isLoading && filtered.length === 0 && viewState.viewMode === "list" && (
         <EmptyState
           icon={CircleDot}
@@ -1652,7 +1680,9 @@ export function IssuesList({
                   const issueProject = issue.projectId ? projectById.get(issue.projectId) ?? null : null;
                   const parentIssue = issue.parentId ? issueById.get(issue.parentId) ?? null : null;
                   const issueBadge = issueBadgeById?.get(issue.id);
-                  const isMutedIssue = mutedIssueIds?.has(issue.id) === true;
+                  const isMutedIssue = mutedIssueIds?.has(issue.id) === true
+                    || issue.status === "cancelled"
+                    || isCoordinationNoiseIssue(issue);
                   const assigneeUserProfile = issue.assigneeUserId
                     ? companyUserProfileMap.get(issue.assigneeUserId) ?? null
                     : null;

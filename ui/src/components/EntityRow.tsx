@@ -6,6 +6,8 @@ interface EntityRowProps {
   leading?: ReactNode;
   identifier?: string;
   title: string;
+  /** Rendered after the truncating title, e.g. a small badge. Stays visible when the title truncates. */
+  titleSuffix?: ReactNode;
   subtitle?: string;
   trailing?: ReactNode;
   selected?: boolean;
@@ -19,6 +21,7 @@ export function EntityRow({
   leading,
   identifier,
   title,
+  titleSuffix,
   subtitle,
   trailing,
   selected,
@@ -46,6 +49,7 @@ export function EntityRow({
             </span>
           )}
           <span className="truncate">{title}</span>
+          {titleSuffix}
         </div>
         {(subtitle || reserveSubtitleSpace) && (
           <p

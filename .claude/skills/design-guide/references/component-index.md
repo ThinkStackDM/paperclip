@@ -91,7 +91,7 @@ Supports: critical, high, medium, low. Use alongside StatusIcon in entity row le
 ### EntityRow
 
 **File:** `EntityRow.tsx`
-**Props:** `leading`, `identifier`, `title`, `subtitle?`, `trailing?`, `onClick?`, `selected?`
+**Props:** `leading`, `identifier`, `title`, `titleSuffix?`, `subtitle?`, `trailing?`, `onClick?`, `selected?`
 **Usage:** Standard list row for issues, agents, projects. Supports hover highlight and selected state.
 
 ```tsx
@@ -105,6 +105,17 @@ Supports: critical, high, medium, low. Use alongside StatusIcon in entity row le
 ```
 
 Wrap multiple EntityRows in a `border border-border rounded-md` container.
+`titleSuffix` renders after the truncating title (e.g. a small badge) and stays visible when the title truncates.
+
+### AgentLaneBadge
+
+**File:** `AgentLaneBadge.tsx`
+**Props:** `lane: string`, `className?`
+**Usage:** Small muted pill marking a fallback "sister" lane agent (Agent-Codex/-Grok/-Hermes/-Gemini). Lane detection and grouping helpers live in `lib/agent-lanes.ts` (`getAgentFallbackLane`, `groupAgentFallbackLanes`). Used in the Agents page and sidebar agent list, paired with EntityRow `titleSuffix`.
+
+```tsx
+<AgentLaneBadge lane="Codex" />
+```
 
 ### MetricCard
 

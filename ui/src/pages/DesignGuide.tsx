@@ -116,6 +116,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { StatusIcon } from "@/components/StatusIcon";
 import { PriorityIcon } from "@/components/PriorityIcon";
 import { agentStatusDot, agentStatusDotDefault } from "@/lib/status-colors";
+import { AgentLaneBadge } from "@/components/AgentLaneBadge";
 import { EntityRow } from "@/components/EntityRow";
 import { EmptyState } from "@/components/EmptyState";
 import { MetricCard } from "@/components/MetricCard";
@@ -897,6 +898,36 @@ export function DesignGuide() {
             selected
           />
         </div>
+        <SubSection title="Title suffix (agent fallback lanes)">
+          <div className="border border-border rounded-md">
+            <EntityRow
+              leading={<span className="relative flex h-2.5 w-2.5"><span className="absolute inline-flex h-full w-full rounded-full bg-green-500" /></span>}
+              title="GLaD0S"
+              subtitle="CEO"
+              onClick={() => {}}
+            />
+            <EntityRow
+              leading={<span className="relative flex h-2.5 w-2.5"><span className="absolute inline-flex h-full w-full rounded-full bg-neutral-500" /></span>}
+              title="GLaD0S"
+              titleSuffix={<AgentLaneBadge lane="Codex" />}
+              subtitle="CEO - fallback lane"
+              className="pl-9"
+              onClick={() => {}}
+            />
+            <EntityRow
+              leading={<span className="relative flex h-2.5 w-2.5"><span className="absolute inline-flex h-full w-full rounded-full bg-neutral-500" /></span>}
+              title="GLaD0S"
+              titleSuffix={<AgentLaneBadge lane="Grok" />}
+              subtitle="CEO - fallback lane"
+              className="pl-9"
+              onClick={() => {}}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            `titleSuffix` stays visible when the title truncates. AgentLaneBadge marks fallback sister lanes
+            (lib/agent-lanes.ts detects the -Codex/-Grok/-Hermes/-Gemini suffix); clones indent under their primary.
+          </p>
+        </SubSection>
         <SubSection title="Membership action">
           <div className="border border-border rounded-md">
             <EntityRow

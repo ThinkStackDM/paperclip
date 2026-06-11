@@ -122,7 +122,10 @@ export function IssueRow({
         {recoveryIndicator}
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-1 sm:contents">
-        <span className={cn("line-clamp-2 text-sm sm:order-2 sm:min-w-0 sm:flex-1 sm:truncate sm:line-clamp-none", titleClassName)}>
+        <span
+          className={cn("line-clamp-2 text-sm sm:order-2 sm:min-w-0 sm:flex-1 sm:truncate sm:line-clamp-none", titleClassName)}
+          title={issue.title}
+        >
           {issue.title}{titleSuffix}
         </span>
         {checklistDependencyChips ? (

@@ -31,7 +31,9 @@ import {
   type AgentSidebarSortMode,
   writeAgentSortMode,
 } from "../lib/agent-order";
+import { getAgentFallbackLane, groupAgentFallbackLanes } from "../lib/agent-lanes";
 import { AgentIcon } from "./AgentIconPicker";
+import { AgentLaneBadge } from "./AgentLaneBadge";
 import { BudgetSidebarMarker } from "./BudgetSidebarMarker";
 import { SidebarSection, type SidebarSectionRadioChoice } from "./SidebarSection";
 import { Button } from "@/components/ui/button";
@@ -90,6 +92,7 @@ function SidebarAgentItem({
   onPauseResume,
   runCount,
   setSidebarOpen,
+  nestedUnderPrimary = false,
 }: {
   activeAgentId: string | null;
   activeTab: string | null;
@@ -101,7 +104,9 @@ function SidebarAgentItem({
   onPauseResume: (agent: Agent, action: "pause" | "resume") => void;
   runCount: number;
   setSidebarOpen: (open: boolean) => void;
+  nestedUnderPrimary?: boolean;
 }) {
+  const laneInfo = getAgentFallbackLane(agent.name);
   const routeRef = agentRouteRef(agent);
   const href = activeTab ? `${agentUrl(agent)}/${activeTab}` : agentUrl(agent);
   const editHref = `${agentUrl(agent)}/configuration`;
@@ -124,15 +129,18 @@ function SidebarAgentItem({
         onClick={() => {
           if (isMobile) setSidebarOpen(false);
         }}
+        title={laneInfo ? agent.name : undefined}
         className={cn(
           "flex min-w-0 flex-1 items-center gap-2.5 px-3 py-1.5 pointer-coarse:py-1 pr-8 text-[13px] font-medium transition-colors",
+          nestedUnderPrimary && "pl-7",
           isActive
             ? "bg-accent text-foreground"
             : "text-foreground/80 hover:bg-accent/50 hover:text-foreground"
         )}
       >
         <AgentIcon icon={agent.icon} className="shrink-0 h-3.5 w-3.5 text-muted-foreground" />
-        <span className="flex-1 truncate">{agent.name}</span>
+        <span className="flex-1 truncate">{laneInfo ? laneInfo.base : agent.name}</span>
+        {laneInfo ? <AgentLaneBadge lane={laneInfo.lane} /> : null}
         {(agent.pauseReason === "budget" || runCount > 0) && (
           <span className="ml-auto flex items-center gap-1.5 shrink-0">
             {agent.pauseReason === "budget" ? (
@@ -272,9 +280,16 @@ export function SidebarAgents() {
     companyId: selectedCompanyId,
     userId: currentUserId,
   });
+  // Keep fallback "sister" lanes (Agent-Codex/-Grok/...) grouped directly
+  // under their primary agent regardless of sort mode so the list scans as
+  // one row-cluster per agent instead of scattered clones.
   const sortedAgents = useMemo(
-    () => sortAgents(orderedAgents, sortMode),
+    () => groupAgentFallbackLanes(sortAgents(orderedAgents, sortMode)),
     [orderedAgents, sortMode],
+  );
+  const sortedAgentNames = useMemo(
+    () => new Set(sortedAgents.map((agent) => agent.name)),
+    [sortedAgents],
   );
 
   const agentMatch = location.pathname.match(/^\/(?:[^/]+\/)?agents\/([^/]+)(?:\/([^/]+))?/);
@@ -408,9 +423,11 @@ export function SidebarAgents() {
     >
       {sortedAgents.map((agent: Agent) => {
         const runCount = liveCountByAgent.get(agent.id) ?? 0;
+        const laneInfo = getAgentFallbackLane(agent.name);
         return (
           <SidebarAgentItem
             key={agent.id}
+            nestedUnderPrimary={laneInfo != null && sortedAgentNames.has(laneInfo.base)}
             activeAgentId={activeAgentId}
             activeTab={activeTab}
             agent={agent}

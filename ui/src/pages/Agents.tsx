@@ -9,7 +9,9 @@ import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useSidebar } from "../context/SidebarContext";
 import { queryKeys } from "../lib/queryKeys";
 import { StatusBadge } from "../components/StatusBadge";
+import { AgentLaneBadge } from "../components/AgentLaneBadge";
 import { MembershipAction } from "../components/MembershipAction";
+import { getAgentFallbackLane, groupAgentFallbackLanes } from "../lib/agent-lanes";
 import { agentStatusDot, agentStatusDotDefault } from "../lib/status-colors";
 import { EntityRow } from "../components/EntityRow";
 import { EmptyState } from "../components/EmptyState";
@@ -42,9 +44,11 @@ function matchesFilter(status: string, tab: FilterTab, showTerminated: boolean):
 }
 
 function filterAgents(agents: Agent[], tab: FilterTab, showTerminated: boolean): Agent[] {
-  return agents
-    .filter((a) => matchesFilter(a.status, tab, showTerminated))
-    .sort((a, b) => a.name.localeCompare(b.name));
+  return groupAgentFallbackLanes(
+    agents
+      .filter((a) => matchesFilter(a.status, tab, showTerminated))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+  );
 }
 
 function getConfiguredModel(agent: Agent): string | null {
@@ -233,14 +237,18 @@ export function Agents() {
       {effectiveView === "list" && filtered.length > 0 && (
         <div className="border border-border">
           {filtered.map((agent) => {
+            const laneInfo = getAgentFallbackLane(agent.name);
+            const hasPrimaryInList = laneInfo != null && filtered.some((a) => a.name === laneInfo.base);
             return (
               <EntityRow
                 key={agent.id}
-                title={agent.name}
+                title={laneInfo ? laneInfo.base : agent.name}
+                titleSuffix={laneInfo ? <AgentLaneBadge lane={laneInfo.lane} /> : undefined}
                 subtitle={`${roleLabels[agent.role] ?? agent.role}${agent.title ? ` - ${agent.title}` : ""}`}
                 to={agentUrl(agent)}
                 className={cn(
                   "group",
+                  hasPrimaryInList ? "pl-9" : "",
                   agent.pausedAt && tab !== "paused" ? "opacity-50" : "",
                   resourceMembershipState(membershipsQuery.data, "agent", agent.id) === "left" ? "text-foreground/55" : "",
                 )}
@@ -387,6 +395,7 @@ function OrgTreeNode({
     membershipMutation.variables.resourceId === node.id;
 
   const statusColor = agentStatusDot[node.status] ?? agentStatusDotDefault;
+  const laneInfo = getAgentFallbackLane(node.name);
 
   return (
     <div style={{ paddingLeft: depth * 24 }}>
@@ -402,7 +411,10 @@ function OrgTreeNode({
           <span className={`absolute inline-flex h-full w-full rounded-full ${statusColor}`} />
         </span>
         <div className="flex-1 min-w-0">
-          <span className="text-sm font-medium">{node.name}</span>
+          <span className="text-sm font-medium" title={laneInfo ? node.name : undefined}>
+            {laneInfo ? laneInfo.base : node.name}
+          </span>
+          {laneInfo ? <AgentLaneBadge lane={laneInfo.lane} className="ml-1.5 align-middle" /> : null}
           <span className="text-xs text-muted-foreground ml-2">
             {roleLabels[node.role] ?? node.role}
             {agent?.title ? ` - ${agent.title}` : ""}

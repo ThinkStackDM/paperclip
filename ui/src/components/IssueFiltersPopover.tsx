@@ -362,6 +362,18 @@ export function IssueFiltersPopover({
                     <span className="text-sm">Hide routine runs</span>
                   </label>
                 ) : null}
+                {enableRoutineVisibilityFilter ? (
+                  <label
+                    className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1 hover:bg-accent/50"
+                    title="Hides synthetic probes and watchdog traffic (Mission Control Inbound, token-burn watchdog, ack-sweep, productivity reviews, ...)"
+                  >
+                    <Checkbox
+                      checked={state.hideNoiseIssues}
+                      onCheckedChange={(checked) => onChange({ hideNoiseIssues: checked === true })}
+                    />
+                    <span className="text-sm">Hide coordination noise</span>
+                  </label>
+                ) : null}
               </div>
             </div>
           </div>
