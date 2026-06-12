@@ -2706,6 +2706,14 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
         continue;
       }
 
+      // (Dormancy skip removed here: enqueueWakeup now carries a central dormancy
+      // guard that skips all automated wakes — including this stranded-issue
+      // reconcile, which dispatches via enqueueWakeup with triggerDetail "system"
+      // / requestedByActorType "system" — when the company is outside its sprint
+      // window. Re-deriving window state here was redundant. Exempt agents
+      // (shell handlers / ignoreActivityWindow) are still dispatched, since the
+      // central guard reuses isActivityWindowExemptAgent.)
+
       if (await hasActiveExecutionPath(issue.companyId, issue.id)) {
         result.skipped += 1;
         continue;

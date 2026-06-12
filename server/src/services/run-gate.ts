@@ -58,6 +58,15 @@ export interface RunGateAgentContext {
   /** Optional pre-fetched agent fields to avoid a redundant query. */
   adapterType?: string | null;
   agentRuntimeConfig?: Record<string, unknown> | null;
+  /**
+   * True when this run was started by a manual operator override (the
+   * /heartbeat/invoke or /wakeup endpoints, which stamp triggerDetail "manual").
+   * Such runs bypass the `outside_activity_window` defer so an operator can wake
+   * a dormant company on demand — mirroring the enqueue-time dormancy guard,
+   * which also lets manual wakes through. Explicit pauses (instance / adapter /
+   * company / emergency stop) and concurrency caps still apply.
+   */
+  isManualOverride?: boolean;
   now?: Date;
 }
 
@@ -304,7 +313,11 @@ export function runGateService(db: Db) {
       }
 
       const window = parseCompanyActivityWindow(company.activityWindow);
-      if (window && !isActivityWindowExemptAgent({ adapterType, runtimeConfig })) {
+      if (
+        window
+        && !input.isManualOverride
+        && !isActivityWindowExemptAgent({ adapterType, runtimeConfig })
+      ) {
         const state = getActivityWindowState(window, now);
         if (!state.open) {
           return {

@@ -6169,11 +6169,18 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     // Run gate (activity windows, pause controls, adapter concurrency caps):
     // unlike budget blocks below, a gate block DEFERS the run — it stays
     // queued and the periodic scheduler retries it when the gate opens.
+    // A manual operator override (triggerDetail "manual" from the
+    // /heartbeat/invoke and /wakeup endpoints) bypasses the activity-window
+    // defer so the operator can wake a dormant company on demand — symmetric
+    // with the enqueue-time dormancy guard, which lets manual wakes through.
+    // Explicit pauses + concurrency caps still apply.
+    const isManualOverride = run.triggerDetail === "manual";
     const runGateBlock = await runGate.getRunGateBlock({
       companyId: run.companyId,
       agentId: run.agentId,
       adapterType: agent.adapterType,
       agentRuntimeConfig: parseObject(agent.runtimeConfig),
+      isManualOverride,
     });
     if (runGateBlock) {
       logger.debug(
@@ -9295,6 +9302,50 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
         finishedAt: new Date(),
       });
     };
+
+    // Central dormancy guard: ALL automated wake sources skip-at-source when the
+    // agent's company is outside its sprint window ("dormant"), instead of
+    // creating queued runs that look frozen. This is the single choke point that
+    // covers every automated caller (issue.update/assignment, monitor recovery,
+    // continuation/handoff, stranded-issue reconcile, routine dispatch, etc.) so
+    // we don't have to patch each one — the run-gate `outside_activity_window`
+    // defer stays as the safety net for anything that slips through another path.
+    //
+    // AUTOMATED vs MANUAL discriminator: automated cascade wakes are emitted with
+    // `triggerDetail: "system"` (every internal enqueueWakeup caller sets it) or
+    // `requestedByActorType: "system"` (timer/scheduler/continuation/handoff).
+    // Operator wakes from POST /agents/:id/wakeup and /heartbeat/invoke always
+    // carry `triggerDetail: "manual"` (the UI wake buttons and both endpoints
+    // default to it) with `requestedByActorType: "user" | "agent"` — they are NOT
+    // gated here, so the operator override still runs even in a dormant company.
+    // The live KISS/issue_assigned case was attributed to an *agent* actor (the
+    // deterministic compiler), not "system" — which is exactly why we key off
+    // triggerDetail too, not actorType alone.
+    //
+    // EXEMPTIONS (shell-handler/compiler adapters + runtimeConfig.ignoreActivityWindow)
+    // are handled inside getActivityWindowScheduleSkip via isActivityWindowExemptAgent,
+    // so exempt agents are still enqueued even when the company is dormant.
+    const isAutomatedWake =
+      triggerDetail === "system" || opts.requestedByActorType === "system";
+    if (isAutomatedWake) {
+      const companyWindowRow = await db
+        .select({ name: companies.name, activityWindow: companies.activityWindow })
+        .from(companies)
+        .where(eq(companies.id, agent.companyId))
+        .then((rows) => rows[0] ?? null);
+      if (companyWindowRow) {
+        const dormancySkip = getActivityWindowScheduleSkip({
+          activityWindow: companyWindowRow.activityWindow,
+          adapterType: agent.adapterType,
+          runtimeConfig: agent.runtimeConfig,
+          companyName: companyWindowRow.name,
+        });
+        if (dormancySkip) {
+          await writeSkippedRequest("outside_activity_window");
+          return null;
+        }
+      }
+    }
 
     let projectId = readNonEmptyString(enrichedContextSnapshot.projectId);
     if (!projectId && issueId) {
