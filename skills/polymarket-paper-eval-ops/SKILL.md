@@ -1,6 +1,6 @@
 ---
 name: polymarket-paper-eval-ops
-description: ThinkStack Capital routine operation of the Polymarket live paper-trading harness and crypto paper loops. Use for "Polymarket live paper eval pass (THIA-31)", "Daily Polymarket --resolve: calibration dataset update", "Polymarket weekly P&L report", "THIA-15/THIA-17 daily paper-trade health check", or any paper-loop crash/stall recovery. Encodes the eval-script exit-code contract, the THIA-31 re-anchor guard, calibration thresholds, the sample-size gate on P&L claims, and the known supervisor/CancelledError crash modes.
+description: 'ThinkStack Capital routine operation of the Polymarket live paper-trading harness and crypto paper loops. Use for "Polymarket live paper eval pass (THIA-31)", "Daily Polymarket --resolve calibration dataset update", "Polymarket weekly P&L report", "THIA-15/THIA-17 daily paper-trade health check", or any paper-loop crash/stall recovery. Encodes the eval-script exit-code contract, the THIA-31 re-anchor guard, calibration thresholds, the sample-size gate on P&L claims, and the known supervisor/CancelledError crash modes.'
 ---
 
 # Polymarket Paper-Eval Ops

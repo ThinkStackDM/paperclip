@@ -15,6 +15,7 @@ no pay-per-call media APIs. Audited on the worker Mac 2026-06-11.
 | node 22 | `~/.local/bin/node` | Headless-browser captures if Playwright/Puppeteer get installed per-project |
 | jq, curl | `/usr/bin` | The stock-API patterns in `skills/broll-sourcing/references/` |
 | Docker Desktop | installed, daemon usually **not running** | The Linux render image (`thinkstack-media-render` `infra/runner/Dockerfile`) needs the daemon started first |
+| **Local image gen (FLUX-schnell on Apple MLX)** | `scripts/imagegen/generate-image.sh` (default `IMAGE_PROVIDER=local`) | **The default free, unlimited, on-device image path.** Good for backgrounds/mockups/thumbnails/social cards; not photoreal faces. One-time setup: `bash ~/paperclip/scripts/imagegen/setup-local.sh` (then ~9.6 GB ungated Apache-2.0 weights download on first generation). See `skills/image-gen-ops`. |
 
 ## Not installed (decide before brew-installing; disk is fine, ~3.1 TiB free)
 
@@ -34,7 +35,8 @@ no pay-per-call media APIs. Audited on the worker Mac 2026-06-11.
 | Openverse (CC index) | none | low anonymous limits | per-asset CC — attribution usually required |
 | Wikimedia Commons | none (UA header required) | generous | per-file CC — attribution usually required |
 | NASA images-api.nasa.gov | none | generous | US public domain (verify per item) |
-| Gemini image gen | `GEMINI_API_KEY` | free tier | via `scripts/imagegen/generate-image.sh` (image-gen-ops) |
+| Local FLUX-schnell (MLX) | none | unlimited, on-device | **Default free image path** — `IMAGE_PROVIDER=local scripts/imagegen/generate-image.sh` (image-gen-ops). One-time `setup-local.sh`. |
+| Gemini image gen | `GEMINI_API_KEY` | **paid-only (free tier limit:0 as of 2026-06)** | Fallback only if billing enabled: `IMAGE_PROVIDER=gemini`. Pollinations also paywalled (402). |
 
 Video *generation* has no free API lane: Sora (ChatGPT Pro app) and Veo (Gemini app)
 are board-executed in-app — see video-gen-ops for the prompt-package flow.

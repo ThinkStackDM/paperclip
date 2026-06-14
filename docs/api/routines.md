@@ -76,11 +76,12 @@ Fields:
 PATCH /api/routines/{routineId}
 {
   "status": "paused",
+  "pauseReason": "watchdog: routine_failure_rate tripped",
   "baseRevisionId": "{latestRevisionId}"
 }
 ```
 
-All fields from create are updatable. `baseRevisionId` is optional for backward compatibility; when provided, stale values return `409 Conflict` with the current revision id. **Agents can only update routines assigned to themselves and cannot reassign a routine to another agent.**
+All fields from create are updatable. `pauseReason` is an optional free-form string for routine-specific pause context and is persisted on the routine plus its revision snapshot whenever the routine is paused. `baseRevisionId` is optional for backward compatibility; when provided, stale values return `409 Conflict` with the current revision id. **Agents can only update routines assigned to themselves and cannot reassign a routine to another agent.**
 
 ## List Revisions
 

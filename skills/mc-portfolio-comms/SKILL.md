@@ -14,19 +14,19 @@ The `/fire` webhook does **not** render the directive body into the issue descri
 1. Read `issue.originRunId` from the issue object (`GET /api/issues/{issueId}`).
 2. `GET /api/routines/{routineId}/runs/{originRunId}` → inspect `triggerPayload`.
 
-If the run or payload cannot be fetched (transient error), still **cancel** the issue rather than blocking — non-retrieval of a probe is not board-worthy.
+If the run or payload cannot be fetched (transient error), still close the issue `done` rather than blocking — non-retrieval of a probe is not board-worthy.
 
 ## Step 1 — Classify the payload
 
 | Payload signal | Class | Action |
 | --- | --- | --- |
-| `triggerPayload.type == "handshake"` | Synthetic liveness probe (~12/day) | Cancel silently. PATCH `{status:"cancelled"}` with no comment, or the standard comment `liveness probe noise — silent-drop per handshake protocol`. Exit. No outbound, no delegation. |
+| `triggerPayload.type == "handshake"` | Synthetic liveness probe (~12/day) | Close silently as `done`. PATCH `{status:"done"}` with no comment, or the standard comment `liveness probe noise — silent-drop per handshake protocol`. Exit. No outbound, no delegation. |
 | `type == "binding_probe"` or `_binding_probe == true` | MC callback binding probe (~every 15 min) | Same: cancel silently and exit. |
-| `ask` absent / null / empty string | Empty or dropped body | Cancel. If `requiresAck == true`, FIRST send a negative ack (see Step 2) — the negative ack is the body-drop detection signal MC needs. |
-| `type == "directive_receipt_ack"` | Receipt-ack for a directive you (MC side) sent | Record/ack and close: the intake transform flips `ackReceived` in the ack ledger; the execution issue auto-cancels. Never route these as work. |
+| `ask` absent / null / empty string | Empty or dropped body | Close `done`. If `requiresAck == true`, FIRST send a negative ack (see Step 2) — the negative ack is the body-drop detection signal MC needs. |
+| `type == "directive_receipt_ack"` | Receipt-ack for a directive you (MC side) sent | Record/ack and close: the intake transform flips `ackReceived` in the ack ledger; the execution issue closes `done`. Never route these as work. |
 | `type` in `{portfolio_directive, portfolio_input_request}` with a real `ask` | Real directive | Render the ask, send the receipt-ack (Step 2) if `requiresAck`, then route to the owner: triage the ask yourself if you are the addressed CEO/CTO, else create a child issue assigned to the right agent with acceptance criteria. |
 
-**Never leave an MC-inbound fire as `blocked`.** Unhandled probe fires previously piled up as 235+ blocked issues (a duplicate-storm). Terminal disposition every time: `cancelled` for noise, `done`/delegated for real work.
+**Never leave an MC-inbound fire as `blocked`.** Unhandled probe fires previously piled up as 235+ blocked issues (a duplicate-storm), and routine-run accounting treats `cancelled` probe executions as failed. Terminal disposition every time: `done` for noise, `done`/delegated for real work.
 
 ## Step 2 — Receipt-ack protocol (OpCo side)
 
@@ -70,6 +70,6 @@ Each OpCo registers a primary + secondary callback leg; MC dispatch tries primar
 ## Verification checklist
 
 - [ ] Payload was read from the routine run (`triggerPayload`), not inferred from the issue body.
-- [ ] Probe/handshake fires are `cancelled`, not `blocked` or left open.
+- [ ] Probe/handshake fires are `done`, not `cancelled`, `blocked`, or left open.
 - [ ] `requiresAck` directives got an ack (positive or negative) within the deadline, before substantive work.
 - [ ] Real directives ended in a terminal disposition or a routed child issue with an owner.
