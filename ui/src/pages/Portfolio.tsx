@@ -170,6 +170,34 @@ function sprintWindowSortKey(sprint: SprintWindowInfo): number {
   return Number.isNaN(startHour) ? 99 : startHour;
 }
 
+// Start hour of the sprint window that is live right now (4h-aligned blocks).
+// Prefer the start hour of whichever rotating company is actually active; fall back
+// to the wall-clock block so the order is stable even if no company reads as active.
+function activeSprintStartHour(
+  rows: Array<{ sprintWindow: SprintWindowInfo; activeNow: boolean }>,
+  hour: number,
+): number {
+  const activeRotating = rows.find(
+    (r) => r.activeNow && r.sprintWindow.window !== "always-on",
+  );
+  if (activeRotating) {
+    const start = Number.parseInt(activeRotating.sprintWindow.window, 10);
+    if (!Number.isNaN(start)) return start;
+  }
+  return Math.floor(hour / 4) * 4;
+}
+
+// Rotation order for the "Needs you" section: the company whose sprint is live now
+// is the hero (0), TSMC (always-on, co-active) sits just under it, then the remaining
+// windows in the order they next open, so a finished sprint rotates to the bottom and
+// the next one moves up.
+function sprintRotationKey(sprint: SprintWindowInfo, activeStartHour: number): number {
+  if (sprint.window === "always-on") return 0.5;
+  const startHour = Number.parseInt(sprint.window, 10);
+  if (Number.isNaN(startHour)) return 99;
+  return (startHour - activeStartHour + 24) % 24;
+}
+
 function SprintWindowsPopover({ rows }: { rows: Array<{ companyId: string; sprint: SprintWindowInfo }> }) {
   const orderedRows = [...rows].sort((a, b) => sprintWindowSortKey(a.sprint) - sprintWindowSortKey(b.sprint));
   return (
@@ -388,7 +416,18 @@ export function Portfolio() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleCompanies, issueQueries, agentQueries, hour]);
 
-  const needsYouCompanies = companyData.filter((data) => data.needsYou.length > 0);
+  // Order the "Needs you" company groups to follow the sprint: the company whose
+  // sprint window is live now is the hero (top), TSMC (always-on) just under it, then
+  // the rest in the order their windows next open — so a finished sprint rotates to the
+  // bottom and the next in line moves up.
+  const sprintActiveStartHour = activeSprintStartHour(companyData, hour);
+  const needsYouCompanies = companyData
+    .filter((data) => data.needsYou.length > 0)
+    .sort(
+      (a, b) =>
+        sprintRotationKey(a.sprintWindow, sprintActiveStartHour) -
+        sprintRotationKey(b.sprintWindow, sprintActiveStartHour),
+    );
   const needsYouTotal = needsYouCompanies.reduce((sum, data) => sum + data.needsYou.length, 0);
 
   const activeAcrossCompanies = useMemo(() => {
@@ -441,20 +480,34 @@ export function Portfolio() {
               {anyLoading ? "Loading…" : "Nothing is waiting on you. All clear."}
             </p>
           ) : (
-            needsYouCompanies.map((data) => (
-              <div key={data.company.id}>
-                <div className="flex items-center gap-2 rounded-t-md bg-muted/50 px-4 py-2">
-                  <span className="text-sm font-medium">{data.company.name}</span>
-                  <span className="font-mono text-xs text-muted-foreground">{data.company.issuePrefix}</span>
-                  <span className="ml-1 text-xs text-muted-foreground">{data.needsYou.length}</span>
+            needsYouCompanies.map((data) => {
+              const isSprintHero = data.activeNow && data.sprintWindow.window !== "always-on";
+              return (
+                <div key={data.company.id} className={cn(isSprintHero && "rounded-md ring-1 ring-green-500/40")}>
+                  <div
+                    className={cn(
+                      "flex items-center gap-2 rounded-t-md px-4 py-2",
+                      isSprintHero ? "bg-green-500/10" : "bg-muted/50",
+                    )}
+                  >
+                    <span className="text-sm font-medium">{data.company.name}</span>
+                    <span className="font-mono text-xs text-muted-foreground">{data.company.issuePrefix}</span>
+                    <span className="ml-1 text-xs text-muted-foreground">{data.needsYou.length}</span>
+                    {isSprintHero && (
+                      <span className="ml-auto flex items-center gap-1.5 rounded-full bg-green-500/15 px-2 py-0.5 text-[10px] font-medium text-green-400">
+                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
+                        sprint live
+                      </span>
+                    )}
+                  </div>
+                  <div className="rounded-b-md border border-border">
+                    {data.needsYou.map((issue) => (
+                      <PortfolioIssueRow key={issue.id} data={data} issue={issue} />
+                    ))}
+                  </div>
                 </div>
-                <div className="rounded-b-md border border-border">
-                  {data.needsYou.map((issue) => (
-                    <PortfolioIssueRow key={issue.id} data={data} issue={issue} />
-                  ))}
-                </div>
-              </div>
-            ))
+              );
+            })
           )}
         </section>
 
