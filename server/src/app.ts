@@ -197,7 +197,7 @@ export async function createApp(
 
   // Mount API routes
   const api = Router();
-  api.use(boardMutationGuard());
+  api.use(boardMutationGuard({ db }));
   api.use(
     "/health",
     healthRoutes(db, {

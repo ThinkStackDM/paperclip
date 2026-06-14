@@ -233,7 +233,7 @@ export function costRoutes(
       res.status(404).json({ error: "Company not found" });
       return;
     }
-    const results = await fetchAllQuotaWindows();
+    const results = await fetchAllQuotaWindows(db);
     res.json(results);
   });
 

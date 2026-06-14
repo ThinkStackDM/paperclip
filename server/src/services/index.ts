@@ -61,6 +61,15 @@ export type {
 } from "./authorization.js";
 export { boardAuthService } from "./board-auth.js";
 export { instanceSettingsService } from "./instance-settings.js";
+export {
+  runGateService,
+  normalizeInstanceRunControls,
+  isActivityWindowExemptAgent,
+  resolveAdapterConcurrencyCap,
+  type RunGateBlock,
+  type RunGateBlockKind,
+  type RunGateService,
+} from "./run-gate.js";
 export { cloudUpstreamService, reconcileCloudUpstreamRunsOnStartup } from "./cloud-upstreams.js";
 export { companyPortabilityService } from "./company-portability.js";
 export { environmentService } from "./environments.js";

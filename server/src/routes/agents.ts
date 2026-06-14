@@ -522,13 +522,28 @@ export function agentRoutes(
     agent: NonNullable<Awaited<ReturnType<typeof svc.getById>>>,
     options?: { restricted?: boolean },
   ) {
-    const [chainOfCommand, accessState] = await Promise.all([
+    const [chainOfCommand, accessState, configRevisionsCount] = await Promise.all([
       svc.getChainOfCommand(agent.id),
       buildAgentAccessState(agent),
+      // In the restricted view the revision rows themselves are withheld, but the count is
+      // safe to surface and lets a sibling reader confirm config was committed (revisions > 0)
+      // without the `agents:create` grant the full /config-revisions endpoint requires.
+      options?.restricted
+        ? svc.listConfigRevisions(agent.id).then((revisions) => revisions.length)
+        : Promise.resolve(null),
     ]);
 
+    if (options?.restricted) {
+      return {
+        ...redactForRestrictedAgentView(agent),
+        configRevisionsCount,
+        chainOfCommand,
+        access: accessState,
+      };
+    }
+
     return {
-      ...(options?.restricted ? redactForRestrictedAgentView(agent) : agent),
+      ...agent,
       chainOfCommand,
       access: accessState,
     };
@@ -1264,12 +1279,26 @@ export function agentRoutes(
     };
   }
 
+  function configHasContent(value: unknown): boolean {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    return Object.keys(value as Record<string, unknown>).length > 0;
+  }
+
   function redactForRestrictedAgentView(agent: Awaited<ReturnType<typeof svc.getById>>) {
     if (!agent) return null;
+    // Configs are withheld from non-owner / non-config-reader actors so secret values
+    // never leak. But we must NOT return a silent `{}` — a sibling reader (e.g. a CTO
+    // verifying another agent's applied config) would misread that as "nothing was ever
+    // persisted" and report a false negative (THIAAAAA-855 / THIAAAAA-852 false-done loop).
+    // Emit an explicit redaction signal plus ground-truth presence flags so callers can
+    // tell "withheld from you" apart from "not committed" without `agents:create`.
     return {
       ...agent,
       adapterConfig: {},
       runtimeConfig: {},
+      configRedacted: true,
+      adapterConfigPresent: configHasContent(agent.adapterConfig),
+      runtimeConfigPresent: configHasContent(agent.runtimeConfig),
     };
   }
 

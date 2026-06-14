@@ -733,8 +733,14 @@ export async function startServer(): Promise<StartedServer> {
   
     // Reap orphaned running runs at startup while in-memory execution state is empty,
     // then resume any persisted queued runs that were waiting on the previous process.
+    // Use a 60s grace (was 0ms = instant): a clean tsx/launchd restart should NOT
+    // immediately fail every still-"running" run as process_lost. Runs touched within
+    // 60s of the prior process get a chance to be re-adopted; the periodic reaper
+    // below (5-min threshold) still catches genuine orphans. Part of the 2026-06-13
+    // restart-race storm fix (the overnight process_lost spikes were instant-reap on
+    // each messy restart). resumeQueuedRuns() then re-picks up anything still queued.
     void heartbeat
-      .reapOrphanedRuns()
+      .reapOrphanedRuns({ staleThresholdMs: 60 * 1000 })
       .then(() => heartbeat.promoteDueScheduledRetries())
       .then(async (promotion) => {
         await heartbeat.resumeQueuedRuns();

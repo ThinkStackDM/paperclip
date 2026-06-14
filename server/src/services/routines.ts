@@ -62,6 +62,7 @@ import type { PluginWorkerManager } from "./plugin-worker-manager.js";
 
 const OPEN_ISSUE_STATUSES = ["backlog", "todo", "in_progress", "in_review", "blocked"];
 const LIVE_HEARTBEAT_RUN_STATUSES = ["queued", "running", "scheduled_retry"];
+const TERMINAL_HEARTBEAT_RUN_STATUSES = ["succeeded", "failed", "cancelled", "timed_out"];
 const TERMINAL_ISSUE_STATUSES = new Set(["done", "cancelled"]);
 const MAX_CATCH_UP_RUNS = 25;
 const MAX_ROUTINE_REVISIONS = 100;
@@ -162,8 +163,8 @@ function nextCronTickInTimeZone(expression: string, timeZone: string, after: Dat
 
 function nextResultText(status: string, issueId?: string | null) {
   if (status === "issue_created" && issueId) return `Created execution issue ${issueId}`;
-  if (status === "coalesced") return "Coalesced into an existing live execution issue";
-  if (status === "skipped") return "Skipped because a live execution issue already exists";
+  if (status === "coalesced") return "Coalesced into an existing open execution issue";
+  if (status === "skipped") return "Skipped because an open execution issue already exists";
   if (status === "completed") return "Execution issue completed";
   if (status === "failed") return "Execution failed";
   return status;
@@ -268,6 +269,24 @@ function normalizeDraftRoutineStatus(status: string, assigneeAgentId: string | n
     return "paused";
   }
   return status;
+}
+
+function normalizeRoutinePauseState(input: {
+  currentStatus: string;
+  nextStatus: string;
+  currentPauseReason: string | null;
+  requestedPauseReason: string | null | undefined;
+  currentPausedAt: Date | null;
+  now: Date;
+}) {
+  if (input.nextStatus !== "paused") {
+    return { pauseReason: null, pausedAt: null };
+  }
+
+  return {
+    pauseReason: input.requestedPauseReason ?? input.currentPauseReason ?? "manual",
+    pausedAt: input.currentStatus === "paused" ? input.currentPausedAt ?? input.now : input.now,
+  };
 }
 
 function assertRoutineCanEnable(status: string, assigneeAgentId: string | null | undefined) {
@@ -410,6 +429,8 @@ function routineRevisionSnapshotRoutine(routine: RoutineRow): RoutineRevisionSna
     assigneeAgentId: routine.assigneeAgentId,
     priority: routine.priority as RoutineRevisionSnapshotV1["routine"]["priority"],
     status: routine.status as RoutineRevisionSnapshotV1["routine"]["status"],
+    pauseReason: routine.pauseReason ?? null,
+    pausedAt: routine.pausedAt?.toISOString() ?? null,
     concurrencyPolicy: routine.concurrencyPolicy as RoutineRevisionSnapshotV1["routine"]["concurrencyPolicy"],
     catchUpPolicy: routine.catchUpPolicy as RoutineRevisionSnapshotV1["routine"]["catchUpPolicy"],
     variables: routine.variables ?? [],
@@ -794,44 +815,6 @@ export function routineService(
       rowsByOriginId.set(row.originId, row);
     }
 
-    const missingRoutineIds = routineIds.filter((routineId) => !rowsByOriginId.has(routineId));
-    if (missingRoutineIds.length > 0) {
-      const legacyRows = await db
-        .selectDistinctOn([issues.originId], {
-          originId: issues.originId,
-          id: issues.id,
-          identifier: issues.identifier,
-          title: issues.title,
-          status: issues.status,
-          priority: issues.priority,
-          updatedAt: issues.updatedAt,
-        })
-        .from(issues)
-        .innerJoin(
-          heartbeatRuns,
-          and(
-            eq(heartbeatRuns.companyId, issues.companyId),
-            inArray(heartbeatRuns.status, LIVE_HEARTBEAT_RUN_STATUSES),
-            sql`${heartbeatRuns.contextSnapshot} ->> 'issueId' = cast(${issues.id} as text)`,
-          ),
-        )
-        .where(
-          and(
-            eq(issues.companyId, companyId),
-            eq(issues.originKind, "routine_execution"),
-            inArray(issues.originId, missingRoutineIds),
-            inArray(issues.status, OPEN_ISSUE_STATUSES),
-            isNull(issues.hiddenAt),
-          ),
-        )
-        .orderBy(issues.originId, desc(issues.updatedAt), desc(issues.createdAt));
-
-      for (const row of legacyRows) {
-        if (!row.originId) continue;
-        rowsByOriginId.set(row.originId, row);
-      }
-    }
-
     const map = new Map<string, RoutineListItem["activeIssue"]>();
     for (const row of rowsByOriginId.values()) {
       if (!row.originId) continue;
@@ -887,16 +870,19 @@ export function routineService(
     );
   }
 
-  async function findLiveExecutionIssue(
+  async function findOpenExecutionIssue(
     routine: typeof routines.$inferSelect,
     executor: Db = db,
     dispatchFingerprint?: string | null,
     origin?: { kind: string; id: string | null },
+    options?: { ignoreFingerprint?: boolean },
   ) {
-    const fingerprintCondition = routineExecutionFingerprintCondition(dispatchFingerprint);
+    const fingerprintCondition = options?.ignoreFingerprint
+      ? null
+      : routineExecutionFingerprintCondition(dispatchFingerprint);
     const originKind = origin?.kind ?? "routine_execution";
     const originId = origin?.id ?? routine.id;
-    const executionBoundIssue = await executor
+    return executor
       .select()
       .from(issues)
       .innerJoin(
@@ -911,6 +897,7 @@ export function routineService(
           eq(issues.companyId, routine.companyId),
           eq(issues.originKind, originKind),
           eq(issues.originId, originId),
+          isNotNull(issues.executionRunId),
           inArray(issues.status, OPEN_ISSUE_STATUSES),
           isNull(issues.hiddenAt),
           ...(fingerprintCondition ? [fingerprintCondition] : []),
@@ -918,18 +905,29 @@ export function routineService(
       )
       .orderBy(desc(issues.updatedAt), desc(issues.createdAt))
       .limit(1)
-      .then((rows) => rows[0]?.issues ?? null);
-    if (executionBoundIssue) return executionBoundIssue;
+      .then((rows) => rows[0] ?? null);
+  }
 
-    return executor
-      .select()
+  async function clearTerminalExecutionIssueLocks(
+    routine: typeof routines.$inferSelect,
+    executor: Db = db,
+    dispatchFingerprint?: string | null,
+    origin?: { kind: string; id: string | null },
+    options?: { ignoreFingerprint?: boolean },
+  ) {
+    const fingerprintCondition = options?.ignoreFingerprint
+      ? null
+      : routineExecutionFingerprintCondition(dispatchFingerprint);
+    const originKind = origin?.kind ?? "routine_execution";
+    const originId = origin?.id ?? routine.id;
+    const staleRows = await executor
+      .select({ id: issues.id })
       .from(issues)
       .innerJoin(
         heartbeatRuns,
         and(
-          eq(heartbeatRuns.companyId, issues.companyId),
-          inArray(heartbeatRuns.status, LIVE_HEARTBEAT_RUN_STATUSES),
-          sql`${heartbeatRuns.contextSnapshot} ->> 'issueId' = cast(${issues.id} as text)`,
+          eq(heartbeatRuns.id, issues.executionRunId),
+          inArray(heartbeatRuns.status, TERMINAL_HEARTBEAT_RUN_STATUSES),
         ),
       )
       .where(
@@ -937,14 +935,29 @@ export function routineService(
           eq(issues.companyId, routine.companyId),
           eq(issues.originKind, originKind),
           eq(issues.originId, originId),
+          isNotNull(issues.executionRunId),
           inArray(issues.status, OPEN_ISSUE_STATUSES),
           isNull(issues.hiddenAt),
           ...(fingerprintCondition ? [fingerprintCondition] : []),
         ),
-      )
-      .orderBy(desc(issues.updatedAt), desc(issues.createdAt))
-      .limit(1)
-      .then((rows) => rows[0]?.issues ?? null);
+      );
+    const staleIssueIds = staleRows.map((row) => row.id);
+    if (staleIssueIds.length === 0) return;
+
+    await executor
+      .update(issues)
+      .set({
+        checkoutRunId: null,
+        executionRunId: null,
+        executionLockedAt: null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(issues.companyId, routine.companyId),
+          inArray(issues.id, staleIssueIds),
+        ),
+      );
   }
 
   async function finalizeRun(runId: string, patch: Partial<typeof routineRuns.$inferInsert>, executor: Db = db) {
@@ -1144,6 +1157,8 @@ export function routineService(
       : "routine_execution";
     const issueOriginId = managedIssueTemplate?.originId ?? input.routine.id;
     const issueBillingCode = managedIssueTemplate?.billingCode ?? null;
+    const shouldAlwaysEnqueue = input.routine.concurrencyPolicy === "always_enqueue";
+    const coalesceByOriginOnly = input.source !== "manual" && !shouldAlwaysEnqueue;
     const dispatchFingerprint = createRoutineDispatchFingerprint({
       payload: triggerPayload,
       projectId,
@@ -1205,11 +1220,16 @@ export function routineService(
 
       let createdIssue: Awaited<ReturnType<typeof issueSvc.create>> | null = null;
       try {
-        const activeIssue = await findLiveExecutionIssue(input.routine, txDb, dispatchFingerprint, {
+        await clearTerminalExecutionIssueLocks(input.routine, txDb, dispatchFingerprint, {
           kind: issueOriginKind,
           id: issueOriginId,
-        });
-        if (activeIssue && input.routine.concurrencyPolicy !== "always_enqueue") {
+        }, { ignoreFingerprint: coalesceByOriginOnly });
+        const activeIssue = await findOpenExecutionIssue(input.routine, txDb, dispatchFingerprint, {
+          kind: issueOriginKind,
+          id: issueOriginId,
+        }, { ignoreFingerprint: coalesceByOriginOnly });
+        const shouldReuseActiveIssue = activeIssue && !shouldAlwaysEnqueue;
+        if (shouldReuseActiveIssue) {
           const status = input.routine.concurrencyPolicy === "skip_if_active" ? "skipped" : "coalesced";
           if (manualRunnerUserId) {
             await touchIssueForUserInbox(txDb, {
@@ -1251,7 +1271,7 @@ export function routineService(
             originKind: issueOriginKind,
             originId: issueOriginId,
             originRunId: createdRun.id,
-            originFingerprint: dispatchFingerprint,
+            originFingerprint: shouldAlwaysEnqueue ? `${dispatchFingerprint}:${createdRun.id}` : dispatchFingerprint,
             billingCode: issueBillingCode,
             executionWorkspaceId: input.executionWorkspaceId ?? null,
             executionWorkspacePreference: input.executionWorkspacePreference ?? null,
@@ -1265,14 +1285,18 @@ export function routineService(
             (error as { code?: string }).code === "23505" &&
             "constraint" in error &&
             (error as { constraint?: string }).constraint === "issues_open_routine_execution_uq";
-          if (!isOpenExecutionConflict || input.routine.concurrencyPolicy === "always_enqueue") {
+          if (!isOpenExecutionConflict || shouldAlwaysEnqueue) {
             throw error;
           }
 
-          const existingIssue = await findLiveExecutionIssue(input.routine, txDb, dispatchFingerprint, {
+          await clearTerminalExecutionIssueLocks(input.routine, txDb, dispatchFingerprint, {
             kind: issueOriginKind,
             id: issueOriginId,
-          });
+          }, { ignoreFingerprint: coalesceByOriginOnly });
+          const existingIssue = await findOpenExecutionIssue(input.routine, txDb, dispatchFingerprint, {
+            kind: issueOriginKind,
+            id: issueOriginId,
+          }, { ignoreFingerprint: coalesceByOriginOnly });
           if (!existingIssue) throw error;
           const status = input.routine.concurrencyPolicy === "skip_if_active" ? "skipped" : "coalesced";
           if (manualRunnerUserId) {
@@ -1502,7 +1526,7 @@ export function routineService(
                 : null,
             })),
           ),
-        findLiveExecutionIssue(row),
+        findOpenExecutionIssue(row),
         listManagedRoutineMetadata([row.id]),
       ]);
 
@@ -1549,6 +1573,8 @@ export function routineService(
             assigneeAgentId: input.assigneeAgentId ?? null,
             priority: input.priority,
             status,
+            pauseReason: status === "paused" ? input.pauseReason ?? "manual" : null,
+            pausedAt: status === "paused" ? new Date() : null,
             concurrencyPolicy: input.concurrencyPolicy,
             catchUpPolicy: input.catchUpPolicy,
             variables,
@@ -1597,6 +1623,14 @@ export function routineService(
       const nextStatus = patch.assigneeAgentId === undefined
         ? requestedStatus
         : normalizeDraftRoutineStatus(requestedStatus, nextAssigneeAgentId);
+      const nextPauseState = normalizeRoutinePauseState({
+        currentStatus: existing.status,
+        nextStatus,
+        currentPauseReason: existing.pauseReason ?? null,
+        requestedPauseReason: patch.pauseReason ?? undefined,
+        currentPausedAt: existing.pausedAt,
+        now: new Date(),
+      });
       const nextVariables = syncRoutineVariablesWithTemplate(
         [nextTitle, nextDescription],
         patch.variables === undefined ? existing.variables : sanitizeRoutineVariableInputs(patch.variables),
@@ -1647,6 +1681,8 @@ export function routineService(
           assigneeAgentId: nextAssigneeAgentId,
           priority: patch.priority ?? locked.priority,
           status: nextStatus,
+          pauseReason: nextPauseState.pauseReason,
+          pausedAt: nextPauseState.pausedAt,
           concurrencyPolicy: patch.concurrencyPolicy ?? locked.concurrencyPolicy,
           catchUpPolicy: patch.catchUpPolicy ?? locked.catchUpPolicy,
           variables: nextVariables,
@@ -1696,6 +1732,8 @@ export function routineService(
             assigneeAgentId: candidate.assigneeAgentId,
             priority: candidate.priority,
             status: candidate.status,
+            pauseReason: candidate.pauseReason,
+            pausedAt: candidate.pausedAt,
             concurrencyPolicy: candidate.concurrencyPolicy,
             catchUpPolicy: candidate.catchUpPolicy,
             variables: candidate.variables,
@@ -2378,13 +2416,28 @@ export function routineService(
         .where(eq(issues.id, issueId))
         .then((rows) => rows[0] ?? null);
       if (!issue || issue.originKind !== "routine_execution" || !issue.originRunId) return null;
+      if (OPEN_ISSUE_STATUSES.includes(issue.status)) {
+        return finalizeRun(issue.originRunId, {
+          status: "issue_created",
+          failureReason: null,
+          completedAt: null,
+        });
+      }
       if (issue.status === "done") {
         return finalizeRun(issue.originRunId, {
           status: "completed",
+          failureReason: null,
           completedAt: new Date(),
         });
       }
-      if (issue.status === "blocked" || issue.status === "cancelled") {
+      if (issue.status === "blocked") {
+        return finalizeRun(issue.originRunId, {
+          status: "issue_created",
+          failureReason: null,
+          completedAt: null,
+        });
+      }
+      if (issue.status === "cancelled") {
         return finalizeRun(issue.originRunId, {
           status: "failed",
           failureReason: `Execution issue moved to ${issue.status}`,

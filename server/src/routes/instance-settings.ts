@@ -2,8 +2,12 @@ import { Router, type Request } from "express";
 import type { Db } from "@paperclipai/db";
 import {
   issueGraphLivenessAutoRecoveryRequestSchema,
+  patchInstanceAdapterConcurrencySchema,
   patchInstanceExperimentalSettingsSchema,
   patchInstanceGeneralSettingsSchema,
+  setInstanceAdapterPauseSchema,
+  setInstanceRunPauseSchema,
+  type InstanceRunControls,
 } from "@paperclipai/shared";
 import { forbidden } from "../errors.js";
 import { validate } from "../middleware/validate.js";
@@ -96,6 +100,130 @@ export function instanceSettingsRoutes(db: Db) {
         ),
       );
       res.json(updated.experimental);
+    },
+  );
+
+  async function logRunControlsChange(
+    req: Request,
+    action: string,
+    details: Record<string, unknown>,
+  ) {
+    const actor = getActorInfo(req);
+    const companyIds = await svc.listCompanyIds();
+    await Promise.all(
+      companyIds.map((companyId) =>
+        logActivity(db, {
+          companyId,
+          actorType: actor.actorType,
+          actorId: actor.actorId,
+          agentId: actor.agentId,
+          runId: actor.runId,
+          action,
+          entityType: "instance_settings",
+          entityId: "default",
+          details,
+        }),
+      ),
+    );
+  }
+
+  router.get("/instance/settings/run-controls", async (req, res) => {
+    // Run-control state (instance pause, adapter pauses, concurrency caps) is
+    // readable by any authenticated org member; mutations require instance-admin.
+    assertBoardOrgAccess(req);
+    res.json(await svc.getRunControls());
+  });
+
+  router.post(
+    "/instance/settings/run-controls/pause",
+    validate(setInstanceRunPauseSchema),
+    async (req, res) => {
+      assertCanManageInstanceSettings(req);
+      const actor = getActorInfo(req);
+      const updated = await svc.updateRunControls((current): InstanceRunControls => ({
+        ...current,
+        pauseAll: {
+          reason: req.body.reason ?? null,
+          pausedAt: new Date(),
+          pausedBy: actor.actorId ?? actor.actorType,
+        },
+      }));
+      await logRunControlsChange(req, "instance.run_controls.paused", {
+        reason: req.body.reason ?? null,
+      });
+      res.json(updated);
+    },
+  );
+
+  router.delete("/instance/settings/run-controls/pause", async (req, res) => {
+    assertCanManageInstanceSettings(req);
+    const updated = await svc.updateRunControls((current): InstanceRunControls => ({
+      ...current,
+      pauseAll: null,
+    }));
+    await logRunControlsChange(req, "instance.run_controls.resumed", {});
+    res.json(updated);
+  });
+
+  router.post(
+    "/instance/settings/run-controls/adapter-pauses",
+    validate(setInstanceAdapterPauseSchema),
+    async (req, res) => {
+      assertCanManageInstanceSettings(req);
+      const actor = getActorInfo(req);
+      const { adapterType, reason } = req.body;
+      const updated = await svc.updateRunControls((current): InstanceRunControls => ({
+        ...current,
+        adapterPauses: {
+          ...current.adapterPauses,
+          [adapterType]: {
+            reason: reason ?? null,
+            pausedAt: new Date(),
+            pausedBy: actor.actorId ?? actor.actorType,
+          },
+        },
+      }));
+      await logRunControlsChange(req, "instance.run_controls.adapter_paused", {
+        adapterType,
+        reason: reason ?? null,
+      });
+      res.json(updated);
+    },
+  );
+
+  router.delete("/instance/settings/run-controls/adapter-pauses/:adapterType", async (req, res) => {
+    assertCanManageInstanceSettings(req);
+    const adapterType = req.params.adapterType as string;
+    const updated = await svc.updateRunControls((current): InstanceRunControls => {
+      const adapterPauses = { ...current.adapterPauses };
+      delete adapterPauses[adapterType];
+      return { ...current, adapterPauses };
+    });
+    await logRunControlsChange(req, "instance.run_controls.adapter_resumed", { adapterType });
+    res.json(updated);
+  });
+
+  router.patch(
+    "/instance/settings/run-controls/concurrency",
+    validate(patchInstanceAdapterConcurrencySchema),
+    async (req, res) => {
+      assertCanManageInstanceSettings(req);
+      const patch = req.body.adapterConcurrency as Record<string, number | null>;
+      const updated = await svc.updateRunControls((current): InstanceRunControls => {
+        const adapterConcurrency = { ...current.adapterConcurrency };
+        for (const [adapterType, cap] of Object.entries(patch)) {
+          if (cap === null) {
+            delete adapterConcurrency[adapterType];
+          } else {
+            adapterConcurrency[adapterType] = cap;
+          }
+        }
+        return { ...current, adapterConcurrency };
+      });
+      await logRunControlsChange(req, "instance.run_controls.concurrency_updated", {
+        adapterConcurrency: patch,
+      });
+      res.json(updated);
     },
   );
 

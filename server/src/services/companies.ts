@@ -29,6 +29,11 @@ import {
   companySkills,
   documents,
 } from "@paperclipai/db";
+import {
+  getActivityWindowState,
+  parseCompanyActivityWindow,
+  parseCompanyRunPauseState,
+} from "@paperclipai/shared";
 import { notFound, unprocessable } from "../errors.js";
 import { environmentService } from "./environments.js";
 
@@ -45,6 +50,9 @@ export function companyService(db: Db) {
     issueCounter: companies.issueCounter,
     budgetMonthlyCents: companies.budgetMonthlyCents,
     spentMonthlyCents: companies.spentMonthlyCents,
+    strandedRecoveryOwnerAgentId: companies.strandedRecoveryOwnerAgentId,
+    activityWindow: companies.activityWindow,
+    runPauseState: companies.runPauseState,
     attachmentMaxBytes: companies.attachmentMaxBytes,
     requireBoardApprovalForNewAgents: companies.requireBoardApprovalForNewAgents,
     feedbackDataSharingEnabled: companies.feedbackDataSharingEnabled,
@@ -57,10 +65,22 @@ export function companyService(db: Db) {
     updatedAt: companies.updatedAt,
   };
 
-  function enrichCompany<T extends { logoAssetId: string | null }>(company: T) {
+  function enrichCompany<T extends { logoAssetId: string | null; activityWindow?: unknown; runPauseState?: unknown }>(
+    company: T,
+  ) {
+    // Strip the raw jsonb column; consumers get the parsed `runPause` instead.
+    const { runPauseState, ...rest } = company;
+    const activityWindow = parseCompanyActivityWindow(company.activityWindow);
+    const activityWindowState = activityWindow ? getActivityWindowState(activityWindow) : null;
+    const runPause = parseCompanyRunPauseState(runPauseState);
     return {
-      ...company,
+      ...rest,
       logoUrl: company.logoAssetId ? `/api/assets/${company.logoAssetId}/content` : null,
+      activityWindow,
+      activityWindowState,
+      runPause,
+      paused: runPause.active,
+      activeNow: !runPause.active && (activityWindowState === null || activityWindowState.open),
     };
   }
 

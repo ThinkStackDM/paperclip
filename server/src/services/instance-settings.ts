@@ -12,7 +12,9 @@ import {
   type InstanceSettings,
   type PatchInstanceExperimentalSettings,
 } from "@paperclipai/shared";
+import type { InstanceRunControls } from "@paperclipai/shared";
 import { eq } from "drizzle-orm";
+import { normalizeInstanceRunControls } from "./run-gate.js";
 
 const DEFAULT_SINGLETON_KEY = "default";
 const instanceGeneralSettingsStorageSchema = instanceGeneralSettingsSchema.strip();
@@ -160,6 +162,49 @@ export function instanceSettingsService(db: Db) {
         .where(eq(instanceSettings.id, current.id))
         .returning();
       return toInstanceSettings(updated ?? current);
+    },
+
+    getRunControls: async (): Promise<InstanceRunControls> => {
+      const row = await getOrCreateRow();
+      return normalizeInstanceRunControls(row.runControls);
+    },
+
+    updateRunControls: async (
+      mutate: (current: InstanceRunControls) => InstanceRunControls,
+    ): Promise<InstanceRunControls> => {
+      const current = await getOrCreateRow();
+      const next = normalizeInstanceRunControls(
+        mutate(normalizeInstanceRunControls(current.runControls)),
+      );
+      const now = new Date();
+      const [updated] = await db
+        .update(instanceSettings)
+        .set({
+          runControls: {
+            pauseAll: next.pauseAll
+              ? {
+                  reason: next.pauseAll.reason,
+                  pausedAt: next.pauseAll.pausedAt?.toISOString() ?? null,
+                  pausedBy: next.pauseAll.pausedBy,
+                }
+              : null,
+            adapterPauses: Object.fromEntries(
+              Object.entries(next.adapterPauses).map(([adapterType, pause]) => [
+                adapterType,
+                {
+                  reason: pause.reason,
+                  pausedAt: pause.pausedAt?.toISOString() ?? null,
+                  pausedBy: pause.pausedBy,
+                },
+              ]),
+            ),
+            adapterConcurrency: next.adapterConcurrency,
+          },
+          updatedAt: now,
+        })
+        .where(eq(instanceSettings.id, current.id))
+        .returning();
+      return normalizeInstanceRunControls(updated?.runControls ?? current.runControls);
     },
 
     listCompanyIds: async (): Promise<string[]> =>

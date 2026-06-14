@@ -1279,6 +1279,94 @@ export function issueRoutes(
     return parsed;
   }
 
+  function buildBoardActionNotificationBody(input: {
+    issue: { identifier: string | null; id: string };
+    boardAction: {
+      source: "interaction" | "approval";
+      sourceKind: string;
+      sourceId: string;
+      decisionText: string;
+      title: string | null;
+      resumeText: string;
+    };
+    trackerIssueIdentifier?: string | null;
+  }) {
+    const { issue, boardAction, trackerIssueIdentifier } = input;
+    const source = boardAction.source === "interaction"
+      ? `${boardAction.sourceKind} interaction`
+      : "approval";
+    const sourceLabel = `${source} ${boardAction.sourceId}`;
+    return `Board action required:\n\n- Decision needed: ${boardAction.decisionText}` +
+      `${boardAction.title ? ` (${boardAction.title})` : ""}.\n` +
+      `- Resume condition: ${boardAction.resumeText}\n` +
+      `- Source: ${sourceLabel} for ${trackerIssueIdentifier ? trackerIssueIdentifier : issue.identifier ?? issue.id}.`;
+  }
+
+  function isTrackerContextIssue(issue: IssueRouteSnapshot) {
+    const title = issue.title ?? "";
+    const identifier = issue.identifier ?? "";
+    const mcTrackerPattern = /\bmc[\s-]*v?\d+\b/i;
+    return /\btracker\b/i.test(title)
+      || /\bcoordination\b/i.test(title)
+      || mcTrackerPattern.test(title)
+      || mcTrackerPattern.test(identifier);
+  }
+
+  function findTrackerContextIssue(ancestors: IssueRouteSnapshot[], issue: IssueRouteSnapshot) {
+    if (isTrackerContextIssue(issue)) {
+      return issue;
+    }
+    for (let i = ancestors.length - 1; i >= 0; i -= 1) {
+      if (isTrackerContextIssue(ancestors[i])) {
+        return ancestors[i];
+      }
+    }
+    return null;
+  }
+
+  async function postBoardActionNotification(input: {
+    svc: ReturnType<typeof issueService>;
+    issue: IssueRouteSnapshot;
+    actor: ReturnType<typeof getActorInfo>;
+    boardAction: {
+      source: "interaction" | "approval";
+      sourceKind: string;
+      sourceId: string;
+      decisionText: string;
+      title: string | null;
+      resumeText: string;
+    };
+    preferredNotificationIssue?: IssueRouteSnapshot | null;
+  }) {
+    const { svc, issue, actor, boardAction, preferredNotificationIssue } = input;
+    const candidateTargets = preferredNotificationIssue ? [preferredNotificationIssue, issue] : [issue];
+    for (const targetIssue of candidateTargets) {
+      try {
+        const trackerLabel = targetIssue.id === issue.id ? null : targetIssue.identifier ?? targetIssue.id;
+        const body = buildBoardActionNotificationBody({
+          issue,
+          boardAction,
+          trackerIssueIdentifier: trackerLabel,
+        });
+        await svc.addComment(targetIssue.id, body, {
+          agentId: actor.agentId ?? undefined,
+          userId: actor.actorType === "user" ? actor.actorId : undefined,
+          runId: actor.runId,
+        }, {
+          authorType: actor.actorType === "agent" ? "agent" : "user",
+        });
+        return;
+      } catch (err) {
+        logger.warn({
+          err,
+          issueId: issue.id,
+          targetIssueId: targetIssue.id,
+          boardActionSource: boardAction.source,
+        }, "failed to post board action-required notification");
+      }
+    }
+  }
+
   async function runSingleFileUpload(req: Request, res: Response, fileSizeLimit: number) {
     const upload = multer({
       storage: multer.memoryStorage(),
@@ -1953,6 +2041,7 @@ export function issueRoutes(
       sortField: sortField === "updated" ? "updated" : undefined,
       sortDir: sortDir === "asc" || sortDir === "desc" ? sortDir : undefined,
     });
+    const boardActionByIssue = await svc.getBoardActionRequirements(companyId, result);
     const issueIds = result.map((issue) => issue.id);
     const [handoffStates, recoveryActionByIssue] = await Promise.all([
       listSuccessfulRunHandoffStates(db, companyId, issueIds),
@@ -1973,6 +2062,9 @@ export function issueRoutes(
     }));
     res.json(result.map((issue) => ({
       ...issue,
+      title: svc.applyBoardActionTitlePrefix(issue.title, boardActionByIssue.has(issue.id)),
+      boardActionRequired: boardActionByIssue.has(issue.id),
+      ...(boardActionByIssue.get(issue.id) ? { boardAction: boardActionByIssue.get(issue.id) } : {}),
       successfulRunHandoff: handoffStates.get(issue.id) ?? null,
       activeRecoveryAction: recoveryActionByIssue.get(issue.id) ?? null,
     })));
@@ -2103,6 +2195,7 @@ export function issueRoutes(
       continuationSummary,
       currentExecutionWorkspace,
       activeRecoveryAction,
+      boardActionRequirements,
     ] =
       await Promise.all([
         resolveIssueProjectAndGoal(issue),
@@ -2117,7 +2210,9 @@ export function issueRoutes(
         documentsSvc.getIssueDocumentByKey(issue.id, ISSUE_CONTINUATION_SUMMARY_DOCUMENT_KEY),
         currentExecutionWorkspacePromise,
         recoveryActionsSvc.getActiveForIssue(issue.companyId, issue.id),
+        svc.getBoardActionRequirements(issue.companyId, [issue]),
       ]);
+    const boardAction = boardActionRequirements.get(issue.id) ?? null;
     const recoveryActionsByRelationIssue = await relationRecoveryActionMap(
       recoveryActionsSvc,
       issue.companyId,
@@ -2138,11 +2233,13 @@ export function issueRoutes(
       issue: {
         id: issue.id,
         identifier: issue.identifier,
-        title: issue.title,
+        title: svc.applyBoardActionTitlePrefix(issue.title, Boolean(boardAction)),
         description: issue.description,
         status: issue.status,
         workMode: issue.workMode,
         ...(blockerAttention ? { blockerAttention } : {}),
+        ...(boardAction ? { boardAction } : {}),
+        boardActionRequired: Boolean(boardAction),
         productivityReview,
         scheduledRetry,
         activeRecoveryAction: revalidatedActiveRecoveryAction,
@@ -2229,6 +2326,7 @@ export function issueRoutes(
       successfulRunHandoffStates,
       scheduledRetry,
       activeRecoveryAction,
+      boardActionRequirements,
     ] = await Promise.all([
       resolveIssueProjectAndGoal(issue),
       svc.getAncestors(issue.id),
@@ -2241,7 +2339,9 @@ export function issueRoutes(
       listSuccessfulRunHandoffStates(db, issue.companyId, [issue.id]),
       svc.getCurrentScheduledRetry(issue.id),
       recoveryActionsSvc.getActiveForIssue(issue.companyId, issue.id),
+      svc.getBoardActionRequirements(issue.companyId, [issue]),
     ]);
+    const boardAction = boardActionRequirements.get(issue.id) ?? null;
     const recoveryActionsByRelationIssue = await relationRecoveryActionMap(
       recoveryActionsSvc,
       issue.companyId,
@@ -2266,6 +2366,9 @@ export function issueRoutes(
     const workProducts = await workProductsSvc.listForIssue(issue.id);
     res.json({
       ...issue,
+      title: svc.applyBoardActionTitlePrefix(issue.title, Boolean(boardAction)),
+      boardAction,
+      boardActionRequired: Boolean(boardAction),
       goalId: goal?.id ?? issue.goalId,
       ancestors,
       ...(blockerAttention ? { blockerAttention } : {}),
@@ -3451,6 +3554,7 @@ export function issueRoutes(
     if (!(await assertCanManageIssueApprovalLinks(req, res, issue.companyId))) return;
 
     const actor = getActorInfo(req);
+    const hadBoardActionRequirement = (await svc.getBoardActionRequirements(issue.companyId, [issue])).has(issue.id);
     await issueApprovalsSvc.link(id, req.body.approvalId, {
       agentId: actor.agentId,
       userId: actor.actorType === "user" ? actor.actorId : null,
@@ -3467,6 +3571,22 @@ export function issueRoutes(
       entityId: issue.id,
       details: { approvalId: req.body.approvalId },
     });
+
+    if (!hadBoardActionRequirement) {
+      const boardActionByIssue = await svc.getBoardActionRequirements(issue.companyId, [issue]);
+      const boardAction = boardActionByIssue.get(issue.id);
+      if (boardAction) {
+        const ancestors = await svc.getAncestors(issue.id);
+        const preferredNotificationIssue = findTrackerContextIssue(ancestors, issue);
+        await postBoardActionNotification({
+          svc,
+          issue,
+          actor,
+          boardAction,
+          preferredNotificationIssue,
+        });
+      }
+    }
 
     const approvals = await issueApprovalsSvc.listApprovalsForIssue(id);
     res.status(201).json(approvals);
@@ -4742,7 +4862,12 @@ export function issueRoutes(
       if (commentBody && comment) {
         const assigneeId = issue.assigneeAgentId;
         const actorIsAgent = actor.actorType === "agent";
-        const selfComment = actorIsAgent && actor.actorId === assigneeId;
+        let selfComment = actorIsAgent && actor.actorId === assigneeId;
+        // Also treat a comment that carries authorAgentId for the assignee as self (covers
+        // system notices posted after the agent's run that now have authorAgentId set).
+        if (!selfComment && comment && comment.authorAgentId && comment.authorAgentId === assigneeId) {
+          selfComment = true;
+        }
         const skipAssigneeCommentWake = selfComment || isClosed;
 
         if (assigneeId && !assigneeChanged && (reopened || !skipAssigneeCommentWake)) {
@@ -5151,6 +5276,11 @@ export function issueRoutes(
     const actor = getActorInfo(req);
     const agentSourceRunId = req.actor.type === "agent" ? requireAgentRunId(req, res) : null;
     if (req.actor.type === "agent" && !agentSourceRunId) return;
+    const boardActionRelevantInteraction = req.body.kind === "request_confirmation" ||
+      (req.body.kind === "ask_user_questions" && !issue.assigneeUserId);
+    const hadBoardActionRequirement = boardActionRelevantInteraction
+      ? (await svc.getBoardActionRequirements(issue.companyId, [issue])).has(issue.id)
+      : false;
 
     const interaction = await issueThreadInteractionService(db).create(issue, {
       ...req.body,
@@ -5176,6 +5306,22 @@ export function issueRoutes(
         continuationPolicy: interaction.continuationPolicy,
       },
     });
+
+    if (boardActionRelevantInteraction && !hadBoardActionRequirement) {
+      const boardActionByIssue = await svc.getBoardActionRequirements(issue.companyId, [issue]);
+      const boardAction = boardActionByIssue.get(issue.id);
+      if (boardAction) {
+        const ancestors = await svc.getAncestors(issue.id);
+        const preferredNotificationIssue = findTrackerContextIssue(ancestors, issue);
+        await postBoardActionNotification({
+          svc,
+          issue,
+          actor,
+          boardAction,
+          preferredNotificationIssue,
+        });
+      }
+    }
 
     res.status(201).json(interaction);
   });
@@ -5831,7 +5977,10 @@ export function issueRoutes(
       const wakeups = new Map<string, Parameters<typeof heartbeat.wakeup>[1]>();
       const assigneeId = currentIssue.assigneeAgentId;
       const actorIsAgent = actor.actorType === "agent";
-      const selfComment = actorIsAgent && actor.actorId === assigneeId;
+      let selfComment = actorIsAgent && actor.actorId === assigneeId;
+      if (!selfComment && comment && comment.authorAgentId && comment.authorAgentId === assigneeId) {
+        selfComment = true;
+      }
       const skipWake = selfComment || isClosed;
       if (assigneeId && (reopened || !skipWake)) {
         if (reopened) {

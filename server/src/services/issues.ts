@@ -2142,6 +2142,21 @@ const BLOCKED_INBOX_SUCCESSFUL_RUN_HANDOFF_ACTIONS = [
   "issue.successful_run_handoff_resolved",
   "issue.successful_run_handoff_escalated",
 ] as const;
+const BOARD_ACTION_REQUIRED_TITLE_PREFIX = "BOARD ACTION REQUIRED";
+const BOARD_ACTION_REQUIRED_TITLE_PREFIX_TOKEN = "BOARD ACTION REQUIRED:";
+
+type BoardActionRequirement = {
+  source: "interaction" | "approval";
+  kind: "interaction" | "approval";
+  state: "pending_board_decision";
+  sourceId: string;
+  sourceKind: string;
+  title: string | null;
+  summary: string | null;
+  createdAt: Date;
+  decisionText: string;
+  resumeText: string;
+};
 
 type BlockedInboxIssueRow = IssueRow & { labels?: IssueLabelRow[]; labelIds?: string[] };
 type BlockedInboxInteractionRow = {
@@ -2344,6 +2359,145 @@ function redactExternalWaitDescription(
 function blockedInboxResponseDescription(attention: IssueBlockedInboxAttention, row: BlockedInboxIssueRow) {
   if (!attention.redaction.externalDetailsRedacted) return row.description;
   return redactExternalWaitDescription(row.description, externalWaitFromDescription(row.description));
+}
+
+function stripBoardActionRequiredPrefix(title: unknown) {
+  if (typeof title !== "string") return title;
+  return title.replace(new RegExp(`^${BOARD_ACTION_REQUIRED_TITLE_PREFIX_TOKEN}\\s*`, "i"), "");
+}
+
+function applyBoardActionTitlePrefix(title: unknown) {
+  if (typeof title !== "string") return title;
+  const cleanTitle = stripBoardActionRequiredPrefix(title);
+  return `${BOARD_ACTION_REQUIRED_TITLE_PREFIX_TOKEN} ${cleanTitle}`;
+}
+
+function boardActionDecisionTextFromInteraction(input: {
+  kind: string;
+  title: string | null;
+  summary: string | null;
+}) {
+  const interactionLabel = [input.title, input.summary].find((value) => value && value.trim().length > 0)?.trim();
+  const interactionName = interactionLabel ? ` interaction \"${interactionLabel}\"` : " interaction";
+  if (input.kind === "request_confirmation") {
+    return `Approve, reject, or request revision${interactionName}.`;
+  }
+  return `Respond to the open question${interactionName}.`;
+}
+
+function boardActionDecisionTextFromApproval() {
+  return "Approve, reject, or request revision on this linked approval.";
+}
+
+function isBoardActionInteraction(
+  interaction: { kind: string; issueId: string; title: string | null; summary: string | null },
+  issueRow: { assigneeUserId: string | null | undefined },
+) {
+  if (interaction.kind !== "request_confirmation" && interaction.kind !== "ask_user_questions") return false;
+  if (interaction.kind === "ask_user_questions" && issueRow.assigneeUserId) return false;
+  return true;
+}
+
+async function listIssueBoardActionRequirementMap(
+  dbOrTx: any,
+  companyId: string,
+  issueRows: Array<{ id: string; assigneeUserId?: string | null }>,
+) {
+  const result = new Map<string, BoardActionRequirement>();
+  const issueIds = [...new Set(issueRows.map((row) => row.id))];
+  if (issueIds.length === 0) return result;
+  const issueById = new Map(issueRows.map((row) => [row.id, row]));
+  const [pendingInteractions, pendingApprovals] = await Promise.all([
+    dbOrTx
+      .select({
+        id: issueThreadInteractions.id,
+        issueId: issueThreadInteractions.issueId,
+        kind: issueThreadInteractions.kind,
+        title: issueThreadInteractions.title,
+        summary: issueThreadInteractions.summary,
+        createdAt: issueThreadInteractions.createdAt,
+      })
+      .from(issueThreadInteractions)
+      .where(and(
+        eq(issueThreadInteractions.companyId, companyId),
+        inArray(issueThreadInteractions.status, [...BLOCKED_INBOX_PENDING_INTERACTION_STATUSES]),
+        inArray(issueThreadInteractions.issueId, issueIds),
+      ))
+      .orderBy(desc(issueThreadInteractions.createdAt)),
+    dbOrTx
+      .select({
+        approvalId: issueApprovals.approvalId,
+        issueId: issueApprovals.issueId,
+        status: approvals.status,
+        createdAt: approvals.createdAt,
+      })
+      .from(issueApprovals)
+      .innerJoin(approvals, eq(issueApprovals.approvalId, approvals.id))
+      .where(and(
+        eq(issueApprovals.companyId, companyId),
+        eq(approvals.companyId, companyId),
+        inArray(approvals.status, [...BLOCKED_INBOX_PENDING_APPROVAL_STATUSES]),
+        inArray(issueApprovals.issueId, issueIds),
+      ))
+      .orderBy(desc(approvals.createdAt)),
+  ]);
+
+  const issueRowsToHydrate = [...issueById.values()].filter((issue) => issue.assigneeUserId === undefined).map((issue) => issue.id);
+  if (issueRowsToHydrate.length > 0) {
+    const hydratedRows: Array<{ id: string; assigneeUserId: string | null }> = await dbOrTx
+      .select({
+        id: issues.id,
+        assigneeUserId: issues.assigneeUserId,
+      })
+      .from(issues)
+      .where(and(
+        eq(issues.companyId, companyId),
+        inArray(issues.id, issueRowsToHydrate),
+      ));
+    for (const row of hydratedRows) {
+      const existing = issueById.get(row.id);
+      if (existing) {
+        issueById.set(existing.id, { ...existing, assigneeUserId: row.assigneeUserId });
+      }
+    }
+  }
+
+  for (const interaction of pendingInteractions) {
+    const issue = issueById.get(interaction.issueId);
+    if (!issue || !isBoardActionInteraction(interaction, issue) || result.has(interaction.issueId)) {
+      continue;
+    }
+    result.set(interaction.issueId, {
+      source: "interaction",
+      kind: "interaction",
+      state: "pending_board_decision",
+      sourceId: interaction.id,
+      sourceKind: interaction.kind,
+      title: interaction.title,
+      summary: interaction.summary,
+      createdAt: interaction.createdAt,
+      decisionText: boardActionDecisionTextFromInteraction(interaction),
+      resumeText: "The issue can continue after this interaction is resolved.",
+    });
+  }
+
+  for (const approval of pendingApprovals) {
+    if (result.has(approval.issueId)) continue;
+    result.set(approval.issueId, {
+      source: "approval",
+      kind: "approval",
+      state: "pending_board_decision",
+      sourceId: approval.approvalId,
+      sourceKind: "approval",
+      title: null,
+      summary: null,
+      createdAt: approval.createdAt,
+      decisionText: boardActionDecisionTextFromApproval(),
+      resumeText: "The issue can continue after this approval is decided.",
+    });
+  }
+
+  return result;
 }
 
 function blockedInboxSearchText(attention: IssueBlockedInboxAttention, row: BlockedInboxIssueRow) {
@@ -3122,7 +3276,11 @@ export function issueService(db: Db) {
     actor: { agentId?: string | null; userId?: string | null },
     authorType: IssueCommentAuthorType,
   ) {
-    if (actor.agentId && authorType !== "agent") {
+    // Allow agentId + authorType=system for platform notices tied to an agent's run
+    // (handoff, liveness nudges). This lets the notice row carry authorAgentId so UI/context
+    // associates it with the agent (instead of pure anonymous "system") and self-wake guards
+    // can suppress re-trigger loops.
+    if (actor.agentId && authorType !== "agent" && authorType !== "system") {
       throw unprocessable("Comment authorType must match authenticated actor");
     }
     if (actor.userId && authorType !== "user") {
@@ -3997,6 +4155,37 @@ export function issueService(db: Db) {
       return Number(row?.count ?? 0);
     },
 
+    getBoardActionRequirements: async (companyId: string, issueRows: Array<{ id: string } | string>) => {
+      if (!Array.isArray(issueRows) || issueRows.length === 0) return new Map();
+      const normalizedRows = issueRows
+        .map((issue) => (typeof issue === "string" ? { id: issue } : issue))
+        .filter((issue): issue is { id: string } => typeof issue.id === "string" && issue.id.length > 0);
+      if (normalizedRows.length === 0) return new Map();
+
+      const issueById = new Map(normalizedRows.map((issue) => [issue.id, issue]));
+      const rowsToHydrate = [...issueById.values()].filter((issue) => issue.assigneeUserId === undefined).map((issue) => issue.id);
+      if (rowsToHydrate.length > 0) {
+        const hydratedRows: Array<{ id: string; assigneeUserId: string | null }> = await db
+          .select({
+            id: issues.id,
+            assigneeUserId: issues.assigneeUserId,
+          })
+          .from(issues)
+          .where(and(
+            eq(issues.companyId, companyId),
+            inArray(issues.id, rowsToHydrate),
+          ));
+        for (const row of hydratedRows) {
+          const existing = issueById.get(row.id);
+          if (existing) {
+            issueById.set(existing.id, { ...existing, assigneeUserId: row.assigneeUserId });
+          }
+        }
+      }
+
+      return listIssueBoardActionRequirementMap(db, companyId, [...issueById.values()]);
+    },
+
     countUnreadTouchedByUser: async (companyId: string, userId: string, status?: string) => {
       const conditions = [
         eq(issues.companyId, companyId),
@@ -4105,6 +4294,10 @@ export function issueService(db: Db) {
 
     getByIdentifier: async (identifier: string) => {
       return getIssueByIdentifier(identifier);
+    },
+
+    applyBoardActionTitlePrefix: (title: unknown, isRequired: boolean) => {
+      return isRequired ? applyBoardActionTitlePrefix(title) : stripBoardActionRequiredPrefix(title);
     },
 
     getCurrentScheduledRetry: async (issueId: string) => {
@@ -4767,6 +4960,53 @@ export function issueService(db: Db) {
         if (executionWorkspaceId) {
           await assertValidExecutionWorkspace(companyId, issueData.projectId, executionWorkspaceId, tx);
         }
+        // Near-duplicate guard for MANUAL issues (THIAAAAA-273/274): a client
+        // that double-posts a create — e.g. retrying after a response it failed
+        // to parse — would otherwise land two identical live issues minutes
+        // apart. If the SAME creator already has an active manual issue with the
+        // exact same title under the same parent within a short window, return
+        // that existing issue idempotently instead of inserting a duplicate.
+        // Scoped tightly (manual-only, same creator, same parent, exact title,
+        // short window, active source) so legitimate re-creates are never lost.
+        const MANUAL_DUPLICATE_WINDOW_MS = 120_000;
+        const resolvedOriginKind = issueData.originKind ?? "manual";
+        const dedupeTitle = typeof issueData.title === "string" ? issueData.title : null;
+        const dedupeCreatorAgentId = issueData.createdByAgentId ?? null;
+        const dedupeCreatorUserId = issueData.createdByUserId ?? null;
+        if (
+          resolvedOriginKind === "manual" &&
+          dedupeTitle &&
+          dedupeTitle.trim().length > 0 &&
+          (dedupeCreatorAgentId || dedupeCreatorUserId)
+        ) {
+          const existingDuplicate = await tx
+            .select()
+            .from(issues)
+            .where(
+              and(
+                eq(issues.companyId, companyId),
+                eq(issues.originKind, "manual"),
+                eq(issues.title, dedupeTitle),
+                issueData.parentId
+                  ? eq(issues.parentId, issueData.parentId)
+                  : isNull(issues.parentId),
+                dedupeCreatorAgentId
+                  ? eq(issues.createdByAgentId, dedupeCreatorAgentId)
+                  : eq(issues.createdByUserId, dedupeCreatorUserId as string),
+                notInArray(issues.status, ["done", "cancelled"]),
+                isNull(issues.hiddenAt),
+                gt(issues.createdAt, new Date(Date.now() - MANUAL_DUPLICATE_WINDOW_MS)),
+              ),
+            )
+            .orderBy(desc(issues.createdAt))
+            .limit(1)
+            .then((rows: Array<typeof issues.$inferSelect>) => rows[0] ?? null);
+          if (existingDuplicate) {
+            const [enrichedExisting] = await withIssueLabels(tx, [existingDuplicate]);
+            return enrichedExisting;
+          }
+        }
+
         // Self-correcting counter: use MAX(issue_number) + 1 if the counter
         // has drifted below the actual max, preventing identifier collisions.
         const [maxRow] = await tx

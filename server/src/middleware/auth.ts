@@ -138,6 +138,7 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
     if (!key) {
       const claims = verifyLocalAgentJwt(token);
       if (!claims) {
+        if (runIdHeader) req.actor.runId = runIdHeader;
         next();
         return;
       }

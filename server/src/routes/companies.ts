@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { Router, type Request } from "express";
 import type { Db } from "@paperclipai/db";
+import { companies } from "@paperclipai/db";
+import { eq, sql } from "drizzle-orm";
 import {
   DEFAULT_FEEDBACK_DATA_SHARING_TERMS_VERSION,
   companyPortabilityExportSchema,
@@ -10,6 +12,10 @@ import {
   feedbackTargetTypeSchema,
   feedbackTraceStatusSchema,
   feedbackVoteValueSchema,
+  getActivityWindowState,
+  parseCompanyActivityWindow,
+  setCompanyActivityWindowSchema,
+  setCompanyRunPauseSchema,
   updateCompanyBrandingSchema,
   updateCompanySchema,
 } from "@paperclipai/shared";
@@ -136,6 +142,85 @@ export function companyRoutes(db: Db, storage?: StorageService) {
       return;
     }
     res.json(company);
+  });
+
+  // Emergency-stop READ endpoint. Consumed by mc_emergency_stop_guard.py on every
+  // guard_decision (its FIRST candidate URL) — previously absent, so the guard fell
+  // through 4 URLs to 4x404 (~1,881 noisy 404s/day) and could never see a real stop
+  // state. Returns the company's current emergency-stop mode. FAIL-OPEN: any error
+  // returns mode:normal, so a transient blip can never make the guard fail-secure and
+  // block mutations. run-gate.ts already enforces the same stop at the run level
+  // (readActiveEmergencyStop); this makes the script-guard layer consistent. (2026-06-14)
+  router.get("/:companyId/emergency-stop", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    try {
+      assertCompanyAccess(req, companyId);
+      const row = await db
+        .select({ emergencyStopState: companies.emergencyStopState })
+        .from(companies)
+        .where(eq(companies.id, companyId))
+        .then((rows) => rows[0] ?? null);
+      const raw = row?.emergencyStopState;
+      const state =
+        raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+      const mode =
+        typeof state.mode === "string" && state.mode.length > 0 && !state.clearedAt ? state.mode : "normal";
+      res.json({
+        mode,
+        reason: typeof state.reason === "string" ? state.reason : null,
+        clearedAt: state.clearedAt ?? null,
+      });
+    } catch {
+      // Never 500 — a non-2xx makes the guard fail-secure and block mutations.
+      res.json({ mode: "normal", reason: null, clearedAt: null });
+    }
+  });
+
+  // Agent scorecard — flywheel measurement foundation (2026-06-14). Per active
+  // agent over a rolling window: runs, ok, real-fail (adapter_failed = the model's
+  // own failures) vs infra-fail (process_lost/limit/assignee-changed/etc.), cancels,
+  // realOkPct = ok/(ok+realFail) (the quality signal, NOT penalising paused/infra),
+  // and avg tokens (the cost signal — cost_cents is 0 under subscription billing).
+  // Consumed by the benchmark suite, feedback digest, and data-driven model tiering.
+  router.get("/:companyId/agent-scorecard", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    if (req.actor.type !== "agent") assertBoard(req);
+    const days = Math.min(30, Math.max(1, Number(req.query.days) || 4));
+    try {
+      const result = await db.execute(sql`
+        SELECT a.id AS agent_id, a.name AS agent, a.adapter_type AS adapter, a.status AS status,
+          count(hr.id) AS runs,
+          count(hr.id) FILTER (WHERE hr.status = 'succeeded') AS ok,
+          count(hr.id) FILTER (WHERE hr.status = 'failed' AND hr.error_code = 'adapter_failed') AS real_fail,
+          count(hr.id) FILTER (WHERE hr.status = 'failed' AND coalesce(hr.error_code, '') <> 'adapter_failed') AS infra_fail,
+          count(hr.id) FILTER (WHERE hr.status = 'cancelled') AS cancel,
+          round(avg((hr.usage_json->>'inputTokens')::numeric + (hr.usage_json->>'outputTokens')::numeric) FILTER (WHERE (hr.usage_json->>'outputTokens') IS NOT NULL)) AS avg_tokens,
+          round(sum((hr.usage_json->>'inputTokens')::numeric + (hr.usage_json->>'outputTokens')::numeric) FILTER (WHERE (hr.usage_json->>'outputTokens') IS NOT NULL)) AS total_tokens
+        FROM agents a
+        LEFT JOIN heartbeat_runs hr ON hr.agent_id = a.id AND hr.created_at > now() - (${days} * interval '1 day')
+        WHERE a.company_id = ${companyId} AND a.status IN ('active', 'idle')
+        GROUP BY a.id, a.name, a.adapter_type, a.status
+        HAVING count(hr.id) > 0
+        ORDER BY count(hr.id) DESC
+      `);
+      const rows = (Array.isArray(result) ? result : (result as { rows?: unknown[] }).rows) ?? [];
+      const agents = (rows as Record<string, unknown>[]).map((r) => {
+        const ok = Number(r.ok) || 0;
+        const realFail = Number(r.real_fail) || 0;
+        return {
+          agentId: r.agent_id, agent: r.agent, adapter: r.adapter, status: r.status,
+          runs: Number(r.runs) || 0, ok, realFail,
+          infraFail: Number(r.infra_fail) || 0, cancel: Number(r.cancel) || 0,
+          realOkPct: ok + realFail > 0 ? Math.round((100 * ok) / (ok + realFail)) : null,
+          avgTokens: r.avg_tokens != null ? Number(r.avg_tokens) : null,
+          totalTokens: r.total_tokens != null ? Number(r.total_tokens) : null,
+        };
+      });
+      res.json({ companyId, windowDays: days, generatedAt: new Date().toISOString(), agents });
+    } catch (err) {
+      res.status(500).json({ error: "agent-scorecard query failed", detail: String((err as Error)?.message ?? err).slice(0, 200) });
+    }
   });
 
   router.get("/:companyId/feedback-traces", async (req, res) => {
@@ -404,6 +489,105 @@ export function companyRoutes(db: Db, storage?: StorageService) {
       entityType: "company",
       entityId: companyId,
       details: req.body,
+    });
+    res.json(company);
+  });
+
+  router.get("/:companyId/activity-window", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const company = await svc.getById(companyId);
+    if (!company) {
+      res.status(404).json({ error: "Company not found" });
+      return;
+    }
+    const window = parseCompanyActivityWindow(company.activityWindow);
+    res.json({
+      window,
+      state: window ? getActivityWindowState(window) : null,
+      runPause: company.runPause,
+    });
+  });
+
+  router.patch(
+    "/:companyId/activity-window",
+    validate(setCompanyActivityWindowSchema),
+    async (req, res) => {
+      assertBoard(req);
+      const companyId = req.params.companyId as string;
+      assertCompanyAccess(req, companyId);
+      const window = req.body.window ?? null;
+      const company = await svc.update(companyId, { activityWindow: window });
+      if (!company) {
+        res.status(404).json({ error: "Company not found" });
+        return;
+      }
+      const actor = getActorInfo(req);
+      await logActivity(db, {
+        companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        agentId: actor.agentId,
+        runId: actor.runId,
+        action: window ? "company.activity_window_set" : "company.activity_window_cleared",
+        entityType: "company",
+        entityId: companyId,
+        details: { window },
+      });
+      res.json(company);
+    },
+  );
+
+  router.post("/:companyId/pause", validate(setCompanyRunPauseSchema), async (req, res) => {
+    assertBoard(req);
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const actor = getActorInfo(req);
+    const company = await svc.update(companyId, {
+      runPauseState: {
+        active: true,
+        reason: req.body.reason ?? null,
+        pausedAt: new Date().toISOString(),
+        pausedBy: actor.actorId ?? actor.actorType,
+      },
+    });
+    if (!company) {
+      res.status(404).json({ error: "Company not found" });
+      return;
+    }
+    await logActivity(db, {
+      companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "company.runs_paused",
+      entityType: "company",
+      entityId: companyId,
+      details: { reason: req.body.reason ?? null },
+    });
+    res.json(company);
+  });
+
+  router.delete("/:companyId/pause", async (req, res) => {
+    assertBoard(req);
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const company = await svc.update(companyId, { runPauseState: {} });
+    if (!company) {
+      res.status(404).json({ error: "Company not found" });
+      return;
+    }
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "company.runs_resumed",
+      entityType: "company",
+      entityId: companyId,
     });
     res.json(company);
   });

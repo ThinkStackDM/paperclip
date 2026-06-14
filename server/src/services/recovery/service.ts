@@ -1513,6 +1513,32 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
     return true;
   }
 
+  async function releaseSourceIssueFromStaleEvaluation(input: {
+    run: typeof heartbeatRuns.$inferSelect;
+    evaluationIssueId: string;
+  }) {
+    const sourceIssue = await resolveStaleRunSourceIssue(input.run);
+    if (!sourceIssue) return null;
+
+    const blockerIds = await existingBlockerIssueIds(sourceIssue.companyId, sourceIssue.id);
+    if (!blockerIds.includes(input.evaluationIssueId)) return sourceIssue;
+
+    const nextBlockerIds = blockerIds.filter((blockerId) => blockerId !== input.evaluationIssueId);
+    const nextStatus =
+      sourceIssue.status === "blocked" &&
+        nextBlockerIds.length === 0 &&
+        sourceIssue.executionRunId === input.run.id &&
+        input.run.status === "running"
+        ? "in_progress"
+        : undefined;
+    await issuesSvc.update(sourceIssue.id, {
+      ...(nextStatus ? { status: nextStatus } : {}),
+      blockedByIssueIds: nextBlockerIds,
+    });
+
+    return sourceIssue;
+  }
+
   async function createOrUpdateStaleRunEvaluation(input: {
     run: typeof heartbeatRuns.$inferSelect;
     now: Date;
@@ -1937,6 +1963,25 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
         reason: input.reason ?? null,
       },
     });
+
+    if (evaluationIssue) {
+      await issuesSvc.update(evaluationIssue.id, { status: "done" });
+      await issuesSvc.addComment(evaluationIssue.id, [
+        "Watchdog decision recorded.",
+        "",
+        `- Decision: \`${input.decision}\``,
+        `- Run: \`${run.id}\``,
+        input.reason ? `- Reason: ${input.reason}` : "- Reason: none recorded",
+        effectiveSnoozedUntil ? `- Quiet until: ${effectiveSnoozedUntil.toISOString()}` : null,
+      ].filter((line): line is string => Boolean(line)).join("\n"), {
+        runId: createdByRunId ?? undefined,
+      });
+
+      await releaseSourceIssueFromStaleEvaluation({
+        run,
+        evaluationIssueId: evaluationIssue.id,
+      });
+    }
 
     return row;
   }
@@ -2702,6 +2747,20 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
 
       const agent = await getAgent(agentId);
       if (!agent || agent.companyId !== issue.companyId) {
+        result.skipped += 1;
+        continue;
+      }
+
+      // Never dispatch recovery wakeups to deliberately-paused / terminated /
+      // pending-approval primaries. enqueueWakeup throws a 409 "Agent is not
+      // invokable in its current state" for these, which both spams ~986
+      // errors/day against the paused claude_local primaries AND — since these
+      // dispatch call sites are not wrapped in try/catch — aborts the entire
+      // reconcile pass, starving healthy stranded issues that sort after the
+      // first paused-assignee one. Skip here and let the fallback-swap / operator
+      // path own issues assigned to a paused agent. (Mirrors the isAgentInvokable
+      // guard already used later in this function and in heartbeat.enqueueWakeup.)
+      if (!isAgentInvokable(agent)) {
         result.skipped += 1;
         continue;
       }
