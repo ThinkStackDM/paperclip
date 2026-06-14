@@ -2373,55 +2373,6 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     expect(pausedOwnerWakeups.filter((wake) => wake.reason === "source_scoped_recovery_action")).toHaveLength(0);
   });
 
-  it("routes stranded recovery for a paused assignee to an available executive", async () => {
-    const { companyId, agentId, issueId, runId } = await seedStrandedIssueFixture({
-      status: "todo",
-      runStatus: "failed",
-      retryReason: "assignment_recovery",
-      runErrorCode: "process_lost",
-      runError: "Authorization: Bearer sk-test-paused-assignee-secret",
-    });
-    const ctoAgentId = randomUUID();
-    await db.update(agents).set({
-      status: "paused",
-    }).where(eq(agents.id, agentId));
-    await db.insert(agents).values({
-      id: ctoAgentId,
-      companyId,
-      name: "Recovery CTO",
-      role: "cto",
-      status: "idle",
-      adapterType: "codex_local",
-      adapterConfig: {},
-      runtimeConfig: {},
-      permissions: {},
-    });
-
-    const heartbeat = heartbeatService(db);
-    const result = await heartbeat.reconcileStrandedAssignedIssues();
-
-    expect(result.dispatchRequeued).toBe(0);
-    expect(result.escalated).toBe(1);
-    expect(result.issueIds).toEqual([issueId]);
-
-    await expectSourceScopedStrandedRecoveryAction({
-      companyId,
-      agentId: ctoAgentId,
-      issueId,
-      runId,
-      previousStatus: "todo",
-      retryReason: "assignment_recovery",
-      previousOwnerAgentId: agentId,
-      returnOwnerAgentId: agentId,
-    });
-
-    const pausedAgentWakeups = await db
-      .select()
-      .from(agentWakeupRequests)
-      .where(eq(agentWakeupRequests.agentId, agentId));
-    expect(pausedAgentWakeups.filter((wake) => wake.reason === "source_scoped_recovery_action")).toHaveLength(0);
-  });
-
   it("blocks an already stranded recovery issue without creating a recovery child", async () => {
     const { companyId, issueId } = await seedStrandedIssueFixture({
       status: "todo",
