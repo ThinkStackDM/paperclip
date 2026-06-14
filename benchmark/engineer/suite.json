@@ -102,6 +102,23 @@
           ]
         }
       }
+    },
+    {
+      "id": "eng-nplus1-fix",
+      "title": "Diagnose an N+1 query and write the batched fix",
+      "prompt": "This TypeScript loads routine cards and runs slowly under load.\n\n  async function loadRoutineCards(routineIds: string[]) {\n    const cards = [];\n    for (const id of routineIds) {\n      const routine = await db.query.routines.findFirst({ where: eq(routines.id, id) });\n      const runs = await db.query.runs.findMany({ where: eq(runs.routineId, id), limit: 5 });\n      cards.push({ routine, runs });\n    }\n    return cards;\n  }\n\nIn under 130 words: (1) name the performance problem precisely, (2) explain why it scales badly, and (3) give the corrected approach (you may sketch code) that fetches the data in a bounded number of queries instead of per-routine. Be specific.",
+      "rubric": {
+        "deterministic": [
+          { "type": "contains_any", "values": ["N+1", "n+1", "per-routine", "per routine", "in a loop", "inArray", "IN (", "batch"], "weight": 3 },
+          { "type": "max_words", "value": 160, "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "correctness", "weight": 3, "guidance": "Correctly identifies the N+1 pattern (one+ query per routine inside the loop -> ~2N queries) and the fix is to BATCH: fetch all routines via inArray(routines.id, ids) and all runs via inArray(runs.routineId, ids) in a bounded number of queries, then group in memory. Penalize answers that only add caching/indexes without removing the per-iteration queries, or that keep the loop." },
+            { "name": "specificity", "weight": 1, "guidance": "Concrete (names inArray/IN batching + in-memory grouping), not vague 'optimize the queries'." }
+          ]
+        }
+      }
     }
   ]
 }

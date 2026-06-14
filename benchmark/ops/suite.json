@@ -75,6 +75,20 @@
           { "type": "json_path_exists", "path": "next_action", "weight": 1 }
         ]
       }
+    },
+    {
+      "id": "ops-incident-triage",
+      "title": "Order incidents by severity (objective triage)",
+      "prompt": "Triage these 4 live incidents into a response order (most urgent first), per this policy: a FULL outage (whole instance down) outranks a SINGLE-company outage, which outranks DEGRADED performance, which outranks a COSMETIC ui bug.\n\nINCIDENTS:\n- \"ui-badge\": a status badge shows the wrong color (cosmetic).\n- \"capital-down\": ThinkStack Capital's agents can't run (single-company outage).\n- \"all-stalled\": the whole instance stopped dispatching runs (full outage).\n- \"slow-board\": the board loads in ~8s instead of <1s (degraded performance).\n\nReturn ONLY a JSON array of the 4 ids, most-urgent first. No prose. Shape: [\"a\",\"b\",\"c\",\"d\"].",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "0", "value": "all-stalled", "weight": 3 },
+          { "type": "json_path_equals", "path": "1", "value": "capital-down", "weight": 2 },
+          { "type": "json_path_equals", "path": "2", "value": "slow-board", "weight": 2 },
+          { "type": "json_path_equals", "path": "3", "value": "ui-badge", "weight": 1 }
+        ]
+      }
     }
   ]
 }

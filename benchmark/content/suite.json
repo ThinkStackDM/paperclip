@@ -98,6 +98,30 @@
           ]
         }
       }
+    },
+    {
+      "id": "content-constraint-stack",
+      "title": "Stacked hard constraints (instruction-following stress test)",
+      "prompt": "Write a short promo blurb for \"Pulse\", a status-page tool.\n\nALL of these HARD constraints must hold at once:\n- Exactly 2 sentences.\n- Between 25 and 45 words total.\n- Must include the word \"incident\" and the word \"status\".\n- Must NOT use any of: \"world-class\", \"robust\", \"cutting-edge\", \"solution\".\n- Must end with a question mark.\n\nReturn ONLY the blurb. No preamble.",
+      "rubric": {
+        "deterministic": [
+          { "type": "min_words", "value": 25, "weight": 1 },
+          { "type": "max_words", "value": 45, "weight": 2 },
+          { "type": "contains", "value": "incident", "weight": 1 },
+          { "type": "contains", "value": "status", "weight": 1 },
+          { "type": "not_contains", "value": "world-class", "weight": 1 },
+          { "type": "not_contains", "value": "robust", "weight": 1 },
+          { "type": "not_contains", "value": "cutting-edge", "weight": 1 },
+          { "type": "not_contains", "value": "solution", "weight": 1 },
+          { "type": "regex", "pattern": "\\?\\s*$", "weight": 2 },
+          { "type": "regex", "pattern": "^[^.!?]*[.!?][^.!?]*[.!?]\\s*$", "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "quality", "weight": 2, "guidance": "Reads as a genuine, appealing promo for a status-page/incident tool despite the constraints; not stilted, padded, or nonsensical." }
+          ]
+        }
+      }
     }
   ]
 }
