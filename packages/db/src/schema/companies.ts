@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, integer, timestamp, boolean, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, integer, timestamp, boolean, jsonb, uniqueIndex } from "drizzle-orm/pg-core";
 
 export const companies = pgTable(
   "companies",
@@ -13,6 +13,11 @@ export const companies = pgTable(
     issueCounter: integer("issue_counter").notNull().default(0),
     budgetMonthlyCents: integer("budget_monthly_cents").notNull().default(0),
     spentMonthlyCents: integer("spent_monthly_cents").notNull().default(0),
+    emergencyStopState: jsonb("emergency_stop_state").$type<Record<string, unknown>>().notNull().default({}),
+    strandedRecoveryOwnerAgentId: uuid("stranded_recovery_owner_agent_id"),
+    activityWindow: jsonb("activity_window").$type<Record<string, unknown>>(),
+    activityWindowState: jsonb("activity_window_state").$type<Record<string, unknown>>().notNull().default({}),
+    runPauseState: jsonb("run_pause_state").$type<Record<string, unknown>>().notNull().default({}),
     attachmentMaxBytes: integer("attachment_max_bytes")
       .notNull()
       .default(10 * 1024 * 1024),

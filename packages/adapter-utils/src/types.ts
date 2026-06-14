@@ -135,6 +135,13 @@ export interface AdapterExecutionContext {
     remoteExecution?: Record<string, unknown> | null;
   };
   onLog: (stream: "stdout" | "stderr", chunk: string) => Promise<void>;
+  onEvent?: (event: {
+    eventType: string;
+    stream?: string;
+    level?: string;
+    message?: string;
+    payload?: Record<string, unknown>;
+  }) => Promise<void>;
   onMeta?: (meta: AdapterInvocationMeta) => Promise<void>;
   onSpawn?: (meta: { pid: number; processGroupId: number | null; startedAt: string }) => Promise<void>;
   authToken?: string;

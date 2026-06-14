@@ -1,4 +1,9 @@
 import type { CompanyStatus, PauseReason } from "../constants.js";
+import type {
+  CompanyActivityWindow,
+  CompanyActivityWindowState,
+  CompanyRunPauseState,
+} from "./company-activity-window.js";
 
 export interface Company {
   id: string;
@@ -11,6 +16,14 @@ export interface Company {
   issueCounter: number;
   budgetMonthlyCents: number;
   spentMonthlyCents: number;
+  strandedRecoveryOwnerAgentId: string | null;
+  activityWindow: CompanyActivityWindow | null;
+  activityWindowState: CompanyActivityWindowState | null;
+  runPause: CompanyRunPauseState;
+  /** True when the company may start runs right now (window open or no window, and not paused). */
+  activeNow: boolean;
+  /** True when company runs are explicitly paused (run pause control). */
+  paused: boolean;
   attachmentMaxBytes: number;
   requireBoardApprovalForNewAgents: boolean;
   feedbackDataSharingEnabled: boolean;

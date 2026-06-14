@@ -680,6 +680,20 @@
       "when": 1781136000000,
       "tag": "0096_budget_metric_enum",
       "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1781481600000,
+      "tag": "0097_activity_windows_run_controls",
+      "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1781395200000,
+      "tag": "0098_routine_pause_state",
+      "breakpoints": true
     }
   ]
 }

@@ -59,6 +59,8 @@ export interface Routine {
   assigneeAgentId: string | null;
   priority: string;
   status: string;
+  pauseReason: string | null;
+  pausedAt: Date | null;
   concurrencyPolicy: string;
   catchUpPolicy: string;
   variables: RoutineVariable[];
@@ -99,6 +101,8 @@ export interface RoutineRevisionSnapshotRoutineV1 {
   assigneeAgentId: string | null;
   priority: IssuePriority;
   status: RoutineStatus;
+  pauseReason: string | null;
+  pausedAt: string | null;
   concurrencyPolicy: RoutineConcurrencyPolicy;
   catchUpPolicy: RoutineCatchUpPolicy;
   variables: RoutineVariable[];

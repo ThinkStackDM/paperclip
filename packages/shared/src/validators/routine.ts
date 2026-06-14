@@ -15,6 +15,7 @@ import {
 import { envConfigSchema } from "./secret.js";
 
 const routineVariableValueSchema = z.union([z.string(), z.number().finite(), z.boolean()]);
+const routinePauseReasonSchema = z.string().trim().min(1).max(500);
 
 export const routineVariableSchema = z.object({
   name: z.string().trim().regex(/^[A-Za-z][A-Za-z0-9_]*$/),
@@ -58,6 +59,7 @@ export const createRoutineSchema = z.object({
   assigneeAgentId: z.string().uuid().optional().nullable(),
   priority: z.enum(ISSUE_PRIORITIES).optional().default("medium"),
   status: z.enum(ROUTINE_STATUSES).optional().default("active"),
+  pauseReason: routinePauseReasonSchema.optional().nullable(),
   concurrencyPolicy: z.enum(ROUTINE_CONCURRENCY_POLICIES).optional().default("coalesce_if_active"),
   catchUpPolicy: z.enum(ROUTINE_CATCH_UP_POLICIES).optional().default("skip_missed"),
   variables: z.array(routineVariableSchema).optional().default([]),
@@ -82,6 +84,8 @@ export const routineRevisionSnapshotRoutineV1Schema = z.object({
   assigneeAgentId: z.string().uuid().nullable(),
   priority: z.enum(ISSUE_PRIORITIES),
   status: z.enum(ROUTINE_STATUSES),
+  pauseReason: routinePauseReasonSchema.nullable(),
+  pausedAt: z.string().datetime().nullable(),
   concurrencyPolicy: z.enum(ROUTINE_CONCURRENCY_POLICIES),
   catchUpPolicy: z.enum(ROUTINE_CATCH_UP_POLICIES),
   variables: z.array(routineVariableSchema),

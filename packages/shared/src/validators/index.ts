@@ -27,6 +27,32 @@ export {
   type UpdateCompanyBranding,
 } from "./company.js";
 export {
+  companyEmergencyStopModeSchema,
+  companyEmergencyStopAllowlistActionSchema,
+  companyEmergencyStopStateSchema,
+  setCompanyEmergencyStopSchema,
+  clearCompanyEmergencyStopSchema,
+  type CompanyEmergencyStopStateInput,
+  type SetCompanyEmergencyStop,
+  type ClearCompanyEmergencyStop,
+} from "./company-emergency-stop.js";
+export {
+  companyActivityWindowSchema,
+  setCompanyActivityWindowSchema,
+  setCompanyRunPauseSchema,
+  type CompanyActivityWindowInput,
+  type SetCompanyActivityWindow,
+  type SetCompanyRunPause,
+} from "./company-activity-window.js";
+export {
+  setInstanceRunPauseSchema,
+  setInstanceAdapterPauseSchema,
+  patchInstanceAdapterConcurrencySchema,
+  type SetInstanceRunPause,
+  type SetInstanceAdapterPause,
+  type PatchInstanceAdapterConcurrency,
+} from "./instance-run-controls.js";
+export {
   environmentDriverSchema,
   environmentStatusSchema,
   environmentLeaseStatusSchema,
