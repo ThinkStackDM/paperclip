@@ -89,6 +89,33 @@
           }
         }
       }
+    },
+    {
+      "id": "content-book-craft",
+      "skill": "candidate-skills/content-book-craft.md",
+      "task": {
+        "id": "book-chapter-open-bare",
+        "prompt": "Write the opening of Chapter 1 of a practical guide titled \"The Calm Inbox: Email Systems for People Who Hate Email.\" Audience: busy professionals who feel buried by email. Roughly 150-220 words. Return only the prose, no headings or notes.",
+        "rubric": {
+          "deterministic": [
+            { "type": "min_words", "value": 120, "weight": 1 },
+            { "type": "max_words", "value": 270, "weight": 1 },
+            { "type": "not_contains", "value": "fast-paced world", "weight": 1 },
+            { "type": "not_contains", "value": "important to note", "weight": 1 },
+            { "type": "not_contains", "value": "delve", "weight": 1 },
+            { "type": "not_contains", "value": "tapestry", "weight": 1 },
+            { "type": "not_contains", "value": "This chapter will", "weight": 1 }
+          ],
+          "judge": {
+            "criteria": [
+              { "name": "hook", "weight": 3, "guidance": "Opens on something concrete and immediate -- a specific moment, tension, image, or sharp claim that pulls the reader in. Penalize heavily a generic scene-set ('In today's world...', 'Email has become...') or a definition / throat-clearing intro ('This chapter will explore...')." },
+              { "name": "craft", "weight": 3, "guidance": "Uses concrete, specific, sensory or situational detail instead of abstract claims (a real number, a named scenario, a physical beat). Sentence rhythm varies; active voice; reads like a published book, not generic AI filler. Penalize vague, interchangeable prose that could open any book on any topic." },
+              { "name": "voice_and_pull", "weight": 2, "guidance": "Consistent voice aimed at the stated audience; ends with forward momentum (a turn, a promise, a question) rather than a recap. No padding or filler paragraphs." },
+              { "name": "no_ai_tells", "weight": 1, "guidance": "Free of cliche AI phrasing and empty hedges; nothing that reads as boilerplate." }
+            ]
+          }
+        }
+      }
     }
   ]
 }

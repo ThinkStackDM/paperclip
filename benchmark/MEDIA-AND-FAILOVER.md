@@ -57,18 +57,16 @@ Model present locally (`~/.cache/huggingface/.../FLUX.1-schnell-mflux-4bit`, 8.9
 
 ## Part B — The pools, and what's actually loaded (the balancing problem)
 
-Everything routes into **four subscription pools**, three of which have session/weekly limits. Current real load (live fleet, last 7 d, from `heartbeat_runs` + CLI consumed usage):
+Everything routes into **four subscription pools**. **Token volume ≠ proximity to the limit** — operator reality (davin, 2026-06-14) corrects what the raw 7-day numbers implied:
 
-| Pool | What runs on it | 7-day load | Headroom | Risk |
-|---|---|---|---|---|
-| **ChatGPT (codex)** | gpt-5.5, gpt-5.4, gpt-5.4-mini, gpt-5.3-codex-spark, `auto` | **~1.6 B tokens** (gpt-5.5 alone 1612 calls / 954 M) | **lowest** | **HIGH** — heaviest load + was the benchmark-contention source |
-| **Claude (weekly)** | opus-4-8[1m] (2520 calls), sonnet-4-6 (5646 calls), opus-4-7, haiku | ~13 M out | moderate, **resets 2026-06-19** | MED — now PRIMARY post-flip, will grow; watch the reset |
-| **xAI SuperGrok** | grok text (hermes, 472 msgs/7d) **+ grok-imagine image/video** | ~24 M | **highest (under-utilised)** | LOW |
-| **Gemini (Google)** | gemini-3-flash-preview (5956 calls!), 3.1-pro, 2.5-flash-lite | 380 M / 6327 calls | separate quota | image BLOCKED; weak on ops |
+| Pool | Limit | Real status (operator-confirmed) | Strategy |
+|---|---|---|---|
+| **Claude** | session, **resets Tuesday** | **STRUCTURALLY TIGHTEST** — we *frequently* hit Claude session limits (historically, pre-improvements). Only temporary headroom this week (early reset). | **Spare it.** Quality peaks + editorial/final-pass + fallback only — never the high-volume lane. Lean in *this week* if needed. |
+| **ChatGPT (codex)** | session | **ROOMY** — carried the whole week's load (gpt-5.5 ~954 M/7d) and **did not hit limits**. Only `spark` capped (own lane, exhausts early). | **Workhorse + pressure-release valve.** Don't depend on `spark`. |
+| **xAI SuperGrok** | **MONTHLY** | Room now, but **one pool shared by grok text + grok-imagine image + grok-imagine video**. Content/media production is **untested** for our use cases. | Value-champ terse roles + media; **budget as content ramps**; codex is the release valve. |
+| **Gemini (Google)** | Google quota | Huge call budget (6327/7d); weak on ops; image quota 0. | Cheap bulk only — **never ops, never image**. |
 
-**The single most important insight:** the ChatGPT/codex pool is carrying the portfolio and is the one that hits limits, while **xAI SuperGrok is the least-loaded pool** — and the text lock-in already found that **Grok-4-Fast / 4.1-Fast are the value champions** (q ≈ 0.96–0.99, ultra-terse 33–127 out-tok) that win **engineer / intake / ops** cost-aware. So we have an under-used pool whose models are independently the right call for our highest-volume role types. **Shifting high-volume terse work off ChatGPT onto xAI is both the quality-optimal and the limit-avoiding move** — they point the same way.
-
-Note grok-imagine shares the xAI pool with grok *text*, but that pool is so lightly loaded (472 text msgs/7d) that adding image/video there still leaves it the roomiest — and crucially it does **not** add to the already-strained ChatGPT or Claude pools.
+**The corrected insight:** my first pass read high token-volume as "near the limit" and had it backwards. **ChatGPT carried the load all week without hitting limits — it's the roomy pool, not the strained one. Claude is the structurally tight pool.** So the goal is *not* to offload ChatGPT; it's to **(a) protect Claude** — keep it off volume, reserve it for quality/editorial — and **(b) spread volume across the two roomy lanes (ChatGPT + Grok)**, using Grok-fast where it's the value champ. The catch on Grok: it's a **monthly** pool **shared with image+video**, and content production is untested — so **codex (proven headroom) is the release valve**: as media consumption rises against the Grok monthly budget, shift terse text off Grok onto codex, and/or fall image back to local FLUX.
 
 ---
 
@@ -76,21 +74,22 @@ Note grok-imagine shares the xAI pool with grok *text*, but that pool is so ligh
 
 Combines the locked-in per-role text picks (peak-quality / cost-aware, claude-opus judge, 16-model lock-in) with pool load. **Primary → fallback chain per role**, designed so the heavy pool (ChatGPT) is *relieved*, the idle pool (xAI) *absorbs*, and quality peaks (designer/content) stay on Claude.
 
-| Role | Primary (quality+pool-aware) | Fallback 1 | Fallback 2 | Rationale |
+| Role | Primary (quality + pool-aware) | Fallback 1 | Fallback 2 | Rationale |
 |---|---|---|---|---|
-| **Engineer** | **Grok-4.1-Fast** (xAI) | Claude-Opus-4.7 (0.991) | gpt-5.5 | value champ; moves volume off ChatGPT |
-| **Intake** | **Grok-4-Fast** (xAI, 1.000) | Claude-Opus | gpt-5.4-mini | terse + perfect; xAI headroom |
-| **Ops** | **Grok-4-Fast** (xAI, 0.995) | Claude-Opus-4.7 | gpt-5.5 | **never Gemini** (ops loop: gemini-pro 101.9k-out blowup) |
-| **Designer** | **Claude-Sonnet-4.6** | grok-4.3 | gpt-5.5 | Claude quality peak; sonnet is high-freq/low-context (5646 calls, tiny input) → cheap on the Claude pool |
-| **Content** | **Claude-Opus-4.7** | grok-4.3 | grok-3-mini | Claude quality peak. **Do NOT route format-strict copy (word caps / "no title") to claude-opus-4.8** — it ignores hard constraints; grok/codex obey caps |
-| **Image** | **grok-imagine** | local FLUX (offline) | Cloudflare flux | $0/fast; FLUX off-peak |
-| **Video** | **grok-imagine-video** | — (no local video lane) | — | $0; only online lane |
+| **Engineer** | **Grok-4.1-Fast** (xAI) / **gpt-5.5** (codex) — split | Claude-Opus-4.7 (0.991) | — | both roomy lanes; grok = value champ, codex = headroom. Tilt to codex as Grok media-budget tightens |
+| **Intake** | **Grok-4-Fast** (1.000) / gpt-5.4-mini — split | Claude-Opus | — | terse + perfect; spread across the two roomy lanes |
+| **Ops** | **Grok-4-Fast** (0.995) / gpt-5.5 — split | Claude-Opus-4.7 | — | **never Gemini** (ops loop: gemini-pro 101.9k-out blowup) |
+| **Designer** | **Claude-Sonnet-4.6** | grok-4.3 | gpt-5.5 | quality peak; *low-volume* use of the tight Claude lane is appropriate. Sonnet = cheapest Claude lane |
+| **Content — draft** | **Haiku / Gemini-Flash + book-craft skill** | grok-4.3 | gpt-5.4-mini | high-volume drafting on cheap lanes; skill closes the quality gap (see Part D) — keeps drafting *off* the tight Claude lane |
+| **Content — final / edit** | **Claude editor pass** (Sonnet-4.6 / Opus-4.7) | grok-4.3 | — | quality gate on the tight lane, but *one pass per deliverable* = low volume. **Not opus-4.8** for word-cap / format-strict work (ignores hard constraints) |
+| **Image** | **grok-imagine** | local FLUX (offline) | Cloudflare flux | $0 / fast; FLUX off-peak; **counts against the Grok monthly pool** |
+| **Video** | **grok-imagine-video** | local FLUX (stills only) | — | $0; only video lane; **counts against the Grok monthly pool** |
 
 ### Standing usage-balancing rules
 
-1. **Relieve ChatGPT.** It's the most-loaded + limit-prone pool. Keep gpt-5.5/5.4 as *fallback*, not primary, for the high-volume terse roles (engineer/intake/ops) now that grok-fast matches them on quality. Reserve codex for where it's genuinely best (it was the value winner pre-lock-in and is a strong fallback everywhere).
-2. **Absorb on xAI.** It's the idle pool. Land engineer/intake/ops text **and** all image/video here. Monitor that grok *text* + grok-imagine combined stay within SuperGrok session limits (still huge headroom today).
-3. **Spend Claude deliberately.** It's PRIMARY post-flip and the weekly quota resets **2026-06-19**. Keep it on its quality peaks (designer/content) and as universal fallback; don't make it the high-volume terse lane. Sonnet-4.6 is the cheap high-frequency Claude lane (low input/call); opus for true quality peaks.
+1. **Protect Claude — it's the tight lane.** We historically hit Claude limits often; treat it as scarce. Quality peaks (designer) + editorial/final-pass (content) + universal fallback only — never the high-volume primary. We can lean in *this week* (early reset, resets Tuesday) but the steady-state must survive Claude being scarce. Sonnet-4.6 = cheapest Claude lane; opus for true peaks.
+2. **ChatGPT is the workhorse + release valve.** It carried the week without hitting limits — keep it a primary for terse roles alongside Grok, and use it to absorb overflow from both the tight Claude lane and the media-shared Grok lane. Don't lean on `spark` (own sub-lane, exhausts early).
+3. **Budget the Grok monthly pool against media.** Grok text value-roles + grok-imagine image + grok-imagine video all draw one **monthly** pool, and content/media volume is **untested** for us. Default to Grok-fast for terse + grok-imagine for media, but **watch the monthly burn once content production starts** — when it tightens, shift terse text → codex and/or image → local FLUX to reserve Grok budget for video. Re-measure and adjust after the first real content cycle.
 4. **Gemini: cheap bulk only, never ops, never image.** Huge call budget (6327/7d) and fine for high-volume low-stakes generation, but it loops/blows up on ops and its image quota is 0.
 5. **Serialize the shared subs under concurrency.** `_CODEX_LOCK` (codex) and `_HERMES_LOCK` (grok) prevent the multi-model hangs we hit — keep them on for any batch run.
 6. **Don't run 4 models from one sub at once.** The lock-in had to be split into 12 non-codex + 4 codex batches *after* flipping the fleet. Any future multi-codex sweep: pause codex sisters first (fleet flip), or batch sequentially.
@@ -107,3 +106,76 @@ Claude PRIMARY (13 primaries resumed), Codex sisters PAUSED (15). This frees Cha
 - **Smoke tests + rollout** — wire these per-role primary→fallback chains into the dispatcher and run Paperclip end-to-end smoke tests.
 - **Cloudflare image fallback** — configure `CF_IMAGE_API_TOKEN`+`CF_ACCOUNT_ID` if we want a fast online image fallback for when xAI is capped (today FLUX-offline covers it).
 - **Session-limit telemetry** — the controller now shows consumed usage per pool; add a soft-threshold alert per pool so failover trips *before* a hard limit, not after.
+
+---
+
+## Part D — TSB book production: cheap-draft → Claude-edit pipeline (validated)
+
+davin's question: *can a skill get the same level of output from haiku/flash?* **Yes — validated.**
+Built `skillbench/candidate-skills/content-book-craft.md` (hook-first, concrete specifics,
+varied rhythm, kill-AI-tells) and benched it on an under-specified "write the chapter opening"
+task (`content-book-craft` pair), claude-opus judge, 2 reps:
+
+| Model | Baseline | + skill | Lift |
+|---|---|---|---|
+| **gemini-flash** | 0.805 | **0.944** | **+0.139** |
+| **claude-haiku** | 0.813 | **0.930** | **+0.117** |
+| claude-sonnet | 0.884 | 0.954 | +0.070 |
+| grok-4.3 | 0.911 | 0.961 | +0.051 |
+
+**Read:** cheap + skill (0.93–0.94) **beats the strong models' bare baseline** (sonnet 0.884,
+grok 0.911) and lands within ~0.01 of strong + skill. Cost ≈ 650 tok/call (modest, deterministic).
+Unlike the ops-forensics skill (which *hurt* strong models), book-craft lifts **everyone** — it's
+genuine craft knowledge models don't apply by default — so it's safe on every lane, biggest where
+it's needed most (the cheap drafting lanes).
+
+**The pipeline (recommended for TSB):**
+1. **Draft** — Author agent on **gemini-flash** (or haiku) **+ book-craft skill** → ~0.94 chapters.
+   gemini-flash is ideal: cheapest, on the *separate Google pool*, and got the biggest lift
+   (+0.139). Keeps high-volume drafting **off the tight Claude lane** entirely.
+2. **Edit / final pass** — Editor agent on **Claude** (Sonnet-4.6 for most, Opus-4.7 where it's
+   format-strict like KDP metadata — **not opus-4.8**, which ignores hard constraints). Because the
+   draft is already ~0.94, the editor *polishes* rather than rewrites → far less Claude spend than
+   drafting on Claude directly. **Best of both: cheap volume + a top-model quality gate on the
+   final deliverable.**
+
+TSB already has the right org for this: it has distinct **Author** and **Editor** roles (plus
+Architect/Researcher/Designer). Wiring: attach book-craft to the Author, set Author model →
+gemini-flash, keep Editor on Claude. *(This changes how the book company drafts — staged for
+go-ahead before flipping live, since it touches their product output.)*
+
+---
+
+## Part E — Skill audit (corrected)
+
+Two read-only sweeps enumerated all **21 live skills** (files in `~/paperclip/skills/<name>/SKILL.md`,
+DB `company_skills`; attached per-agent via `agents.adapter_config.paperclipSkillSync.desiredSkills`).
+A first-pass sub-agent flagged ~7 skills as "remove from strong models." **That recommendation was
+wrong and I did not act on it** — it mis-applied the #16 finding.
+
+**The distinction that matters:** the "skills hurt strong models" result is about **general
+knowledge** a strong model already has (the model knows N+1 query batching; the skill is noise).
+It does **not** apply to **system-specific operating runbooks** — a strong model cannot know
+Paperclip's internal procedures (the three liveness invariants, `doc/execution-semantics.md`,
+board-gated child issues, `$AGENT_HOME` memory layout, the sister-swap protocol) from training.
+Removing those would **degrade operations**, not improve them.
+
+Re-classified:
+
+| Category | Skills | Verdict |
+|---|---|---|
+| **System-specific runbooks — KEEP on any model** | fallback-lane-ops, mc-portfolio-comms, silent-run-review, diagnose-why-work-stopped, para-memory-files, paperclip-converting-plans-to-tasks, + all per-company pipeline-ops (kdp/etsy/content/recruitment/utility/polymarket) | Keep. These are operating instructions, not general knowledge. |
+| **Efficiency concern — TRIM (needs confirm)** | the **Paperclip-internals dev bundle**: `paperclip` (29.8KB) + `paperclip-dev` (13.2KB) + `terminal-bench-loop` (25.6KB) + `paperclip-create-agent`/`-plugin` ≈ **83KB** | Bundled onto engineer/CTO agents in **all 5 technical companies**, but only **TSMC develops Paperclip** (TSC=Go trading bot, TSK=SEO sites, TSM=media, TSR=recruitment). ~83KB of token overhead per heartbeat on ~10 non-TSMC technical agents. |
+
+**Finding:** no skill is clearly *hurting output* (the suspected ones are needed runbooks). The real
+issue is **efficiency** — the Paperclip-dev bundle on non-Paperclip-dev companies. Trimming it from
+non-TSMC technical agents would cut heartbeat token overhead with low risk (reversible: re-add to
+`desiredSkills`). **But it hinges on a fact only davin has:** do any non-TSMC technical agents ever
+do Paperclip development or create their own agents/plugins? If no → safe to trim. Staged, not applied.
+
+Ready SQL to trim one skill from one agent (template):
+```sql
+UPDATE agents SET adapter_config = jsonb_set(adapter_config, '{paperclipSkillSync,desiredSkills}',
+  (adapter_config->'paperclipSkillSync'->'desiredSkills') - 'paperclipai/paperclip/terminal-bench-loop')
+WHERE company_id <> '<TSMC-id>' AND role IN ('engineer','cto') AND status <> 'terminated';
+```
