@@ -194,26 +194,6 @@ describe("server adapter registry", () => {
     expect(adapter!.supportsLocalAgentJwt).toBe(true);
   });
 
-  it("built-in antigravity_local adapter exposes docs and runtime command config", () => {
-    const adapter = findActiveServerAdapter("antigravity_local");
-    expect(adapter).not.toBeNull();
-    expect(adapter!.agentConfigurationDoc).toContain("local `agy` login");
-    expect(adapter!.agentConfigurationDoc).toContain("does not require or read a Google API key");
-    expect(adapter!.supportsInstructionsBundle).toBe(true);
-    expect(adapter!.supportsLocalAgentJwt).toBe(true);
-    expect(adapter!.requiresMaterializedRuntimeSkills).toBe(true);
-    expect(adapter!.getRuntimeCommandSpec?.({})).toEqual({
-      command: "agy",
-      detectCommand: "agy",
-      installCommand: null,
-    });
-    expect(adapter!.getRuntimeCommandSpec?.({ command: "custom-agy" })).toEqual({
-      command: "custom-agy",
-      detectCommand: "custom-agy",
-      installCommand: null,
-    });
-  });
-
   it("built-in local adapters declare cheap model profile defaults where supported", async () => {
     await expect(listAdapterModelProfiles("claude_local")).resolves.toEqual([
       expect.objectContaining({

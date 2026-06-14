@@ -50,11 +50,9 @@ describe("llm routes", () => {
     registerModuleMocks();
     vi.clearAllMocks();
     mockListServerAdapters.mockReturnValue([
-      { type: "codex_local", agentConfigurationDoc: "# codex_local agent configuration" },
       {
-        type: "antigravity_local",
-        agentConfigurationDoc:
-          "# antigravity_local agent configuration\n\nUses local `agy` login. No API key required.",
+        type: "codex_local",
+        agentConfigurationDoc: "# codex_local agent configuration\n\nRuns the Codex CLI locally. No API key required.",
       },
     ]);
   });
@@ -76,7 +74,7 @@ describe("llm routes", () => {
     expect(res.text).toContain("sourceIssueId/sourceIssueIds");
     expect(res.text).toContain("Timer heartbeats are opt-in for new hires.");
     expect(res.text).toContain("Leave runtimeConfig.heartbeat.enabled false");
-    expect(res.text).toContain("- antigravity_local: /llms/agent-configuration/antigravity_local.txt");
+    expect(res.text).toContain("- codex_local: /llms/agent-configuration/codex_local.txt");
   });
 
   it("serves adapter-specific configuration docs", async () => {
@@ -88,11 +86,11 @@ describe("llm routes", () => {
       isInstanceAdmin: true,
     });
 
-    const res = await request(app).get("/api/llms/agent-configuration/antigravity_local.txt");
+    const res = await request(app).get("/api/llms/agent-configuration/codex_local.txt");
 
     expect(res.status).toBe(200);
-    expect(res.text).toContain("# antigravity_local agent configuration");
-    expect(res.text).toContain("local `agy` login");
+    expect(res.text).toContain("# codex_local agent configuration");
+    expect(res.text).toContain("Runs the Codex CLI locally");
     expect(res.text).toContain("No API key required");
   });
 });

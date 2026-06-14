@@ -3,7 +3,6 @@
  */
 export const BUILTIN_ADAPTER_TYPES = new Set([
   "acpx_local",
-  "antigravity_local",
   "claude_local",
   "codex_local",
   "cursor_cloud",

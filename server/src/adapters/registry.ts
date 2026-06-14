@@ -9,17 +9,6 @@ import {
   getAdapterSessionManagement,
 } from "@paperclipai/adapter-utils";
 import {
-  execute as antigravityExecute,
-  listAntigravitySkills,
-  syncAntigravitySkills,
-  testEnvironment as antigravityTestEnvironment,
-  sessionCodec as antigravitySessionCodec,
-} from "@paperclipai/adapter-antigravity-local/server";
-import {
-  agentConfigurationDoc as antigravityAgentConfigurationDoc,
-  models as antigravityModels,
-} from "@paperclipai/adapter-antigravity-local";
-import {
   execute as acpxExecute,
   testEnvironment as acpxTestEnvironment,
   sessionCodec as acpxSessionCodec,
@@ -298,27 +287,6 @@ const acpxLocalAdapter: ServerAdapterModule = {
   requiresMaterializedRuntimeSkills: false,
   agentConfigurationDoc: acpxAgentConfigurationDoc,
   getConfigSchema: getAcpxConfigSchema,
-};
-
-const antigravityLocalAdapter: ServerAdapterModule = {
-  type: "antigravity_local",
-  execute: antigravityExecute,
-  testEnvironment: antigravityTestEnvironment,
-  listSkills: listAntigravitySkills,
-  syncSkills: syncAntigravitySkills,
-  sessionCodec: antigravitySessionCodec,
-  sessionManagement: getAdapterSessionManagement("antigravity_local") ?? undefined,
-  models: antigravityModels,
-  supportsLocalAgentJwt: true,
-  supportsInstructionsBundle: true,
-  instructionsPathKey: "instructionsFilePath",
-  requiresMaterializedRuntimeSkills: true,
-  getRuntimeCommandSpec: (config) => ({
-    command: readConfiguredCommand(config, "agy"),
-    detectCommand: readConfiguredCommand(config, "agy"),
-    installCommand: null,
-  }),
-  agentConfigurationDoc: antigravityAgentConfigurationDoc,
 };
 
 const codexLocalAdapter: ServerAdapterModule = {
@@ -674,7 +642,6 @@ const pausedOverrides = new Set<string>();
 function registerBuiltInAdapters() {
   for (const adapter of [
     acpxLocalAdapter,
-    antigravityLocalAdapter,
     claudeLocalAdapter,
     codexLocalAdapter,
     openCodeLocalAdapter,

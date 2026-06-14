@@ -223,7 +223,7 @@ describe("runGateService.getRunGateBlock", () => {
 
   it("caps unknown adapter types at the default of 2", async () => {
     const { db } = createDbStub([instanceRow(), companyRow(), countRow(2)]);
-    const block = await runGateService(db).getRunGateBlock({ ...baseAgent, adapterType: "antigravity_local" });
+    const block = await runGateService(db).getRunGateBlock({ ...baseAgent, adapterType: "made_up_local" });
     expect(block?.kind).toBe("adapter_concurrency_limit");
     expect(block?.reason).toContain("2/2");
   });

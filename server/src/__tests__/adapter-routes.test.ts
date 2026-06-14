@@ -158,15 +158,6 @@ describe("adapter routes", () => {
       requiresMaterializedRuntimeSkills: false,
     });
 
-    const antigravityLocal = res.body.find((a: any) => a.type === "antigravity_local");
-    expect(antigravityLocal).toBeDefined();
-    expect(antigravityLocal.capabilities).toMatchObject({
-      supportsInstructionsBundle: true,
-      supportsSkills: true,
-      supportsLocalAgentJwt: true,
-      requiresMaterializedRuntimeSkills: true,
-    });
-
     // process adapter should have no local capabilities
     const processAdapter = res.body.find((a: any) => a.type === "process");
     expect(processAdapter).toBeDefined();
