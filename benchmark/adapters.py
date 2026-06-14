@@ -29,6 +29,11 @@ import benchlib
 # hermes session is unambiguously the one just created, then match by recorded model.
 _HERMES_LOCK = threading.Lock()
 
+# codex (ChatGPT-OAuth) rate-limits concurrent requests against the single shared
+# token (and the live Paperclip fleet competes for it too): parallel `codex exec`
+# calls hang until the timeout. Serialize them — serial codex calls return in seconds.
+_CODEX_LOCK = threading.Lock()
+
 
 def run_model(prompt, model_row, adapters_cfg, timeout_sec):
     """Dispatch to the right adapter by model_row['adapter']."""
@@ -139,7 +144,8 @@ def _run_codex(prompt, model_arg, extra, timeout_sec):
             cmd += ["-m", model_arg]
         cmd += list(extra)
         r["cmd"] = ["codex", "exec", "<prompt>", "--json"] + (["-m", model_arg] if model_arg else [])
-        rc, out, err, wall, timed_out = _exec(cmd, timeout_sec, cwd)
+        with _CODEX_LOCK:  # serialize: concurrent ChatGPT-OAuth codex calls hang
+            rc, out, err, wall, timed_out = _exec(cmd, timeout_sec, cwd)
         r["wallMs"] = wall
         r["stderrTail"] = _tail(err)
         # final message: prefer -o file, else last agent_message event on stdout
