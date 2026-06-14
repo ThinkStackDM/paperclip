@@ -112,3 +112,23 @@ this skill onto strong models is net-negative.
    output/thoughts variance (the −63k nonsense values). Now computed from the **input**-token
    delta = the skill body's real cost. The numbers in the demo report above are still the old
    total-based values; re-run `skillbench.py` for the corrected input-based cost.
+
+---
+
+## Media gen + failover/usage-balancing (2026-06-14)
+
+See **[MEDIA-AND-FAILOVER.md](./MEDIA-AND-FAILOVER.md)** — full image/video benchmark + the
+portfolio failover plan. Headlines:
+
+- **Image:** `grok-imagine` ($0, ~13 s, xAI OAuth) is production-quality across all 6 OpCo use
+  cases (logo/hero/book-cover/product/infographic/mascot). Renders **structured infographic text
+  cleanly** but garbles small photoreal text → overlay real copy on photoreal heroes.
+- **Video:** `grok-imagine-video` ($0, 8 s / 720p / 24fps + audio) followed camera direction
+  exactly — stock-footage-quality B-roll out of the box.
+- **Offline fallback:** local **FLUX.1-schnell** (MLX 4-bit, free/unlimited/on-device, ~5 min,
+  good, legible logo text) — but HW-heavy on the shared Mac → off-peak only. Gemini image = quota 0.
+- **Failover insight from live usage:** the **ChatGPT/codex pool is the most-loaded + limit-prone**
+  (gpt-5.5 ~954 M/7d), while **xAI SuperGrok is the idle pool** — and the lock-in's value champs
+  (Grok-4-Fast/4.1-Fast) win engineer/intake/ops anyway. So shift high-volume terse text **and**
+  all image/video onto xAI; keep Claude (now primary, resets 06-19) on designer/content peaks;
+  Gemini for cheap bulk only (never ops, never image). Per-role primary→fallback chains in the doc.
