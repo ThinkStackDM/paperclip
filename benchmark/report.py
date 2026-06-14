@@ -36,8 +36,16 @@ def aggregate(runs, cfg):
           role, task_id, model_id, quality, qualityPer1kTokens, totalTokens, ok...
     Returns the full report dict.
     """
-    models = [m["id"] for m in cfg["models"]]
-    labels = {m["id"]: m["label"] for m in cfg["models"]}
+    # Show every model actually present in the run (including catalog variants run
+    # via --models), ordered by the config roster (models then catalog), so cheap/
+    # mid-tier variants appear — not just the default `models` lineup.
+    roster = {m["id"]: m for m in (cfg.get("models", []) + cfg.get("models_catalog", []))}
+    present = {r["model_id"] for r in runs}
+    models = [mid for mid in roster if mid in present]
+    models += [mid for mid in sorted(present) if mid not in roster]  # unknown ids last
+    labels = {mid: (roster.get(mid, {}).get("label") or mid) for mid in models}
+    roster_rows = {mid: roster.get(mid, {"id": mid, "label": mid, "adapter": None,
+                                          "model_arg": None, "lane": None}) for mid in models}
     roles = cfg["roles"]
 
     # cell[(role, model)] = list of runs
@@ -77,8 +85,10 @@ def aggregate(runs, cfg):
 
     overall = _overall(per_role, models, labels, cfg)
     return {
-        "models": [{"id": m["id"], "label": m["label"], "adapter": m["adapter"],
-                    "model_arg": m["model_arg"], "lane": m["lane"]} for m in cfg["models"]],
+        "models": [{"id": mid, "label": labels.get(mid, mid),
+                    "adapter": roster_rows[mid].get("adapter"),
+                    "model_arg": roster_rows[mid].get("model_arg"),
+                    "lane": roster_rows[mid].get("lane")} for mid in models],
         "judge": cfg["judge"].get("id"),
         "roles": per_role,
         "overall": overall,
