@@ -1,0 +1,107 @@
+{
+  "role": "engineer",
+  "description": "Technical reasoning + code tasks drawn from real Paperclip engineering: classifying run failures, fixing a token-accounting bug in the agent-scorecard SQL, implementing the prefix-routing function the MC-Compiler uses, plus harder bug-spotting (a concurrency race, a wrong-default bug from the restart-race incident) and an edge-case implementation. Deterministic checks anchor objectivity; the strict judge grades code correctness and whether subtle bugs are actually caught.",
+  "tasks": [
+    {
+      "id": "eng-failure-classify",
+      "title": "Classify a run failure as infra vs model fault",
+      "prompt": "A Paperclip agent run failed. Classify it for the run-recovery system.\n\nFAILURE: the run's stderr is exactly: \"Process lost -- server may have restarted\". This was logged by heartbeat.ts immediately after a server restart; the agent itself never produced a turn.\n\nClassify with these rules:\n- category \"infra\" if the failure is environmental (server restart, process lost, OOM, network) and NOT the model's own output.\n- category \"model\" if the model produced a bad/refused/looping answer.\n- retryable = true only for transient infra failures.\n\nReturn ONLY JSON: {\"category\": \"infra\"|\"model\", \"retryable\": true|false, \"reason\": string}. No prose.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "category", "value": "infra", "weight": 4 },
+          { "type": "json_path_equals", "path": "retryable", "value": true, "weight": 3 }
+        ]
+      }
+    },
+    {
+      "id": "eng-scorecard-sql-bug",
+      "title": "Find the token-accounting bug in the scorecard SQL",
+      "prompt": "This SQL computes average tokens per agent run in Paperclip's agent-scorecard:\n\n  round(avg((hr.usage_json->>'inputTokens')::numeric + (hr.usage_json->>'outputTokens')::numeric)\n        FILTER (WHERE (hr.usage_json->>'outputTokens') IS NOT NULL)) AS avg_tokens\n\nContext: under subscription billing `cost_cents` is always 0, so tokens (from usage_json) are the ONLY cost signal. Some runs store cached-prompt tokens under `cacheReadInputTokens` and `cacheCreationInputTokens`, which this expression ignores.\n\nIn 2-4 sentences: (1) state the bug, (2) explain why it matters for cost/quality-per-token comparisons, and (3) give a corrected SQL numerator expression that also counts the cache token fields. Be concise.",
+      "rubric": {
+        "deterministic": [
+          { "type": "contains_any", "values": ["cacheReadInputTokens", "cacheCreationInputTokens", "cache"], "weight": 3 },
+          { "type": "contains_any", "values": ["coalesce", "COALESCE", "::numeric", "usage_json"], "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "correctness", "weight": 3, "guidance": "Correctly identifies that cache token fields are excluded and undercount real prompt tokens, and the corrected numerator actually sums input+output+both cache fields with null-safety (e.g. COALESCE). Penalize a fix that adds cache fields but drops the existing null-safety, or that double-counts." },
+            { "name": "concision", "weight": 1, "guidance": "Stays within ~4 sentences, no rambling." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "eng-prefix-router",
+      "title": "Implement the MC-Compiler prefix router",
+      "prompt": "Implement this Python function exactly to spec — it is the core of Paperclip's MC-Compiler dispatch.\n\n  def route_wake(parent_id: str, title: str, routes: list) -> str | None:\n      '''routes is a list of (route_parent, title_prefix, handler) tuples.\n      Return the handler for the FIRST route whose route_parent == parent_id\n      AND title (after stripping leading/trailing whitespace) startswith title_prefix.\n      If no route matches, return None (the caller escalates to the CTO).'''\n\nReturn ONLY the function definition in a ```python code block. No explanation.",
+      "rubric": {
+        "deterministic": [
+          { "type": "contains", "value": "def route_wake", "weight": 2 },
+          { "type": "regex", "pattern": "\\.strip\\(\\)", "weight": 2 },
+          { "type": "contains", "value": "startswith", "weight": 2 },
+          { "type": "regex", "pattern": "return\\s+None", "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "correctness", "weight": 3, "guidance": "The function returns the first matching handler (parent equality AND stripped-title prefix match), returns None when nothing matches, and handles the tuple unpacking correctly. Penalize off-by-one ordering, missing strip, or matching on substring instead of prefix." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "eng-concurrency-race",
+      "title": "Spot the concurrency race in session-token attribution",
+      "prompt": "This Python attributes a CLI run's token usage by diffing a shared session store before and after the run. Multiple of these run CONCURRENTLY in a thread pool (different models, sometimes the SAME prompt):\n\n  def run_and_measure(prompt, model):\n      before = set(list_session_ids())          # all session ids in the shared store\n      output = run_cli(prompt, model)            # creates exactly one new session\n      after = list_session_ids()\n      new_ids = [s for s in after if s not in before]\n      sess_id = max(new_ids) if new_ids else max(after)\n      tokens = export_session_tokens(sess_id)\n      return output, tokens\n\nUnder concurrency this sometimes attributes the WRONG token count to a run (e.g. 200 tokens for a real call that used 19,000).\n\nIn under 120 words: (1) name the race precisely, (2) explain how two concurrent calls cause the mis-attribution, and (3) give the fix. Be specific.",
+      "rubric": {
+        "deterministic": [
+          { "type": "contains_any", "values": ["race", "concurren", "interleav", "TOCTOU", "time-of-check"], "weight": 2 },
+          { "type": "contains_any", "values": ["lock", "serial", "mutex", "per-thread", "session id", "session_id", "unique"], "weight": 2 },
+          { "type": "max_words", "value": 150, "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "correctness", "weight": 3, "guidance": "Correctly identifies that the before/after diff is not atomic: a concurrent call's new session lands in `after` too, so `new_ids` contains multiple sessions and `max(new_ids)` may pick the OTHER call's session — mis-attributing tokens. Bonus if it notes same-prompt calls can't be disambiguated by content. The fix must actually remove the race (serialize the snapshot+run with a lock, OR match the session by a per-call unique id / recorded model), not merely add retries or sort differently." },
+            { "name": "specificity", "weight": 1, "guidance": "Concrete, names the exact line/mechanism, not a vague 'add thread safety'." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "eng-stale-reap-default-bug",
+      "title": "Find the wrong-default bug that fails live runs on restart",
+      "prompt": "On server startup Paperclip reaps orphaned runs. After a normal restart, runs that were still 'running' are being permanently FAILED as 'process_lost' instead of being resumed — even though nothing was actually wrong with them.\n\nRelevant code:\n\n  // index.ts startup\n  reapOrphanedRuns()                     // called with no argument\n\n  function reapOrphanedRuns(staleThresholdMs = 0) {\n    const cutoff = Date.now() - staleThresholdMs\n    for (const run of runningRuns()) {\n      if (run.lastHeartbeatAt <= cutoff) {\n        failRun(run, 'process_lost')       // shouldRetry=false on a bare restart -> permanent\n      }\n    }\n  }\n\nIn under 110 words: (1) state the exact bug, (2) why every still-running run gets failed on a clean restart, and (3) the fix. Be precise about the default value and the comparison.",
+      "rubric": {
+        "deterministic": [
+          { "type": "contains_any", "values": ["0", "zero", "default"], "weight": 2 },
+          { "type": "contains_any", "values": ["grace", "threshold", "staleThresholdMs", "cutoff", "<=", "now"], "weight": 2 },
+          { "type": "max_words", "value": 140, "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "correctness", "weight": 3, "guidance": "Correctly explains that staleThresholdMs defaults to 0, so cutoff == now, so EVERY running run (lastHeartbeatAt <= now) is treated as stale and failed immediately on startup, before it can heartbeat. The fix is to pass/raise a non-zero startup grace (e.g. 60s) so freshly-restarted runs aren't instantly reaped. Penalize answers that blame the heartbeat itself or propose just changing shouldRetry without fixing the 0-default." },
+            { "name": "specificity", "weight": 1, "guidance": "Pins the 0 default and the <= cutoff comparison specifically." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "eng-token-normalizer",
+      "title": "Implement a null-safe token-cost normalizer",
+      "prompt": "Implement this Python function exactly. It normalizes a model run's raw usage dict (fields may be missing or None) into a consistent record.\n\n  def normalize_usage(raw: dict) -> dict:\n      '''Return {'input': int, 'output': int, 'total': int} where:\n      - input  = (raw['inputTokens'] or 0) + (raw['cacheReadInputTokens'] or 0) + (raw['cacheCreationInputTokens'] or 0)\n      - output = raw['outputTokens'] or 0\n      - total  = input + output\n      Any of those keys may be ABSENT or None. Never raise KeyError or TypeError.\n      Always return ints (never None).'''\n\nReturn ONLY the function definition in a ```python code block. No explanation.",
+      "rubric": {
+        "deterministic": [
+          { "type": "contains", "value": "def normalize_usage", "weight": 2 },
+          { "type": "contains_any", "values": [".get(", "raw.get"], "weight": 2 },
+          { "type": "regex", "pattern": "or\\s+0", "weight": 2 },
+          { "type": "contains_all", "values": ["'input'", "'output'", "'total'"], "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "correctness", "weight": 3, "guidance": "Handles BOTH missing keys AND explicit None safely (e.g. (raw.get('inputTokens') or 0)). A solution using raw['k'] would KeyError, and raw.get('k', 0) still breaks when the value is explicitly None — penalize those. input must sum the two cache fields too; total = input+output; all ints." }
+          ]
+        }
+      }
+    }
+  ]
+}

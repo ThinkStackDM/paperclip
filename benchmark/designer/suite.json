@@ -1,0 +1,102 @@
+{
+  "role": "designer",
+  "description": "Visual/design tasks gradeable from text: structured image-generation prompts (the real grok-imagine / image-gen-ops path), constrained inline SVG components (status pill, a 3-bar chart with exact specified geometry, an accessible badge), and a brand color palette. Deterministic checks enforce structure/constraints/exact values; the strict judge reads the artifact and grades design quality + brief-fit.",
+  "tasks": [
+    {
+      "id": "design-image-prompt",
+      "title": "Author a structured image-gen prompt from a brand brief",
+      "prompt": "Produce an image-generation prompt for a text-to-image model (grok-imagine).\n\nBRAND BRIEF: ThinkStack Capital — a quantitative trading desk. We need a hero image for a blog post titled \"Edge in Thin Markets\". Mood: precise, restrained, premium. Avoid clichés (no glowing brains, no generic stock-photo traders, no literal money piles).\n\nReturn a prompt with these labeled sections, each on its own line:\nSubject: ...\nStyle: ...\nPalette: ...\nComposition: ...\nAspect: ...\nNegative: ...\n\nFill every section with specific, concrete direction. Return ONLY those six lines.",
+      "rubric": {
+        "deterministic": [
+          { "type": "contains_all", "values": ["Subject:", "Style:", "Palette:", "Composition:", "Aspect:", "Negative:"], "weight": 4 },
+          { "type": "contains", "value": "Negative:", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "specificity", "weight": 2, "guidance": "Each section gives concrete, usable art direction (specific palette values/colors, real composition language, a defined aspect ratio) rather than vague adjectives." },
+            { "name": "brand_fit", "weight": 2, "guidance": "Matches a precise/restrained/premium quant-desk mood for 'Edge in Thin Markets', and the Negative section actually excludes the named clichés." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "design-status-pill-svg",
+      "title": "Emit a constrained inline SVG status pill",
+      "prompt": "Produce an inline SVG for a status pill badge to embed in a dashboard.\n\nCONSTRAINTS:\n- Root <svg> with a viewBox attribute and width/height.\n- A rounded-rectangle background (rx >= 6).\n- A small filled circle as a status dot.\n- A <text> element whose content is exactly: HEALTHY\n- Use a green status color for an OK/healthy state.\n- Self-contained (no external CSS, no <img>, no <script>).\n\nReturn ONLY the SVG markup, nothing else.",
+      "rubric": {
+        "deterministic": [
+          { "type": "regex", "pattern": "<svg[^>]*viewBox", "weight": 3 },
+          { "type": "regex", "pattern": "<rect[^>]*rx", "weight": 2 },
+          { "type": "contains", "value": "<circle", "weight": 1 },
+          { "type": "regex", "pattern": ">\\s*HEALTHY\\s*<", "weight": 2 },
+          { "type": "not_contains", "value": "<script", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "valid_intent", "weight": 2, "guidance": "Reads as a coherent, renderable pill: balanced tags, sensible coordinates within the viewBox, dot and text positioned so they wouldn't obviously overlap or fall outside the badge." },
+            { "name": "design_quality", "weight": 1, "guidance": "Tasteful: a real green for healthy, reasonable padding/proportions, looks like a polished status pill rather than a crude box." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "design-bar-chart-svg",
+      "title": "Emit a 3-bar SVG chart with EXACT specified geometry",
+      "prompt": "Produce an inline SVG bar chart with EXACTLY three vertical bars, following these specs precisely.\n\nSPEC:\n- viewBox=\"0 0 300 200\". Chart baseline (bottom of bars) at y=180.\n- Three <rect> bars, each width=40, evenly spaced, with these EXACT heights:\n  - Bar A: height=40  (so its y = 140)\n  - Bar B: height=120 (so its y = 60)\n  - Bar C: height=80  (so its y = 100)\n- Each bar a solid fill. Bar B (the tallest) must be visually emphasized with a distinct, stronger fill color than A and C.\n- Include a <text> label under each bar: \"A\", \"B\", \"C\".\n- Self-contained, no <script>.\n\nReturn ONLY the SVG markup.",
+      "rubric": {
+        "deterministic": [
+          { "type": "regex", "pattern": "viewBox\\s*=\\s*[\"']0 0 300 200", "weight": 2 },
+          { "type": "regex", "pattern": "height\\s*=\\s*[\"']40[\"']", "weight": 2 },
+          { "type": "regex", "pattern": "height\\s*=\\s*[\"']120[\"']", "weight": 2 },
+          { "type": "regex", "pattern": "height\\s*=\\s*[\"']80[\"']", "weight": 2 },
+          { "type": "regex", "pattern": ">\\s*A\\s*<", "weight": 1 },
+          { "type": "not_contains", "value": "<script", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "geometry_correct", "weight": 3, "guidance": "Bars actually sit on the y=180 baseline with the correct y offsets (A y=140, B y=60, C y=80) so heights read as 40/120/80; bars are width=40 and evenly spaced within the 300-wide viewBox; labels A/B/C sit under the correct bars. Penalize bars that float, overflow, or have wrong y so the visual heights are wrong even if a height= attribute is present." },
+            { "name": "emphasis", "weight": 1, "guidance": "Bar B has a clearly distinct/stronger fill than A and C." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "design-color-palette",
+      "title": "Produce a brand color palette as exact hex with roles",
+      "prompt": "Design a 5-color palette for a fintech brand, \"Tally\" — trustworthy, modern, calm, with one confident accent.\n\nOutput EXACTLY 5 lines, each: <Role>: #RRGGBB — <one short usage note>\nRoles, in this order: Primary, Secondary, Background, Text, Accent.\nEach color MUST be a valid 6-digit hex code (#RRGGBB). The Accent should be the one confident pop of color; Background and Text must have strong contrast against each other.\n\nReturn ONLY the 5 lines.",
+      "rubric": {
+        "deterministic": [
+          { "type": "regex", "pattern": "(?si)primary.*#[0-9a-f]{6}", "weight": 2 },
+          { "type": "regex", "pattern": "(?si)accent.*#[0-9a-f]{6}", "weight": 2 },
+          { "type": "contains_all", "values": ["Primary", "Secondary", "Background", "Text", "Accent"], "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "harmony", "weight": 2, "guidance": "Colors form a coherent, tasteful fintech palette (trustworthy/modern/calm) with ONE confident accent that stands out; not random or clashing." },
+            { "name": "contrast", "weight": 2, "guidance": "Background vs Text have genuinely strong contrast (e.g. dark text on light bg or vice versa) — an accessible, readable pairing, not two similar mid-tones." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "design-accessible-badge",
+      "title": "Emit an accessible SVG badge with title + aria",
+      "prompt": "Produce an inline SVG \"BETA\" badge that is accessible.\n\nCONSTRAINTS:\n- Root <svg> with viewBox and role=\"img\".\n- An accessible name: include a <title> element AND aria-label on the <svg> (both reading e.g. \"Beta feature badge\").\n- A rounded-rect background and a <text> reading exactly: BETA\n- Reasonable color contrast between the text and the background.\n- Self-contained, no <script>.\n\nReturn ONLY the SVG markup.",
+      "rubric": {
+        "deterministic": [
+          { "type": "regex", "pattern": "<svg[^>]*viewBox", "weight": 2 },
+          { "type": "regex", "pattern": "role\\s*=\\s*[\"']img[\"']", "weight": 2 },
+          { "type": "contains", "value": "<title", "weight": 2 },
+          { "type": "regex", "pattern": "aria-label", "weight": 2 },
+          { "type": "regex", "pattern": ">\\s*BETA\\s*<", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "accessibility", "weight": 2, "guidance": "Genuinely accessible: role=img, a <title> and aria-label that describe the badge, text reads BETA. The title/aria text is a real human-readable name, not a placeholder." },
+            { "name": "contrast_quality", "weight": 1, "guidance": "Text and background have clear contrast and the badge looks polished." }
+          ]
+        }
+      }
+    }
+  ]
+}

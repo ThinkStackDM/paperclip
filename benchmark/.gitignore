@@ -1,0 +1,6 @@
+# benchmark runtime data — not source
+results/
+ledger/results.jsonl
+_*.log
+__pycache__/
+*.pyc

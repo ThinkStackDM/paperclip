@@ -1,0 +1,80 @@
+{
+  "role": "ops",
+  "description": "Operational diagnosis + decision tasks from real Paperclip incidents (the diagnose-why-work-stopped class). Forensic root-cause tasks graded on the three liveness invariants and on naming all compounding defects, plus objective routing/escalation decisions and a pseudo-stop vs real-blocker classification.",
+  "tasks": [
+    {
+      "id": "ops-diagnose-recovery-loop",
+      "title": "Diagnose a recovery-loop and propose a bounded fix",
+      "prompt": "You are diagnosing a Paperclip liveness incident (no code changes — produce a root cause + ONE product fix).\n\nSYMPTOM: the stranded-issue recovery routine (reconcileStrandedAssignedIssues) fires ~110 times/hour. 986 of those per day fail with \"Agent is not invokable (paused)\". The agents being hammered are 13 claude leadership primaries that were DELIBERATELY paused (weekly rate limit; they resume on a fixed date). The recovery loop keeps trying to re-invoke them.\n\nThree invariants any fix MUST preserve: (1) productive work continues, (2) only REAL blockers stop work, (3) no infinite loops.\n\nIn under 150 words: (a) state the root cause, (b) propose exactly ONE product rule that fixes it, and (c) note how your fix holds all three invariants. Do not propose code.",
+      "rubric": {
+        "deterministic": [
+          { "type": "contains_any", "values": ["paused", "pause"], "weight": 2 },
+          { "type": "contains_any", "values": ["skip", "exclude", "filter", "guard"], "weight": 2 },
+          { "type": "max_words", "value": 190, "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "correctness", "weight": 3, "guidance": "Correctly roots the cause in recovery re-invoking deliberately-paused agents, and the fix is to skip/exclude paused agents from the recovery sweep (not to unpause them or widen retries). Penalize fixes that would resume the agents or just add backoff without skipping." },
+            { "name": "invariants", "weight": 2, "guidance": "Explicitly and validly explains how the fix preserves all three invariants — especially that work still proceeds (paused is a real wait, not a silent stop) and the loop becomes bounded." },
+            { "name": "actionability", "weight": 1, "guidance": "Proposes exactly one concrete product rule, not a vague gesture." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ops-escalation-decision",
+      "title": "Apply the escalate-after-3 review policy",
+      "prompt": "Apply this Paperclip operating policy exactly.\n\nPOLICY: A recovery/productivity review escalates to leadership ONLY after 3 consecutive unresolved reviews. Before the 3rd, it routes to the cheap shell-handler Compiler (no escalation). Escalation happens AT MOST once per tree.\n\nSTATE: an issue tree has just completed its 3rd consecutive unresolved review. It has never been escalated before.\n\nReturn ONLY JSON: {\"action\": \"escalate\"|\"route_compiler\", \"target\": string, \"reason\": string}. No prose.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "action", "value": "escalate", "weight": 5 },
+          { "type": "json_path_exists", "path": "reason", "weight": 1 }
+        ]
+      }
+    },
+    {
+      "id": "ops-diagnose-restart-race",
+      "title": "Diagnose the three compounding defects in the restart race",
+      "prompt": "Forensics on a recurring Paperclip instability (no code — root cause + plan).\n\nSYMPTOM: every time the source server restarts, it sometimes fails to come back cleanly, and in-flight runs die. Evidence gathered:\n1. launchd is configured KeepAlive=true with a short throttle, so it re-execs the start script the instant `pnpm dev` exits — but the OLD embedded-Postgres postmaster and a detached workspace-runtime on port 13100 are still alive, causing \"postmaster.pid already exists\" / \"port 13100 in use\". The start script only frees port 3100 and has no single-instance lock.\n2. The SIGTERM handler doesn't drain in-flight runs or kill detached children before exit.\n3. On startup, reapOrphanedRuns() is called with no stale-threshold (defaults to 0), so every still-'running' run is immediately marked process_lost.\n\nIn under 180 words, give the root cause as a SET of THREE distinct compounding defects, and ONE fix per defect. Be specific to each.",
+      "rubric": {
+        "deterministic": [
+          { "type": "contains_any", "values": ["lock", "flock", "single-instance", "postmaster", "13100"], "weight": 2 },
+          { "type": "contains_any", "values": ["SIGTERM", "drain", "teardown", "children", "graceful"], "weight": 2 },
+          { "type": "contains_any", "values": ["threshold", "grace", "reap", "default", "0"], "weight": 2 },
+          { "type": "max_words", "value": 220, "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "all_three", "weight": 3, "guidance": "Identifies ALL THREE distinct defects as separate compounding causes: (a) no single-instance lock / stale postmaster+port-13100 not reaped before relaunch, (b) SIGTERM doesn't drain runs or kill detached children, (c) reapOrphanedRuns default-0 threshold instantly fails live runs. Deduct heavily for each missed defect or for collapsing them into one." },
+            { "name": "fixes", "weight": 2, "guidance": "Gives a correct, specific fix per defect (e.g. flock/single-instance + ordered teardown of old PG/ports; graceful drain + reset in-flight to queued on SIGTERM; non-zero startup reap grace). Vague 'add error handling' scores low." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ops-failover-routing",
+      "title": "Choose a failover lane under quota constraints",
+      "prompt": "Decide which model lane to route a leadership agent's work to RIGHT NOW, per Paperclip's failover policy.\n\nFAILOVER ORDER (use the first lane that is AVAILABLE): claude -> codex -> hermes(grok) -> gemini.\nA lane is UNAVAILABLE if it is paused, rate-limit-exhausted, or its auth is invalidated.\n\nCURRENT STATE:\n- claude: PAUSED (weekly limit hit; primaries paused until reset).\n- codex: AVAILABLE (regular codex fine).\n- hermes/grok: available.\n- gemini: available.\n\nReturn ONLY JSON: {\"lane\": \"claude\"|\"codex\"|\"hermes\"|\"gemini\", \"reason\": string}. Pick the correct first-available lane in the failover order. No prose.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "lane", "value": "codex", "weight": 6 },
+          { "type": "json_path_exists", "path": "reason", "weight": 1 }
+        ]
+      }
+    },
+    {
+      "id": "ops-pseudo-stop-classify",
+      "title": "Classify real blocker vs pseudo-stop",
+      "prompt": "Paperclip's liveness rule: work may stop ONLY for a REAL blocker (genuinely cannot proceed: needs board/human input, external credential, QA gate, or exhausted budget). A PSEUDO-stop is an issue sitting idle with nothing actually waiting on it (e.g. in_review with no participant/approver assigned, or a silent stall) — those must be routed back to productive work, not left stopped.\n\nCASE: an issue is in status \"in_review\" for 240 hours. There is NO reviewer assigned, NO approval requested, and NO participant waiting. The underlying work is complete and nothing external is required.\n\nReturn ONLY JSON: {\"classification\": \"real_blocker\"|\"pseudo_stop\", \"next_action\": string, \"reason\": string}. No prose.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "classification", "value": "pseudo_stop", "weight": 6 },
+          { "type": "json_path_exists", "path": "next_action", "weight": 1 }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "_comment": "Each pair tests whether a candidate skill lifts performance on a deliberately UNDER-SPECIFIED task — one whose bare prompt does NOT spell out the methodology the skill teaches (enumerate ALL compounding defects, hold the three liveness invariants, frame as a product rule, no code). The rubric rewards exactly that methodology, so a skill that actually conveys it should raise quality vs the bare baseline. Same scoring engine + blind judge as #15.",
+  "pairs": [
+    {
+      "id": "ops-restart-race",
+      "skill": "candidate-skills/ops-liveness-forensics.md",
+      "task": {
+        "id": "restart-race-bare",
+        "prompt": "Something keeps going wrong when our server restarts. Diagnose the root cause and propose fixes (no code — a written root cause and plan).\n\nEvidence gathered:\n1. The process supervisor is set to keep-alive with a short throttle, so it re-launches the start script the instant the dev server exits — but the OLD embedded-Postgres postmaster and a detached worker on port 13100 are still alive, causing \"postmaster.pid already exists\" / \"port 13100 in use\". The start script only frees the main port (3100) and has no single-instance lock.\n2. The SIGTERM handler doesn't drain in-flight jobs or kill detached child processes before exiting.\n3. On startup, the orphan-reaper is called with no stale-threshold (it defaults to 0), so every still-'running' job is immediately marked lost.\n\nGive your diagnosis and your recommended fixes.",
+        "rubric": {
+          "deterministic": [
+            { "type": "contains_any", "values": ["lock", "flock", "single-instance", "postmaster", "13100"], "weight": 2 },
+            { "type": "contains_any", "values": ["SIGTERM", "drain", "teardown", "children", "graceful"], "weight": 2 },
+            { "type": "contains_any", "values": ["threshold", "grace", "reap", "default", "0"], "weight": 2 }
+          ],
+          "judge": {
+            "criteria": [
+              { "name": "all_three", "weight": 3, "guidance": "Identifies ALL THREE distinct defects as separate compounding causes: (a) no single-instance lock / stale postmaster+port-13100 not reaped before relaunch, (b) SIGTERM doesn't drain jobs or kill detached children, (c) orphan-reaper default-0 threshold instantly fails live jobs. Deduct heavily for each missed defect or for collapsing them into one." },
+              { "name": "fixes_and_invariants", "weight": 2, "guidance": "Gives a correct specific fix per defect AND frames recovery so it stays bounded and doesn't silently drop work (the liveness invariants: work continues, only real blockers stop it, no infinite loops). Vague 'add error handling' scores low." },
+              { "name": "no_code", "weight": 1, "guidance": "Delivers a root cause + plan, not code." }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "ops-recovery-loop",
+      "skill": "candidate-skills/ops-liveness-forensics.md",
+      "task": {
+        "id": "recovery-loop-bare",
+        "prompt": "A recovery routine in our system fires about 110 times an hour. 986 of those per day fail with \"Agent is not invokable (paused)\". The agents it keeps trying to re-invoke are 13 that we DELIBERATELY paused (they hit a weekly rate limit and resume on a fixed date). Diagnose the root cause and propose a fix (no code — a written root cause and plan).",
+        "rubric": {
+          "deterministic": [
+            { "type": "contains_any", "values": ["paused", "pause"], "weight": 2 },
+            { "type": "contains_any", "values": ["skip", "exclude", "filter", "guard"], "weight": 2 }
+          ],
+          "judge": {
+            "criteria": [
+              { "name": "correctness", "weight": 3, "guidance": "Roots the cause in recovery re-invoking deliberately-paused agents; the fix is to skip/exclude paused agents from the recovery sweep — NOT to unpause them or just add backoff." },
+              { "name": "invariants", "weight": 2, "guidance": "Frames the fix so work still proceeds (paused is a real wait, not a silent stop), only real blockers stop work, and the loop becomes bounded — even though the bare prompt never mentioned these. Reward an answer that surfaces this discipline on its own." },
+              { "name": "actionability", "weight": 1, "guidance": "One concrete product rule, not a vague gesture." }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

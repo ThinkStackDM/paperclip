@@ -1,0 +1,81 @@
+{
+  "role": "intake",
+  "description": "MC inbound wake classification — mirrors the live deterministic router (mc-compiler-dispatch.py / intake-transform.py). The model is given the routing policy inline and must emit a strict JSON decision. Ground-truth gradeable: binding/handshake probes auto-cancel, recognized directives route to their handler, unrecognized wakes escalate to the CTO. No judge — these are objective. Later tasks add traps (false probe flags, wrong-parent route matches, strict-schema enforcement) that frontier models actually trip on.",
+  "tasks": [
+    {
+      "id": "intake-binding-probe",
+      "title": "Auto-cancel a webhook binding probe",
+      "prompt": "You are an MC-Compiler inbound router for a Paperclip agent company. You receive a wake and must classify it.\n\nPOLICY (apply exactly):\n- If the payload is a probe/health-check (has `_binding_probe: true`, or title contains \"[mc-compiler-path-probe]\" or \"binding-invariant\"), decision = \"cancel\" (it is noise; auto-cancel, no work).\n- If the wake matches a known route (a recognized routine directive), decision = \"route\" and target = the handler/owner.\n- If the wake is unrecognized, decision = \"escalate\" and target = \"CTO\".\n\nWAKE:\n{\"_binding_probe\": true, \"source\": \"webhook\", \"title\": \"Webhook binding-invariant check\"}\n\nReturn ONLY a JSON object: {\"decision\": \"cancel\"|\"route\"|\"escalate\", \"target\": string, \"reason\": string}. No prose.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "decision", "value": "cancel", "weight": 5 },
+          { "type": "json_path_exists", "path": "reason", "weight": 1 }
+        ]
+      }
+    },
+    {
+      "id": "intake-real-directive",
+      "title": "Route a recognized intake directive",
+      "prompt": "You are an MC-Compiler inbound router for a Paperclip agent company. You receive a wake and must classify it.\n\nKNOWN ROUTES (parent identifier prefix -> handler):\n- parent \"THIAAAAAA-1\", title starts with \"Portfolio Intake (secondary\" -> handler \"intake-transform.py\"\n- parent \"THIAAAAAA-206\", title starts with \"Webhook binding-invariant\" -> handler \"binding-probe.py\"\n\nPOLICY:\n- Probe/health-check payloads (`_binding_probe: true`) -> decision \"cancel\".\n- A wake matching a KNOWN ROUTE -> decision \"route\", target = the handler.\n- Unrecognized -> decision \"escalate\", target \"CTO\".\n\nWAKE:\n{\"parent\": \"THIAAAAAA-1\", \"title\": \"Portfolio Intake (secondary - CTO-Codex)\", \"source\": \"webhook\", \"payload\": {\"source\": \"opco-media\"}}\n\nReturn ONLY a JSON object: {\"decision\": \"cancel\"|\"route\"|\"escalate\", \"target\": string, \"reason\": string}. No prose.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "decision", "value": "route", "weight": 5 },
+          { "type": "json_path_in", "path": "target", "values": ["intake-transform.py", "intake-transform"], "weight": 3 }
+        ]
+      }
+    },
+    {
+      "id": "intake-unrecognized-escalate",
+      "title": "Escalate an unrecognized wake to CTO",
+      "prompt": "You are an MC-Compiler inbound router for a Paperclip agent company. You receive a wake and must classify it.\n\nKNOWN ROUTES (parent identifier prefix -> handler):\n- parent \"THIAAAAAA-1\", title starts with \"Portfolio Intake (secondary\" -> handler \"intake-transform.py\"\n- parent \"THIAAAAAA-206\", title starts with \"Webhook binding-invariant\" -> handler \"binding-probe.py\"\n\nPOLICY:\n- Probe/health-check payloads -> decision \"cancel\".\n- A wake matching a KNOWN ROUTE -> decision \"route\".\n- ANY wake that does NOT match a known route and is not a probe -> decision \"escalate\", target \"CTO\" (do NOT guess a handler; the CTO must add the route).\n\nWAKE:\n{\"parent\": \"THIAAAAAA-4412\", \"title\": \"Halt-trigger monitor v2\", \"source\": \"routine\"}\n\nReturn ONLY a JSON object: {\"decision\": \"cancel\"|\"route\"|\"escalate\", \"target\": string, \"reason\": string}. No prose.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "decision", "value": "escalate", "weight": 5 },
+          { "type": "json_path_in", "path": "target", "values": ["CTO", "cto", "primary CTO"], "weight": 2 }
+        ]
+      }
+    },
+    {
+      "id": "intake-false-probe-flag",
+      "title": "Trap: explicit _binding_probe:false is NOT a probe",
+      "prompt": "You are an MC-Compiler inbound router. Classify the wake.\n\nKNOWN ROUTES (parent prefix -> handler):\n- parent \"THIAAAAAA-1\", title starts with \"Portfolio Intake (secondary\" -> handler \"intake-transform.py\"\n\nPOLICY (apply EXACTLY — read the flags carefully):\n- A wake is a probe ONLY if `_binding_probe` is literally true. If `_binding_probe` is false or absent, it is NOT a probe.\n- Probe -> decision \"cancel\".\n- Non-probe wake matching a KNOWN ROUTE -> decision \"route\", target = handler.\n- Otherwise -> decision \"escalate\", target \"CTO\".\n\nWAKE:\n{\"_binding_probe\": false, \"parent\": \"THIAAAAAA-1\", \"title\": \"Portfolio Intake (secondary - real OpCo payload)\", \"payload\": {\"source\": \"opco-capital\", \"items\": 3}}\n\nReturn ONLY JSON: {\"decision\": \"cancel\"|\"route\"|\"escalate\", \"target\": string, \"reason\": string}. No prose.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "decision", "value": "route", "weight": 6 },
+          { "type": "json_path_in", "path": "target", "values": ["intake-transform.py", "intake-transform"], "weight": 2 }
+        ]
+      }
+    },
+    {
+      "id": "intake-wrong-parent-trap",
+      "title": "Trap: right title prefix but WRONG parent → escalate",
+      "prompt": "You are an MC-Compiler inbound router. A route matches ONLY when BOTH the parent identifier AND the title prefix match. A title-prefix match under a different parent does NOT route — it escalates.\n\nKNOWN ROUTES:\n- parent \"THIAAAAAA-1\"  + title startswith \"Portfolio Intake (secondary\" -> handler \"intake-transform.py\"\n- parent \"THIAAAAAA-206\" + title startswith \"Webhook binding-invariant\"   -> handler \"binding-probe.py\"\n\nPOLICY: probe -> cancel; full (parent AND prefix) match -> route; everything else -> escalate to \"CTO\".\n\nWAKE:\n{\"parent\": \"THIAAAAAA-999\", \"title\": \"Portfolio Intake (secondary - CTO-Codex)\", \"source\": \"routine\"}\n\nThe title prefix matches a known route, but the parent (THIAAAAAA-999) does NOT. Return ONLY JSON: {\"decision\": \"cancel\"|\"route\"|\"escalate\", \"target\": string, \"reason\": string}. No prose.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "decision", "value": "escalate", "weight": 6 },
+          { "type": "json_path_in", "path": "target", "values": ["CTO", "cto", "primary CTO"], "weight": 2 },
+          { "type": "not_contains", "value": "intake-transform", "weight": 1 }
+        ]
+      }
+    },
+    {
+      "id": "intake-strict-schema",
+      "title": "Strict schema: exactly the three keys, enum decision, no prose",
+      "prompt": "You are an MC-Compiler inbound router. Output a STRICT machine-parseable record.\n\nKNOWN ROUTE: parent \"THIAAAAAA-206\" + title startswith \"Webhook binding-invariant\" -> handler \"binding-probe.py\".\nPOLICY: probe payload (_binding_probe true) -> \"cancel\"; full route match -> \"route\"; else -> \"escalate\" (target \"CTO\").\n\nOUTPUT CONTRACT (must follow exactly):\n- Output ONE JSON object and NOTHING else (no markdown fences, no commentary).\n- It must have EXACTLY these three keys: \"decision\", \"target\", \"reason\".\n- \"decision\" must be one of: \"cancel\", \"route\", \"escalate\".\n- \"reason\" must be <= 100 characters.\n\nWAKE:\n{\"parent\": \"THIAAAAAA-206\", \"title\": \"Webhook binding-invariant check (nightly)\", \"_binding_probe\": false, \"source\": \"routine\"}\n\nThis is a real routine wake (not a probe) that fully matches the known route. Emit the record.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "decision", "value": "route", "weight": 4 },
+          { "type": "json_path_in", "path": "target", "values": ["binding-probe.py", "binding-probe"], "weight": 2 },
+          { "type": "regex", "pattern": "^\\s*\\{", "weight": 1 },
+          { "type": "not_contains", "value": "```", "weight": 1 }
+        ]
+      }
+    }
+  ]
+}

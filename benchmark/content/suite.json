@@ -1,0 +1,103 @@
+{
+  "role": "content",
+  "description": "Copywriting under hard constraints, drawn from ThinkStack OpCo content work (KDP book blurbs, product-launch marketing). Deterministic checks enforce the hard limits (length, hashtag count, forbidden words, structure); the strict judge grades hook and on-brief quality. Constraint-trap tasks (banned words, exact sentence structure, tighten-to-N-words) separate models that actually obey instructions from those that don't.",
+  "tasks": [
+    {
+      "id": "content-kdp-blurb",
+      "title": "Write a KDP back-cover blurb under a hard word cap",
+      "prompt": "Write the back-cover blurb for a self-published book.\n\nBOOK: Title \"The Quiet Hour\" — a practical guide to a 60-minute daily deep-work ritual for overwhelmed knowledge workers. Tone: calm, credible, non-hypey. Audience: busy professionals who feel scattered.\n\nHARD CONSTRAINTS:\n- 60 words MAXIMUM (this is a strict cap).\n- No exclamation marks.\n- Must end with a single forward-looking line that invites the reader in.\n\nReturn ONLY the blurb text — no title, no preamble, no markdown.",
+      "rubric": {
+        "deterministic": [
+          { "type": "max_words", "value": 60, "weight": 4 },
+          { "type": "min_words", "value": 20, "weight": 1 },
+          { "type": "not_contains", "value": "!", "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "hook", "weight": 2, "guidance": "Opens with a line that captures the scattered-professional pain or the promise; not generic." },
+            { "name": "on_brief", "weight": 2, "guidance": "Calm/credible/non-hypey tone, clearly about a 60-minute daily deep-work ritual, speaks to busy professionals, ends with an inviting forward-looking line." },
+            { "name": "clarity", "weight": 1, "guidance": "Tight, readable, no filler." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "content-launch-tweet",
+      "title": "Write a launch tweet within platform + style limits",
+      "prompt": "Write ONE launch tweet for a product.\n\nPRODUCT: \"Ledger\" — a tiny menu-bar app that shows your remaining AI-subscription quota across providers at a glance. Launching today, free during beta.\n\nHARD CONSTRAINTS:\n- 280 characters MAXIMUM.\n- At most 2 hashtags.\n- Must contain a clear call-to-action (e.g. \"try\", \"download\", \"get\").\n- No emoji spam (0-2 emoji max).\n\nReturn ONLY the tweet text. No quotes, no preamble.",
+      "rubric": {
+        "deterministic": [
+          { "type": "max_chars", "value": 280, "weight": 4 },
+          { "type": "not_regex", "pattern": "(#\\w+[^#]*){3,}", "weight": 2 },
+          { "type": "contains_any", "values": ["try", "download", "get ", "start", "grab", "install"], "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "punch", "weight": 2, "guidance": "Reads like a strong launch tweet — clear value in the first few words, momentum, not corporate filler." },
+            { "name": "on_brief", "weight": 2, "guidance": "Accurately conveys the menu-bar quota-at-a-glance value and the free beta, includes a genuine CTA." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "content-forbidden-words",
+      "title": "Trap: write marketing copy avoiding a banned-word list",
+      "prompt": "Write ONE short marketing paragraph (2-3 sentences) for a productivity app called \"Cadence\" that helps teams run better standups.\n\nHARD CONSTRAINT — these overused words are BANNED and must NOT appear in any form (case-insensitive, including as part of other words): \"revolutionary\", \"seamless\", \"leverage\", \"empower\", \"unlock\", \"game-changer\", \"supercharge\", \"effortless\".\n\nWrite vivid, concrete copy that never uses any banned word. Return ONLY the paragraph. No preamble.",
+      "rubric": {
+        "deterministic": [
+          { "type": "not_contains", "value": "revolutionary", "weight": 1 },
+          { "type": "not_contains", "value": "seamless", "weight": 1 },
+          { "type": "not_contains", "value": "leverage", "weight": 1 },
+          { "type": "not_contains", "value": "empower", "weight": 1 },
+          { "type": "not_contains", "value": "unlock", "weight": 1 },
+          { "type": "not_contains", "value": "game-changer", "weight": 1 },
+          { "type": "not_contains", "value": "supercharge", "weight": 1 },
+          { "type": "not_contains", "value": "effortless", "weight": 1 },
+          { "type": "min_words", "value": 15, "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "quality", "weight": 2, "guidance": "Concrete, specific, vivid copy about better standups for teams — not generic SaaS boilerplate. Reward sensory/specific detail." },
+            { "name": "naturalness", "weight": 1, "guidance": "Reads naturally despite the constraint; not stilted or obviously dancing around missing words." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "content-exact-structure",
+      "title": "Exact structure: 3 lines, each a complete sentence under 12 words",
+      "prompt": "Write a 3-line value proposition for a self-hosted analytics tool called \"Tally\".\n\nHARD STRUCTURE (follow EXACTLY):\n- Exactly 3 lines, separated by single newlines.\n- Each line is ONE complete sentence ending in a period.\n- Each line is at most 12 words.\n- Line 1 = the problem. Line 2 = what Tally does. Line 3 = the payoff.\n\nReturn ONLY the 3 lines. No numbering, no bullets, no preamble, no blank lines.",
+      "rubric": {
+        "deterministic": [
+          { "type": "regex", "pattern": "^[^\\n]+\\.\\s*\\n[^\\n]+\\.\\s*\\n[^\\n]+\\.\\s*$", "weight": 4 },
+          { "type": "not_contains", "value": "1.", "weight": 1 },
+          { "type": "not_regex", "pattern": "\\n\\s*\\n", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "structure_fidelity", "weight": 2, "guidance": "Exactly 3 lines; line1=problem, line2=what Tally does, line3=payoff; each <=12 words and a complete sentence. Penalize any line over 12 words, extra lines, or wrong role per line." },
+            { "name": "quality", "weight": 1, "guidance": "Crisp, concrete, compelling within the constraint." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "content-tighten-rewrite",
+      "title": "Tighten a verbose paragraph to <=40 words, meaning preserved",
+      "prompt": "Rewrite the following verbose paragraph to be tight and clear, in 40 words MAXIMUM, preserving all key facts. Remove filler and hedging; keep the concrete claims.\n\nORIGINAL:\n\"We are very excited to share that our team has been working really hard over the past several months to put together what we genuinely believe is a fairly comprehensive and quite powerful new dashboard that, among many other things, allows users to see, at basically a single glance, all of their important key metrics in one convenient and centralized place without having to click around through lots of different screens.\"\n\nReturn ONLY the rewritten paragraph. No preamble.",
+      "rubric": {
+        "deterministic": [
+          { "type": "max_words", "value": 40, "weight": 4 },
+          { "type": "contains_any", "values": ["dashboard", "metrics", "glance", "one place", "single"], "weight": 1 },
+          { "type": "not_contains", "value": "very excited", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "fidelity", "weight": 2, "guidance": "Preserves the core facts (a new dashboard that shows all key metrics at a glance in one place). No invented features, no dropped core claim." },
+            { "name": "tightness", "weight": 2, "guidance": "Genuinely tight and clear — filler/hedging removed ('very excited', 'really hard', 'basically', 'genuinely believe', 'fairly', 'quite'). Reward strong economy of words." }
+          ]
+        }
+      }
+    }
+  ]
+}

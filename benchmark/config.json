@@ -1,0 +1,63 @@
+{
+  "_comment": "Paperclip benchmark #15 — active model evaluator. Per-role suites -> multi-model runner -> deterministic+LLM-judge scorer -> quality-per-token -> per-role model recommendation that drives data-driven tiering (#9). Models are invoked via their CLIs in a neutralized temp CWD (no project CLAUDE.md/AGENTS.md/rules) so we measure the base model, not the local agent's tools/skills (that is #16's job).",
+
+  "models": [
+    { "id": "claude-opus",  "adapter": "claude", "model_arg": "opus",                       "label": "Claude Opus",        "lane": "claude" },
+    { "id": "codex-gpt-5.4", "adapter": "codex",  "model_arg": "gpt-5.4",                     "label": "Codex GPT-5.4",      "lane": "codex"  },
+    { "id": "gemini-pro",   "adapter": "gemini", "model_arg": null,                          "label": "Gemini Pro",         "lane": "gemini" },
+    { "id": "grok-4.3",     "adapter": "hermes", "model_arg": "grok-4.3",                    "label": "Grok 4.3",           "lane": "hermes" },
+    { "id": "grok-4.20",    "adapter": "hermes", "model_arg": "grok-4.20-0309-reasoning",    "label": "Grok 4.20 (reasoning)", "lane": "hermes" }
+  ],
+
+  "_models_catalog_comment": "Validated within-family variants (all confirmed callable via their CLI 2026-06-14). NOT in the default sweep — `bench.py all` runs `models` above. Opt in per run: `bench.py all --models claude-haiku,gpt-5.4-mini,gemini-flash,grok-4-fast`. These are the 'lower model' candidates for the cheap-model-+-skill gap-closing strategy. (codex gpt-5.3-codex-spark / gpt-5-codex are NOT callable via `codex exec -m` — adapter-profile/spark-exhausted.)",
+  "models_catalog": [
+    { "id": "claude-sonnet",   "adapter": "claude", "model_arg": "sonnet",                      "label": "Claude Sonnet 4.6",  "lane": "claude" },
+    { "id": "claude-haiku",    "adapter": "claude", "model_arg": "haiku",                       "label": "Claude Haiku 4.5",   "lane": "claude" },
+    { "id": "claude-opus-4.7", "adapter": "claude", "model_arg": "claude-opus-4-7",             "label": "Claude Opus 4.7",    "lane": "claude" },
+    { "id": "gpt-5.5",         "adapter": "codex",  "model_arg": "gpt-5.5",                     "label": "Codex GPT-5.5",      "lane": "codex"  },
+    { "id": "gpt-5.4-mini",    "adapter": "codex",  "model_arg": "gpt-5.4-mini",                "label": "Codex GPT-5.4 mini", "lane": "codex"  },
+    { "id": "gemini-flash",    "adapter": "gemini", "model_arg": "gemini-3-flash-preview",      "label": "Gemini 3 Flash",     "lane": "gemini" },
+    { "id": "gemini-flash-lite","adapter": "gemini","model_arg": "gemini-2.5-flash-lite",       "label": "Gemini Flash Lite",  "lane": "gemini" },
+    { "id": "grok-4-fast",     "adapter": "hermes", "model_arg": "grok-4-fast-non-reasoning",   "label": "Grok 4 Fast",        "lane": "hermes" },
+    { "id": "grok-4.1-fast",   "adapter": "hermes", "model_arg": "grok-4-1-fast-non-reasoning", "label": "Grok 4.1 Fast",      "lane": "hermes" },
+    { "id": "grok-3-mini",     "adapter": "hermes", "model_arg": "grok-3-mini",                 "label": "Grok 3 mini",        "lane": "hermes" }
+  ],
+
+  "judge": {
+    "id": "claude-opus",
+    "adapter": "claude",
+    "model_arg": "opus",
+    "_comment": "Judge = claude-opus (user authorized heavy claude use 2026-06-14). Sharpest available grader and most neutral (it is a contestant too, but the judge is blind to which model produced an output and applied uniformly, so rankings are fair; its mild self-preference is the one caveat). The gemini-judge baseline (run-20260614-044003) is archived for a cross-judge agreement check. Swap back to {\"id\":\"gemini-pro\",\"adapter\":\"gemini\",\"model_arg\":null} to conserve claude quota."
+  },
+
+  "roles": ["engineer", "designer", "content", "intake", "ops"],
+
+  "scoring": {
+    "deterministic_weight": 0.5,
+    "judge_weight": 0.5,
+    "_comment": "Per-task blend. If a task has only deterministic checks (e.g. intake ground-truth), quality = deterministic. If only judge criteria, quality = judge. If both, quality = normalized weighted blend of the two."
+  },
+
+  "recommendation": {
+    "objective": "peak_quality_cost_aware",
+    "quality_floor": 0.6,
+    "value_metric": "output",
+    "quality_epsilon": 0.02,
+    "cost_ratio_trigger": 1.5,
+    "_comment": "objective=peak_quality_cost_aware (davin's policy 2026-06-14): TIER FOR PEAK QUALITY, but don't pay multiples for marginal gains. Rule per role: start from the highest-quality model; among models within quality_epsilon (0.02) of it, pick the one with the LOWEST mean output tokens — BUT only drop from the peak if the cheaper model is materially cheaper (peak_output / cheaper_output >= cost_ratio_trigger, default 1.5x). Otherwise keep the peak. Report shows peak, the cost-aware pick, quality given up, and the output-cost ratio so the tradeoff is explicit. Set quality_epsilon=0 to always take true peak. value_metric=output because total tokens are ~95% fixed CLI overhead (a harness artifact)."
+  },
+
+  "run": {
+    "timeout_sec": 300,
+    "max_workers": 4,
+    "neutralize_env": true,
+    "_comment": "Each model call runs in a fresh empty temp CWD with config/rules-ignore flags where the CLI supports them. max_workers parallelizes across (role,task,model) cells; keep modest — the Mac is shared with the live fleet + image-gen."
+  },
+
+  "adapters": {
+    "claude": { "extra_args": ["--allowedTools", ""] },
+    "codex":  { "extra_args": ["--sandbox", "read-only", "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules"] },
+    "gemini": { "extra_args": ["--approval-mode", "plan"] },
+    "hermes": { "extra_args": ["--ignore-user-config", "--ignore-rules"] }
+  }
+}
