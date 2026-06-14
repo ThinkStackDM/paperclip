@@ -9,13 +9,14 @@
     { "id": "grok-4.20",    "adapter": "hermes", "model_arg": "grok-4.20-0309-reasoning",    "label": "Grok 4.20 (reasoning)", "lane": "hermes" }
   ],
 
-  "_models_catalog_comment": "Validated within-family variants (all confirmed callable via their CLI 2026-06-14). NOT in the default sweep — `bench.py all` runs `models` above. Opt in per run: `bench.py all --models claude-haiku,gpt-5.4-mini,gemini-flash,grok-4-fast`. These are the 'lower model' candidates for the cheap-model-+-skill gap-closing strategy. (codex gpt-5.3-codex-spark / gpt-5-codex are NOT callable via `codex exec -m` — adapter-profile/spark-exhausted.)",
+  "_models_catalog_comment": "Validated within-family variants (confirmed callable via their CLI 2026-06-14). NOT in the default sweep — `bench.py all` runs `models` above. Opt in per run: `bench.py all --models claude-haiku,gpt-5.4-mini,gemini-flash,grok-4-fast`. These are the 'lower model' candidates for the cheap-model-+-skill gap-closing strategy. gpt-5.3-codex-spark IS a valid model (same as Paperclip's spark lane, invoked --model gpt-5.3-codex-spark with reasoning_effort=high) but is DAILY RATE-LIMITED — sweeps including it fail with a usage-limit error while exhausted (resets ~mid-afternoon). Genuinely NOT supported on this ChatGPT account (400 invalid_request, never works): plain gpt-5.3, gpt-5.3-codex, gpt-5-codex.",
   "models_catalog": [
     { "id": "claude-sonnet",   "adapter": "claude", "model_arg": "sonnet",                      "label": "Claude Sonnet 4.6",  "lane": "claude" },
     { "id": "claude-haiku",    "adapter": "claude", "model_arg": "haiku",                       "label": "Claude Haiku 4.5",   "lane": "claude" },
     { "id": "claude-opus-4.7", "adapter": "claude", "model_arg": "claude-opus-4-7",             "label": "Claude Opus 4.7",    "lane": "claude" },
     { "id": "gpt-5.5",         "adapter": "codex",  "model_arg": "gpt-5.5",                     "label": "Codex GPT-5.5",      "lane": "codex"  },
     { "id": "gpt-5.4-mini",    "adapter": "codex",  "model_arg": "gpt-5.4-mini",                "label": "Codex GPT-5.4 mini", "lane": "codex"  },
+    { "id": "gpt-5.3-codex-spark", "adapter": "codex", "model_arg": "gpt-5.3-codex-spark", "reasoning_effort": "high", "label": "Codex GPT-5.3 Spark", "lane": "codex", "note": "Paperclip's cheap codex lane; daily rate-limited" },
     { "id": "gemini-flash",    "adapter": "gemini", "model_arg": "gemini-3-flash-preview",      "label": "Gemini 3 Flash",     "lane": "gemini" },
     { "id": "gemini-flash-lite","adapter": "gemini","model_arg": "gemini-2.5-flash-lite",       "label": "Gemini Flash Lite",  "lane": "gemini" },
     { "id": "grok-4-fast",     "adapter": "hermes", "model_arg": "grok-4-fast-non-reasoning",   "label": "Grok 4 Fast",        "lane": "hermes" },

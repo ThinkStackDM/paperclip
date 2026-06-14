@@ -33,7 +33,12 @@ _HERMES_LOCK = threading.Lock()
 def run_model(prompt, model_row, adapters_cfg, timeout_sec):
     """Dispatch to the right adapter by model_row['adapter']."""
     adapter = model_row["adapter"]
-    extra = (adapters_cfg.get(adapter) or {}).get("extra_args", [])
+    extra = list((adapters_cfg.get(adapter) or {}).get("extra_args", []))
+    # per-model reasoning effort (matches how Paperclip's codex adapter runs spark:
+    # `-c model_reasoning_effort="high"`). Optional; only codex consumes it today.
+    effort = model_row.get("reasoning_effort")
+    if effort and adapter == "codex":
+        extra += ["-c", f'model_reasoning_effort="{effort}"']
     fn = {
         "claude": _run_claude,
         "codex": _run_codex,
