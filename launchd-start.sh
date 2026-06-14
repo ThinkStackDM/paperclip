@@ -3,7 +3,16 @@
 # (manual use: backgrounds + returns), this stays in the FOREGROUND via `exec`
 # so launchd owns the long-running server process and KeepAlive works. A script
 # that backgrounds the server and exits would make launchd reap the whole group.
+#
+# 2026-06-14 restart-race hardening: the overnight process_lost storms were a
+# relaunch colliding with the PREVIOUS instance's orphaned children — the
+# embedded Postgres postmaster ("lock file postmaster.pid already exists") and
+# the runtime identity port 13100 ("Port 13100 is already in use"). This script
+# now (1) takes a single-instance lock so two concurrent launchd spawns can't
+# race the cleanup, and (2) reaps the previous instance's leftover postmaster +
+# runtime port before handing off. Safe on first boot (everything no-ops).
 set -uo pipefail
+
 # Adapters spawn CLIs (codex, claude, grok, hermes, agy, gemini) BY NAME, so the
 # server needs the full login-shell PATH — codex lives in the Codex.app bundle and
 # claude/grok/hermes/agy in ~/.local|.grok/bin, none of which are in a minimal PATH.
@@ -19,14 +28,68 @@ export PAPERCLIP_UI_DEV_MIDDLEWARE=true
 ROOT="$HOME/paperclip"
 cd "$ROOT"
 
-# Stop any published-package instance and free the port before we take over.
+log() { echo "[launchd-start $(date '+%H:%M:%S')] $*" >&2; }
+
+# --- Single-instance guard (macOS has no flock): atomic mkdir lock + stale detection.
+# After `exec pnpm dev` the shell is REPLACED in place, so the lock pid ($$) keeps
+# pointing at the live server for its whole lifetime. A second launchd spawn that
+# races in sees the lock held by a live pid and backs off (exit 0 -> KeepAlive
+# retries later). When the server dies the pid goes dead and the next start
+# reclaims the stale lock. We deliberately do NOT trap-remove the lock on exit.
+LOCK_DIR="$ROOT/.devlogs/launchd-start.lock"
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+  OLD_LOCK_PID="$(cat "$LOCK_DIR/pid" 2>/dev/null | tr -dc '0-9')"
+  if [ -n "$OLD_LOCK_PID" ] && kill -0 "$OLD_LOCK_PID" 2>/dev/null; then
+    log "another start/instance is live (pid $OLD_LOCK_PID); backing off"
+    exit 0
+  fi
+  log "reclaiming stale lock (holder ${OLD_LOCK_PID:-none} is dead)"
+  rm -rf "$LOCK_DIR" 2>/dev/null || true
+  mkdir "$LOCK_DIR" 2>/dev/null || { log "could not acquire lock; backing off"; exit 0; }
+fi
+echo "$$" > "$LOCK_DIR/pid"
+
+# --- Stop any previous server (published pkg or source) cleanly and WAIT for drain.
 pkill -f "paperclipai run" 2>/dev/null || true
-for sig in TERM KILL; do
-  PID=$(lsof -tiTCP:3100 -sTCP:LISTEN 2>/dev/null || true)
-  [ -z "$PID" ] && break
-  kill -"$sig" $PID 2>/dev/null || true
-  sleep 2
+OLD=$(lsof -tiTCP:3100 -sTCP:LISTEN 2>/dev/null || true)
+if [ -n "$OLD" ]; then
+  log "stopping previous server on :3100 (pid $OLD)"
+  kill -TERM $OLD 2>/dev/null || true
+  for _ in $(seq 1 25); do lsof -tiTCP:3100 -sTCP:LISTEN >/dev/null 2>&1 || break; sleep 1; done
+  STILL=$(lsof -tiTCP:3100 -sTCP:LISTEN 2>/dev/null || true)
+  [ -n "$STILL" ] && { log "force-killing :3100 (pid $STILL)"; kill -KILL $STILL 2>/dev/null || true; sleep 1; }
+fi
+
+# --- Reap a STALE embedded-Postgres postmaster + lock file. Only remove the
+# pidfile when the recorded postmaster pid is confirmed DEAD — force-removing a
+# live cluster's lock can corrupt data.
+PGPIDFILE="$HOME/.paperclip/instances/default/db/postmaster.pid"
+if [ -f "$PGPIDFILE" ]; then
+  PG_PID="$(head -1 "$PGPIDFILE" 2>/dev/null | tr -dc '0-9')"
+  if [ -n "$PG_PID" ] && kill -0 "$PG_PID" 2>/dev/null; then
+    log "stopping leftover embedded postmaster (pid $PG_PID)"
+    kill -TERM "$PG_PID" 2>/dev/null || true
+    for _ in $(seq 1 20); do kill -0 "$PG_PID" 2>/dev/null || break; sleep 1; done
+    kill -0 "$PG_PID" 2>/dev/null && { log "force-killing postmaster $PG_PID"; kill -KILL "$PG_PID" 2>/dev/null || true; sleep 1; }
+  fi
+  PG_PID2="$(head -1 "$PGPIDFILE" 2>/dev/null | tr -dc '0-9')"
+  if [ -z "$PG_PID2" ] || ! kill -0 "$PG_PID2" 2>/dev/null; then
+    rm -f "$PGPIDFILE" 2>/dev/null || true
+  fi
+fi
+
+# --- Free orphaned runtime identity port(s) left by detached dev-servers.
+for P in 13100; do
+  OWN=$(lsof -tiTCP:$P -sTCP:LISTEN 2>/dev/null || true)
+  if [ -n "$OWN" ]; then
+    log "freeing runtime port $P (pid $OWN)"
+    kill -TERM $OWN 2>/dev/null || true
+    sleep 2
+    kill -KILL $(lsof -tiTCP:$P -sTCP:LISTEN 2>/dev/null) 2>/dev/null || true
+  fi
 done
 
+log "cleanup complete; starting source server (lock held by pid $$ for server lifetime)"
 # Foreground: launchd manages this process directly (KeepAlive restarts it).
+# exec replaces this shell in place, so $$ (and thus the lock) now belongs to the server.
 exec pnpm dev

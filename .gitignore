@@ -64,3 +64,6 @@ server/scratch/
 server/benchmark-fixture-s2/
 server/\[object Object\]/
 hermes-paperclip-adapter/
+
+# local dev logs (not source)
+.devlogs/
