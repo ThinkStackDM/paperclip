@@ -1179,6 +1179,8 @@ export function createTestHarness(options: TestHarnessOptions): TestHarness {
             assigneeAgentId,
             priority: declaration.priority ?? "medium",
             status: declaration.status ?? (assigneeAgentId ? "active" : "paused"),
+            pauseReason: null,
+            pausedAt: null,
             concurrencyPolicy: declaration.concurrencyPolicy ?? "coalesce_if_active",
             catchUpPolicy: declaration.catchUpPolicy ?? "skip_missed",
             variables: declaration.variables ?? [],
