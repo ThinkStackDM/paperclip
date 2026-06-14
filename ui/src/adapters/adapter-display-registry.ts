@@ -10,6 +10,7 @@ import {
   Bot,
   Code,
   Gem,
+  Orbit,
   MousePointer2,
   Sparkles,
   Terminal,
@@ -60,6 +61,11 @@ const adapterDisplayMap: Record<string, AdapterDisplayInfo> = {
     icon: Bot,
     experimental: true,
     hideFromVisualSelection: true,
+  },
+  antigravity_local: {
+    label: "Antigravity",
+    description: "Local Google Antigravity agent",
+    icon: Orbit,
   },
   claude_local: {
     label: "Claude Code",

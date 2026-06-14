@@ -950,6 +950,10 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
 
   try {
     const initial = await runAttempt(sessionId ?? null);
+    let finalAttempt = initial;
+    let fallbackSessionId = runtimeSessionId || runtime.sessionId;
+    let clearSessionOnMissingSession = false;
+
     if (
       sessionId &&
       !initial.proc.timedOut &&
@@ -959,13 +963,26 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     ) {
       await onLog(
         "stdout",
-        `[paperclip] Claude resume session "${sessionId}" is unavailable; retrying with a fresh session.\n`,
+        `[paperclip] Claude resume session "" is unavailable; retrying with a fresh session.\n`,
       );
-      const retry = await runAttempt(null);
-      return toAdapterResult(retry, { fallbackSessionId: null, clearSessionOnMissingSession: true });
+      finalAttempt = await runAttempt(null);
+      fallbackSessionId = null;
+      clearSessionOnMissingSession = true;
     }
 
-    return toAdapterResult(initial, { fallbackSessionId: runtimeSessionId || runtime.sessionId });
+    const result = toAdapterResult(finalAttempt, { fallbackSessionId, clearSessionOnMissingSession });
+
+    if (result.errorFamily === "transient_upstream") {
+      await onLog(
+        "stderr",
+        `[paperclip] Detected transient upstream error (e.g. rate limit). \n`,
+      );
+      if (result.retryNotBefore) {
+        await onLog("stderr", `[paperclip] Retry scheduled after ${result.retryNotBefore}\n`);
+      }
+    }
+
+    return result;
   } finally {
     if (paperclipBridge) {
       await paperclipBridge.stop();
