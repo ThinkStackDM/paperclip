@@ -56,6 +56,8 @@ const mockAgentService = vi.hoisted(() => ({
   createApiKey: vi.fn(),
   getKeyById: vi.fn(),
   revokeKey: vi.fn(),
+  getChainOfCommand: vi.fn(),
+  listConfigRevisions: vi.fn(),
 }));
 
 const mockAccessService = vi.hoisted(() => ({
@@ -293,6 +295,8 @@ function resetMockDefaults() {
     ...baseKey,
     revokedAt: new Date("2026-04-11T00:05:00.000Z"),
   }));
+  mockAgentService.getChainOfCommand.mockImplementation(async () => []);
+  mockAgentService.listConfigRevisions.mockImplementation(async () => []);
   mockAccessService.canUser.mockImplementation(async () => currentAccessCanUser);
   mockAccessService.decide.mockImplementation(async (input: { actor?: { type?: string; source?: string }; action?: string }) => {
     const allowed = input.actor?.type === "board" && input.actor.source === "local_implicit"
@@ -385,5 +389,67 @@ describe.sequential("agent cross-tenant route authorization", () => {
     expect(res.body.error).toContain("Key not found");
     expect(mockAgentService.getKeyById).toHaveBeenCalledWith(keyId);
     expect(mockAgentService.revokeKey).not.toHaveBeenCalled();
+  });
+
+  it("restricted agent detail signals redaction and config presence instead of a silent empty object", async () => {
+    resetMockDefaults();
+    currentAccessCanUser = false;
+    mockAgentService.getById.mockImplementation(async () => ({
+      ...baseAgent,
+      adapterConfig: { model: "gpt-5.3-codex-spark", modelReasoningEffort: "high" },
+      runtimeConfig: { region: "us" },
+    }));
+    mockAgentService.listConfigRevisions.mockImplementation(async () => [
+      { id: "r1" },
+      { id: "r2" },
+      { id: "r3" },
+      { id: "r4" },
+    ]);
+
+    // A sibling agent (same company, no agents:create grant) reading another agent's detail.
+    const siblingActor = {
+      type: "agent",
+      agentId: "99999999-9999-4999-8999-999999999999",
+      companyId,
+      runId: null,
+    };
+    const app = await createApp(siblingActor);
+    const res = await requestApp(app, (baseUrl) => request(baseUrl).get(`/api/agents/${agentId}`));
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    // Secret values stay withheld...
+    expect(res.body.adapterConfig).toEqual({});
+    expect(res.body.runtimeConfig).toEqual({});
+    // ...but the response is NOT a silent `{}`/`0`: explicit redaction + ground-truth signals.
+    expect(res.body.configRedacted).toBe(true);
+    expect(res.body.adapterConfigPresent).toBe(true);
+    expect(res.body.runtimeConfigPresent).toBe(true);
+    expect(res.body.configRevisionsCount).toBe(4);
+  });
+
+  it("restricted agent detail reports absence honestly when nothing is persisted", async () => {
+    resetMockDefaults();
+    currentAccessCanUser = false;
+    mockAgentService.getById.mockImplementation(async () => ({
+      ...baseAgent,
+      adapterConfig: {},
+      runtimeConfig: {},
+    }));
+    mockAgentService.listConfigRevisions.mockImplementation(async () => []);
+
+    const siblingActor = {
+      type: "agent",
+      agentId: "99999999-9999-4999-8999-999999999999",
+      companyId,
+      runId: null,
+    };
+    const app = await createApp(siblingActor);
+    const res = await requestApp(app, (baseUrl) => request(baseUrl).get(`/api/agents/${agentId}`));
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.configRedacted).toBe(true);
+    expect(res.body.adapterConfigPresent).toBe(false);
+    expect(res.body.runtimeConfigPresent).toBe(false);
+    expect(res.body.configRevisionsCount).toBe(0);
   });
 });

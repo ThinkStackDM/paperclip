@@ -497,6 +497,23 @@ describe("buildExplicitResumeSessionOverride", () => {
       },
     });
   });
+
+  it("preserves the full selected run session id in explicit resume params", () => {
+    const longSessionId = `20260606_180840_${"045742".repeat(24)}`;
+
+    const result = buildExplicitResumeSessionOverride({
+      resumeFromRunId: "run-1",
+      resumeRunSessionIdBefore: null,
+      resumeRunSessionIdAfter: longSessionId,
+      taskSession: null,
+      sessionCodec: codexSessionCodec,
+    });
+
+    expect(result?.sessionDisplayId).toBe(longSessionId.slice(0, 128));
+    expect(result?.sessionParams).toEqual({
+      sessionId: longSessionId,
+    });
+  });
 });
 
 describe("formatRuntimeWorkspaceWarningLog", () => {

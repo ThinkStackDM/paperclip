@@ -723,6 +723,8 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
   async function expectSourceScopedStrandedRecoveryAction(input: {
     companyId: string;
     agentId: string;
+    previousOwnerAgentId?: string;
+    returnOwnerAgentId?: string;
     issueId: string;
     runId: string;
     previousStatus: "todo" | "in_progress";
@@ -748,11 +750,11 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
       status: "active",
       ownerType: "agent",
       ownerAgentId: input.agentId,
-      previousOwnerAgentId: input.agentId,
-      returnOwnerAgentId: input.agentId,
+      previousOwnerAgentId: input.previousOwnerAgentId ?? input.agentId,
+      returnOwnerAgentId: input.returnOwnerAgentId ?? input.agentId,
       cause: input.cause ?? "stranded_assigned_issue",
       attemptCount: 1,
-      maxAttempts: null,
+      maxAttempts: input.kind === "missing_disposition" ? 1 : null,
     });
     expect(action.evidence).toMatchObject({
       sourceIssueId: input.issueId,
@@ -763,6 +765,11 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     expect(action.nextAction).toContain(
       input.kind === "missing_disposition" ? "valid issue disposition" : "Restore a live execution path",
     );
+    expect(action.wakePolicy).toMatchObject({
+      type: "wake_owner",
+      reason: "source_scoped_recovery_action",
+      ...(input.kind === "missing_disposition" ? { minRefireIntervalMs: 60_000 } : {}),
+    });
 
     const recoveryIssues = await db
       .select()
@@ -1755,6 +1762,126 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     });
   });
 
+  it("folds missing-disposition recovery instead of refiring after the finite attempt bound", async () => {
+    const { companyId, agentId, runId, issueId } = await seedStrandedIssueFixture({
+      status: "in_progress",
+      runStatus: "succeeded",
+      livenessState: "advanced",
+    });
+    const sourceRunId = randomUUID();
+    await db
+      .update(heartbeatRuns)
+      .set({
+        contextSnapshot: {
+          issueId,
+          taskId: issueId,
+          wakeReason: "finish_successful_run_handoff",
+          sourceRunId,
+          resumeFromRunId: sourceRunId,
+          handoffRequired: true,
+          handoffReason: "successful_run_missing_state",
+          missingDisposition: "clear_next_step",
+          handoffAttempt: 1,
+          maxHandoffAttempts: 1,
+        },
+      })
+      .where(eq(heartbeatRuns.id, runId));
+    await db.insert(issueRecoveryActions).values({
+      companyId,
+      sourceIssueId: issueId,
+      kind: "missing_disposition",
+      status: "active",
+      ownerType: "agent",
+      ownerAgentId: agentId,
+      previousOwnerAgentId: agentId,
+      returnOwnerAgentId: agentId,
+      cause: SUCCESSFUL_RUN_MISSING_STATE_REASON,
+      fingerprint: `source_scoped_recovery:${companyId}:${issueId}:${SUCCESSFUL_RUN_MISSING_STATE_REASON}`,
+      evidence: { sourceRunId, missingDisposition: "clear_next_step" },
+      nextAction: "Choose and record a valid issue disposition without copying transcript content.",
+      wakePolicy: { type: "wake_owner", reason: "source_scoped_recovery_action", ownerAgentId: agentId },
+      attemptCount: 1,
+      maxAttempts: 1,
+      lastAttemptAt: new Date("2026-03-19T00:05:00.000Z"),
+    });
+    const heartbeat = heartbeatService(db);
+
+    const result = await heartbeat.reconcileStrandedAssignedIssues();
+    expect(result.successfulRunHandoffEscalated).toBe(0);
+    expect(result.skipped).toBe(1);
+
+    const [action] = await db.select().from(issueRecoveryActions).where(eq(issueRecoveryActions.sourceIssueId, issueId));
+    expect(action).toMatchObject({
+      status: "resolved",
+      outcome: "false_positive",
+      attemptCount: 1,
+      maxAttempts: 1,
+    });
+    expect(action?.resolutionNote).toContain("finite attempt bound");
+    const wakes = await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.agentId, agentId));
+    expect(wakes.filter((wake) => wake.reason === "source_scoped_recovery_action")).toHaveLength(0);
+  });
+
+  it("folds missing-disposition recovery when an event-driven hub idle path is present", async () => {
+    const { companyId, agentId, runId, issueId } = await seedStrandedIssueFixture({
+      status: "in_progress",
+      runStatus: "succeeded",
+      livenessState: "advanced",
+    });
+    await db
+      .update(issues)
+      .set({
+        executionPolicy: {
+          eventDrivenHubIdle: true,
+          reason: "standing hub waits for external events",
+        },
+      })
+      .where(eq(issues.id, issueId));
+    await db
+      .update(heartbeatRuns)
+      .set({
+        contextSnapshot: {
+          issueId,
+          taskId: issueId,
+          wakeReason: "finish_successful_run_handoff",
+          handoffRequired: true,
+          handoffReason: "successful_run_missing_state",
+          missingDisposition: "clear_next_step",
+          handoffAttempt: 1,
+          maxHandoffAttempts: 1,
+        },
+      })
+      .where(eq(heartbeatRuns.id, runId));
+    await db.insert(issueRecoveryActions).values({
+      companyId,
+      sourceIssueId: issueId,
+      kind: "missing_disposition",
+      status: "active",
+      ownerType: "agent",
+      ownerAgentId: agentId,
+      cause: SUCCESSFUL_RUN_MISSING_STATE_REASON,
+      fingerprint: `source_scoped_recovery:${companyId}:${issueId}:${SUCCESSFUL_RUN_MISSING_STATE_REASON}`,
+      evidence: { missingDisposition: "clear_next_step" },
+      nextAction: "Choose and record a valid issue disposition without copying transcript content.",
+      wakePolicy: { type: "wake_owner", reason: "source_scoped_recovery_action", ownerAgentId: agentId },
+      attemptCount: 1,
+      maxAttempts: 2,
+      lastAttemptAt: new Date("2026-03-19T00:05:00.000Z"),
+    });
+    const heartbeat = heartbeatService(db);
+
+    const result = await heartbeat.reconcileStrandedAssignedIssues();
+    expect(result.successfulRunHandoffEscalated).toBe(0);
+    expect(result.skipped).toBe(1);
+
+    const [action] = await db.select().from(issueRecoveryActions).where(eq(issueRecoveryActions.sourceIssueId, issueId));
+    expect(action).toMatchObject({
+      status: "resolved",
+      outcome: "false_positive",
+    });
+    expect(action?.resolutionNote).toContain("event-driven hub idle path");
+  });
+
   it("clears the detached warning when the run reports activity again", async () => {
     const { runId } = await seedRunFixture({
       includeIssue: false,
@@ -2134,6 +2261,165 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     expect(comments[0]?.body).toContain("Latest retry failure details were withheld from the issue thread");
     expect(comments[0]?.body).toContain(`Recovery action: \`${recoveryAction.id}\``);
     expect(comments[0]?.body).toContain("Recovery owner: [CodexCoder]");
+  });
+
+  it("uses a company-configured stranded recovery owner before assignee fallback", async () => {
+    const { companyId, agentId, issueId, runId } = await seedStrandedIssueFixture({
+      status: "todo",
+      runStatus: "failed",
+      retryReason: "assignment_recovery",
+      runErrorCode: "process_lost",
+      runError: "Authorization: Bearer sk-test-company-owner-secret",
+    });
+    const companyRecoveryOwnerAgentId = randomUUID();
+    await db.insert(agents).values({
+      id: companyRecoveryOwnerAgentId,
+      companyId,
+      name: "Recovery Owner",
+      role: "engineer",
+      status: "idle",
+      adapterType: "codex_local",
+      adapterConfig: {},
+      runtimeConfig: {},
+      permissions: {},
+    });
+    await db.update(companies).set({
+      strandedRecoveryOwnerAgentId: companyRecoveryOwnerAgentId,
+    }).where(eq(companies.id, companyId));
+
+    const heartbeat = heartbeatService(db);
+    const result = await heartbeat.reconcileStrandedAssignedIssues();
+
+    expect(result.dispatchRequeued).toBe(0);
+    expect(result.escalated).toBe(1);
+    expect(result.issueIds).toEqual([issueId]);
+
+    await expectSourceScopedStrandedRecoveryAction({
+      companyId,
+      agentId: companyRecoveryOwnerAgentId,
+      issueId,
+      runId,
+      previousStatus: "todo",
+      retryReason: "assignment_recovery",
+      previousOwnerAgentId: agentId,
+      returnOwnerAgentId: agentId,
+    });
+    await expect(waitForValue(async () => {
+      const actions = await db.select().from(issueRecoveryActions).where(eq(issueRecoveryActions.sourceIssueId, issueId));
+      return actions.find((action) => action.ownerAgentId === agentId) ?? null;
+    })).resolves.toBeNull();
+  });
+
+  it("falls back from a paused company recovery owner to an active CEO candidate", async () => {
+    const { companyId, agentId, issueId, runId } = await seedStrandedIssueFixture({
+      status: "todo",
+      runStatus: "failed",
+      retryReason: "assignment_recovery",
+      runErrorCode: "process_lost",
+      runError: "Authorization: Bearer sk-test-company-owner-fallback-secret",
+    });
+    const pausedRecoveryOwnerAgentId = randomUUID();
+    const ceoAgentId = randomUUID();
+    await db.insert(agents).values([
+      {
+        id: pausedRecoveryOwnerAgentId,
+        companyId,
+        name: "Paused Recovery Owner",
+        role: "engineer",
+        status: "paused",
+        adapterType: "codex_local",
+        adapterConfig: {},
+        runtimeConfig: {},
+        permissions: {},
+      },
+      {
+        id: ceoAgentId,
+        companyId,
+        name: "Recovery CEO",
+        role: "ceo",
+        status: "idle",
+        adapterType: "codex_local",
+        adapterConfig: {},
+        runtimeConfig: {},
+        permissions: {},
+      },
+    ]);
+    await db.update(companies).set({
+      strandedRecoveryOwnerAgentId: pausedRecoveryOwnerAgentId,
+    }).where(eq(companies.id, companyId));
+
+    const heartbeat = heartbeatService(db);
+    const result = await heartbeat.reconcileStrandedAssignedIssues();
+
+    expect(result.dispatchRequeued).toBe(0);
+    expect(result.escalated).toBe(1);
+    expect(result.issueIds).toEqual([issueId]);
+
+    await expectSourceScopedStrandedRecoveryAction({
+      companyId,
+      agentId: ceoAgentId,
+      issueId,
+      runId,
+      previousStatus: "todo",
+      retryReason: "assignment_recovery",
+      previousOwnerAgentId: agentId,
+      returnOwnerAgentId: agentId,
+    });
+
+    const pausedOwnerWakeups = await db
+      .select()
+      .from(agentWakeupRequests)
+      .where(eq(agentWakeupRequests.agentId, pausedRecoveryOwnerAgentId));
+    expect(pausedOwnerWakeups.filter((wake) => wake.reason === "source_scoped_recovery_action")).toHaveLength(0);
+  });
+
+  it("routes stranded recovery for a paused assignee to an available executive", async () => {
+    const { companyId, agentId, issueId, runId } = await seedStrandedIssueFixture({
+      status: "todo",
+      runStatus: "failed",
+      retryReason: "assignment_recovery",
+      runErrorCode: "process_lost",
+      runError: "Authorization: Bearer sk-test-paused-assignee-secret",
+    });
+    const ctoAgentId = randomUUID();
+    await db.update(agents).set({
+      status: "paused",
+    }).where(eq(agents.id, agentId));
+    await db.insert(agents).values({
+      id: ctoAgentId,
+      companyId,
+      name: "Recovery CTO",
+      role: "cto",
+      status: "idle",
+      adapterType: "codex_local",
+      adapterConfig: {},
+      runtimeConfig: {},
+      permissions: {},
+    });
+
+    const heartbeat = heartbeatService(db);
+    const result = await heartbeat.reconcileStrandedAssignedIssues();
+
+    expect(result.dispatchRequeued).toBe(0);
+    expect(result.escalated).toBe(1);
+    expect(result.issueIds).toEqual([issueId]);
+
+    await expectSourceScopedStrandedRecoveryAction({
+      companyId,
+      agentId: ctoAgentId,
+      issueId,
+      runId,
+      previousStatus: "todo",
+      retryReason: "assignment_recovery",
+      previousOwnerAgentId: agentId,
+      returnOwnerAgentId: agentId,
+    });
+
+    const pausedAgentWakeups = await db
+      .select()
+      .from(agentWakeupRequests)
+      .where(eq(agentWakeupRequests.agentId, agentId));
+    expect(pausedAgentWakeups.filter((wake) => wake.reason === "source_scoped_recovery_action")).toHaveLength(0);
   });
 
   it("blocks an already stranded recovery issue without creating a recovery child", async () => {

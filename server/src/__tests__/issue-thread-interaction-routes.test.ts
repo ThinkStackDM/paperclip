@@ -7,6 +7,9 @@ const CREATED_AGENT_ID = "22222222-2222-4222-8222-222222222222";
 
 const mockIssueService = vi.hoisted(() => ({
   getById: vi.fn(),
+  getBoardActionRequirements: vi.fn(),
+  getAncestors: vi.fn(),
+  addComment: vi.fn(),
 }));
 
 const mockInteractionService = vi.hoisted(() => ({
@@ -163,6 +166,14 @@ describe.sequential("issue thread interaction routes", () => {
     registerModuleMocks();
     vi.clearAllMocks();
     mockIssueService.getById.mockResolvedValue(createIssue());
+    mockIssueService.getBoardActionRequirements.mockResolvedValue(new Map());
+    mockIssueService.getAncestors.mockResolvedValue([]);
+    mockIssueService.addComment.mockResolvedValue({
+      id: "comment-1",
+      issueId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      companyId: "company-1",
+      body: "Board action required",
+    });
     mockInteractionService.listForIssue.mockResolvedValue([]);
     mockInteractionService.expireRequestConfirmationsSupersededByHistoricalComments.mockResolvedValue([]);
     mockInteractionService.create.mockResolvedValue({
@@ -811,6 +822,89 @@ describe.sequential("issue thread interaction routes", () => {
         agentId: CREATED_AGENT_ID,
         userId: null,
       },
+    );
+  });
+
+  it("posts a board-action notice to the tracker ancestor when a confirmation interaction becomes pending", async () => {
+    mockInteractionService.create.mockResolvedValueOnce({
+      id: "interaction-board-1",
+      companyId: "company-1",
+      issueId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      kind: "request_confirmation",
+      status: "pending",
+      continuationPolicy: "wake_assignee_on_accept",
+      idempotencyKey: null,
+      sourceCommentId: null,
+      sourceRunId: null,
+      payload: {
+        version: 1,
+        prompt: "Approve the rollout?",
+      },
+      result: null,
+      createdAt: "2026-04-20T12:00:00.000Z",
+      updatedAt: "2026-04-20T12:00:00.000Z",
+    });
+    mockIssueService.getBoardActionRequirements
+      .mockResolvedValueOnce(new Map())
+      .mockResolvedValueOnce(new Map([
+        [
+          "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          {
+            source: "interaction",
+            kind: "interaction",
+            state: "pending_board_decision",
+            sourceId: "interaction-board-1",
+            sourceKind: "request_confirmation",
+            title: "Approve rollout",
+            summary: "Need board confirmation",
+            createdAt: new Date("2026-04-20T12:00:00.000Z"),
+            decisionText: "Approve, reject, or request revision on the rollout confirmation.",
+            resumeText: "Execution resumes after the interaction is resolved.",
+          },
+        ],
+      ]));
+    mockIssueService.getAncestors.mockResolvedValueOnce([
+      {
+        id: "tracker-1",
+        identifier: "MC-12",
+        title: "MC v12 coordination tracker",
+      },
+    ]);
+    const app = await createApp();
+
+    const res = await request(app)
+      .post("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/interactions")
+      .send({
+        kind: "request_confirmation",
+        continuationPolicy: "wake_assignee_on_accept",
+        payload: {
+          version: 1,
+          prompt: "Approve the rollout?",
+        },
+      });
+
+    expect(res.status).toBe(201);
+    expect(mockIssueService.addComment).toHaveBeenCalledWith(
+      "tracker-1",
+      expect.stringContaining("Board action required:"),
+      expect.objectContaining({
+        userId: "local-board",
+      }),
+      expect.objectContaining({
+        authorType: "user",
+      }),
+    );
+    expect(mockIssueService.addComment).toHaveBeenCalledWith(
+      "tracker-1",
+      expect.stringContaining("interaction-board-1"),
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(mockIssueService.addComment).toHaveBeenCalledWith(
+      "tracker-1",
+      expect.stringContaining("MC-12"),
+      expect.anything(),
+      expect.anything(),
     );
   });
 });

@@ -6,16 +6,20 @@ import { boardMutationGuard } from "../middleware/board-mutation-guard.js";
 function createApp(
   actorType: "board" | "agent",
   boardSource: "session" | "local_implicit" | "board_key" | "cloud_tenant" = "session",
+  runId?: string,
+  options?: {
+    hasActiveHeartbeatRun?: (runId: string) => Promise<boolean>;
+  },
 ) {
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
     req.actor = actorType === "board"
-      ? { type: "board", userId: "board", source: boardSource }
+      ? { type: "board", userId: "board", source: boardSource, runId }
       : { type: "agent", agentId: "agent-1" };
     next();
   });
-  app.use(boardMutationGuard());
+  app.use(boardMutationGuard(options ? { hasActiveHeartbeatRun: options.hasActiveHeartbeatRun } : undefined));
   app.post("/mutate", (_req, res) => {
     res.status(204).end();
   });
@@ -54,10 +58,34 @@ describe("boardMutationGuard", () => {
     });
   });
 
-  it("allows local implicit board mutations without origin", async () => {
+  it("allows local implicit board mutations without origin or run id", async () => {
     const app = createApp("board", "local_implicit");
     const res = await request(app).post("/mutate").send({ ok: true });
     expect([200, 204]).toContain(res.status);
+  });
+
+  it("rejects local implicit board mutations with a run id", async () => {
+    const app = createApp(
+      "board",
+      "local_implicit",
+      "run-local-1",
+      { hasActiveHeartbeatRun: async () => false },
+    );
+    const res = await request(app).post("/mutate").send({ ok: true });
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({ error: "Agent run mutations require agent authentication" });
+  });
+
+  it("rejects local implicit board mutations even when the run id is active", async () => {
+    const app = createApp(
+      "board",
+      "local_implicit",
+      "11111111-1111-4111-8111-111111111111",
+      { hasActiveHeartbeatRun: async () => true },
+    );
+    const res = await request(app).post("/mutate").send({ ok: true });
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({ error: "Agent run mutations require agent authentication" });
   });
 
   it("allows board bearer-key mutations without origin", async () => {

@@ -71,6 +71,8 @@ const revision = {
 const pausedRoutine = {
   ...routine,
   status: "paused",
+  pauseReason: "watchdog: routine_failure_rate tripped",
+  pausedAt: new Date("2026-03-21T00:00:00.000Z"),
 };
 const trigger = {
   id: "66666666-6666-4666-8666-666666666666",
@@ -352,6 +354,37 @@ describe("routine routes", () => {
     expect(res.status).toBe(403);
     expect(res.body.error).toContain("tasks:assign");
     expect(mockRoutineService.update).not.toHaveBeenCalled();
+  });
+
+  it("allows agents to pause their own routines with descriptive pause reasons", async () => {
+    mockRoutineService.update.mockResolvedValue(pausedRoutine);
+    const app = await createApp({
+      type: "agent",
+      agentId,
+      companyId,
+    });
+
+    const res = await request(app)
+      .patch(`/api/routines/${routineId}`)
+      .send({
+        status: "paused",
+        pauseReason: "watchdog: routine_failure_rate tripped",
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.pauseReason).toBe("watchdog: routine_failure_rate tripped");
+    expect(mockRoutineService.update).toHaveBeenCalledWith(
+      routineId,
+      {
+        status: "paused",
+        pauseReason: "watchdog: routine_failure_rate tripped",
+      },
+      {
+        agentId,
+        userId: null,
+        runId: null,
+      },
+    );
   });
 
   it("requires tasks:assign permission to create a trigger", async () => {

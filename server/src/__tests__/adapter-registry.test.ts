@@ -194,6 +194,26 @@ describe("server adapter registry", () => {
     expect(adapter!.supportsLocalAgentJwt).toBe(true);
   });
 
+  it("built-in antigravity_local adapter exposes docs and runtime command config", () => {
+    const adapter = findActiveServerAdapter("antigravity_local");
+    expect(adapter).not.toBeNull();
+    expect(adapter!.agentConfigurationDoc).toContain("local `agy` login");
+    expect(adapter!.agentConfigurationDoc).toContain("does not require or read a Google API key");
+    expect(adapter!.supportsInstructionsBundle).toBe(true);
+    expect(adapter!.supportsLocalAgentJwt).toBe(true);
+    expect(adapter!.requiresMaterializedRuntimeSkills).toBe(true);
+    expect(adapter!.getRuntimeCommandSpec?.({})).toEqual({
+      command: "agy",
+      detectCommand: "agy",
+      installCommand: null,
+    });
+    expect(adapter!.getRuntimeCommandSpec?.({ command: "custom-agy" })).toEqual({
+      command: "custom-agy",
+      detectCommand: "custom-agy",
+      installCommand: null,
+    });
+  });
+
   it("built-in local adapters declare cheap model profile defaults where supported", async () => {
     await expect(listAdapterModelProfiles("claude_local")).resolves.toEqual([
       expect.objectContaining({
@@ -349,6 +369,12 @@ describe("server adapter registry", () => {
     expect(patchedCtx.agent.adapterConfig.promptTemplate).toContain(
       "X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID",
     );
+    expect(patchedCtx.agent.adapterConfig.promptTemplate).toContain(
+      "Preserve the substantive result in the final authenticated PATCH comment",
+    );
+    expect(patchedCtx.agent.adapterConfig.promptTemplate).toContain(
+      "a shorter unauthenticated PATCH is forbidden",
+    );
     expect(patchedCtx.agent.adapterConfig.promptTemplate).toContain("Existing prompt");
   });
 
@@ -416,7 +442,7 @@ describe("server adapter registry", () => {
     expect(hermesExecuteMock).toHaveBeenCalledWith(ctx);
   });
 
-  it("preserves an explicit Hermes Paperclip API key and does not set promptTemplate when none was configured", async () => {
+  it("preserves an explicit Hermes Paperclip API key and injects the fallback prompt when none was configured", async () => {
     const adapter = requireServerAdapter("hermes_local");
 
     await adapter.execute({
@@ -446,13 +472,24 @@ describe("server adapter registry", () => {
     const [patchedCtx] = hermesExecuteMock.mock.calls[0];
     expect(patchedCtx.agent.adapterConfig.env.PAPERCLIP_API_KEY).toBe("explicit-agent-key");
     expect(patchedCtx.agent.adapterConfig.env.PAPERCLIP_RUN_ID).toBe("run-123");
-    // No custom promptTemplate was set — Hermes must use its built-in default.
-    // Setting promptTemplate here would replace the full default with just the auth guard text,
-    // stripping assigned issue / workflow instructions.
-    expect(patchedCtx.agent.adapterConfig.promptTemplate).toBeUndefined();
+    expect(patchedCtx.agent.adapterConfig.promptTemplate).toContain(
+      "Authorization: Bearer $PAPERCLIP_API_KEY",
+    );
+    expect(patchedCtx.agent.adapterConfig.promptTemplate).toContain(
+      "X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID",
+    );
+    expect(patchedCtx.agent.adapterConfig.promptTemplate).toContain(
+      "Do not post a separate completion comment after a final PATCH with a comment field",
+    );
+    expect(patchedCtx.agent.adapterConfig.promptTemplate).toContain(
+      "The comment must contain the actual answer, work product, decision, or blocker details",
+    );
+    expect(patchedCtx.agent.adapterConfig.promptTemplate).toContain(
+      "Do not shorten it, omit Authorization, or rely on local-trusted board fallback",
+    );
   });
 
-  it("does not set promptTemplate when no custom template is configured, preserving Hermes default", async () => {
+  it("injects a Paperclip-safe fallback prompt when no custom Hermes template is configured", async () => {
     const adapter = requireServerAdapter("hermes_local");
 
     await adapter.execute({
@@ -475,10 +512,66 @@ describe("server adapter registry", () => {
     });
 
     const [patchedCtx] = hermesExecuteMock.mock.calls[0];
-    // promptTemplate must remain unset so Hermes uses its built-in heartbeat/task prompt.
-    expect(patchedCtx.agent.adapterConfig.promptTemplate).toBeUndefined();
-    // Auth token is still injected.
     expect(patchedCtx.agent.adapterConfig.env.PAPERCLIP_API_KEY).toBe("agent-run-jwt");
+    expect(patchedCtx.agent.adapterConfig.promptTemplate).toContain(
+      "Authorization: Bearer $PAPERCLIP_API_KEY",
+    );
+    expect(patchedCtx.agent.adapterConfig.promptTemplate).toContain(
+      "X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID",
+    );
+    expect(patchedCtx.agent.adapterConfig.promptTemplate).toContain(
+      "update the issue once with status and a substantive comment",
+    );
+    expect(patchedCtx.agent.adapterConfig.promptTemplate).toContain(
+      "actual answer/work product and verification",
+    );
+    expect(patchedCtx.agent.adapterConfig.promptTemplate).toContain(
+      "actual answer or work product, root cause/decision if relevant, and verification",
+    );
+    expect(patchedCtx.agent.adapterConfig.promptTemplate).toContain(
+      "Copy this exact curl shape, including both headers",
+    );
+  });
+
+  it("maps Paperclip scoped issue context into Hermes template config", async () => {
+    const adapter = requireServerAdapter("hermes_local");
+
+    await adapter.execute({
+      runId: "run-123",
+      agent: {
+        id: "agent-123",
+        companyId: "company-123",
+        name: "Hermes Agent",
+        role: "engineer",
+        adapterType: "hermes_local",
+        adapterConfig: {},
+      },
+      runtime: {},
+      config: {},
+      context: {
+        issueId: "issue-123",
+        taskId: "issue-123",
+        wakeReason: "issue_assigned",
+        paperclipIssue: {
+          id: "issue-123",
+          identifier: "TEST-1",
+          title: "Scoped Hermes task",
+          description: "Use the assigned issue, not the inbox.",
+        },
+      },
+      onLog: async () => {},
+      onMeta: async () => {},
+      onSpawn: async () => {},
+      authToken: "agent-run-jwt",
+    });
+
+    const [patchedCtx] = hermesExecuteMock.mock.calls[0];
+    expect(patchedCtx.config).toMatchObject({
+      taskId: "issue-123",
+      taskTitle: "TEST-1: Scoped Hermes task",
+      taskBody: "Use the assigned issue, not the inbox.",
+      wakeReason: "issue_assigned",
+    });
   });
 });
 

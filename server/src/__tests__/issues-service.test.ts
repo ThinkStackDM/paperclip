@@ -4115,3 +4115,150 @@ describeEmbeddedPostgres("accepted plan decomposition", () => {
     expect(record?.childIssues.every((child) => typeof child.title === "string")).toBe(true);
   });
 });
+
+describeEmbeddedPostgres("board action requirements", () => {
+  let db!: ReturnType<typeof createDb>;
+  let svc!: ReturnType<typeof issueService>;
+  let tempDb: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>> | null = null;
+
+  beforeAll(async () => {
+    tempDb = await startEmbeddedPostgresTestDatabase("paperclip-board-action-requirements-");
+    db = createDb(tempDb.connectionString);
+    svc = issueService(db);
+  }, 20_000);
+
+  afterEach(async () => {
+    await db.delete(issueThreadInteractions);
+    await db.delete(issueComments);
+    await db.delete(issueRelations);
+    await db.delete(issueInboxArchives);
+    await db.delete(activityLog);
+    await db.delete(issues);
+    await db.delete(goals);
+    await db.delete(agents);
+    await db.delete(instanceSettings);
+    await db.delete(companies);
+  });
+
+  afterAll(async () => {
+    await tempDb?.cleanup();
+  });
+
+  async function seedBoardActionIssue(args?: {
+    assigneeAgentId?: string | null;
+    assigneeUserId?: string | null;
+  }) {
+    const companyId = randomUUID();
+    const goalId = randomUUID();
+    const issueId = randomUUID();
+    const assigneeAgentId = args?.assigneeAgentId ?? randomUUID();
+    const assigneeUserId = args?.assigneeUserId ?? null;
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+    await instanceSettingsService(db).updateExperimental({ enableIsolatedWorkspaces: false });
+    await db.insert(goals).values({
+      id: goalId,
+      companyId,
+      title: "Board action follow-up",
+      level: "task",
+      status: "active",
+    });
+
+    if (assigneeAgentId) {
+      await db.insert(agents).values({
+        id: assigneeAgentId,
+        companyId,
+        name: "CodexCoder",
+        role: "engineer",
+        status: "active",
+        adapterType: "codex_local",
+        adapterConfig: {},
+        runtimeConfig: {},
+        permissions: {},
+      });
+    }
+
+    await db.insert(issues).values({
+      id: issueId,
+      companyId,
+      goalId,
+      title: "Waiting on board",
+      status: "in_review",
+      priority: "medium",
+      workMode: "standard",
+      assigneeAgentId: assigneeAgentId,
+      assigneeUserId,
+    });
+
+    return { companyId, issueId };
+  }
+
+  it("detects pending confirmation interactions and applies or removes the board-action title prefix", async () => {
+    const { companyId, issueId } = await seedBoardActionIssue();
+
+    await db.insert(issueThreadInteractions).values({
+      id: randomUUID(),
+      companyId,
+      issueId,
+      kind: "request_confirmation",
+      status: "pending",
+      continuationPolicy: "wake_assignee_on_accept",
+      payload: {
+        version: 1,
+        prompt: "Approve the rollout?",
+      },
+      createdByUserId: "local-board",
+    });
+
+    const result = await svc.getBoardActionRequirements(companyId, [{ id: issueId }]);
+    const requirement = result.get(issueId);
+
+    expect(requirement).toEqual(expect.objectContaining({
+      source: "interaction",
+      sourceKind: "request_confirmation",
+      state: "pending_board_decision",
+    }));
+    expect(requirement?.decisionText).toContain("Approve, reject, or request revision");
+    expect(svc.applyBoardActionTitlePrefix("Waiting on board", true)).toBe(
+      "BOARD ACTION REQUIRED: Waiting on board",
+    );
+    expect(svc.applyBoardActionTitlePrefix("BOARD ACTION REQUIRED: Waiting on board", false)).toBe(
+      "Waiting on board",
+    );
+  });
+
+  it("does not flag ask-user-questions interactions already assigned to a specific user as board actions", async () => {
+    const { companyId, issueId } = await seedBoardActionIssue({
+      assigneeAgentId: null,
+      assigneeUserId: "user-1",
+    });
+
+    await db.insert(issueThreadInteractions).values({
+      id: randomUUID(),
+      companyId,
+      issueId,
+      kind: "ask_user_questions",
+      status: "pending",
+      continuationPolicy: "wake_assignee",
+      payload: {
+        version: 1,
+        questions: [
+          {
+            id: "ship_now",
+            question: "Ship now?",
+            options: [{ label: "Yes", description: "Proceed immediately." }],
+          },
+        ],
+      },
+      createdByUserId: "local-board",
+    });
+
+    const result = await svc.getBoardActionRequirements(companyId, [{ id: issueId }]);
+    expect(result.has(issueId)).toBe(false);
+  });
+});

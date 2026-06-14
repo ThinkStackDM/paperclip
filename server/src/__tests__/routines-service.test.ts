@@ -223,7 +223,7 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     expect(allRoutines.map((entry) => entry.id)).toEqual(expect.arrayContaining([routine.id, otherRoutine.id]));
   });
 
-  it("creates a fresh execution issue when the previous routine issue is open but idle", async () => {
+  it("coalesces into an open routine issue even when the previous issue is idle", async () => {
     const { companyId, issueSvc, routine, svc } = await seedFixture();
     const previousRunId = randomUUID();
     const previousIssue = await issueSvc.create(companyId, {
@@ -251,11 +251,12 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     });
 
     const detailBefore = await svc.getDetail(routine.id);
-    expect(detailBefore?.activeIssue).toBeNull();
+    expect(detailBefore?.activeIssue?.id).toBe(previousIssue.id);
 
     const run = await svc.runRoutine(routine.id, { source: "manual" });
-    expect(run.status).toBe("issue_created");
-    expect(run.linkedIssueId).not.toBe(previousIssue.id);
+    expect(run.status).toBe("coalesced");
+    expect(run.linkedIssueId).toBe(previousIssue.id);
+    expect(run.coalescedIntoRunId).toBe(previousRunId);
 
     const routineIssues = await db
       .select({
@@ -265,9 +266,8 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
       .from(issues)
       .where(eq(issues.originId, routine.id));
 
-    expect(routineIssues).toHaveLength(2);
-    expect(routineIssues.map((issue) => issue.id)).toContain(previousIssue.id);
-    expect(routineIssues.map((issue) => issue.id)).toContain(run.linkedIssueId);
+    expect(routineIssues).toHaveLength(1);
+    expect(routineIssues[0]?.id).toBe(previousIssue.id);
   });
 
   it("creates draft routines without a project or default assignee", async () => {
@@ -642,10 +642,9 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     expect(wakeupResolved).toBe(true);
   });
 
-  it("coalesces only when the existing routine issue has a live execution run", async () => {
-    const { agentId, companyId, issueSvc, routine, svc } = await seedFixture();
+  it("coalesces when the existing routine issue is open without requiring a live execution run", async () => {
+    const { companyId, issueSvc, routine, svc } = await seedFixture();
     const previousRunId = randomUUID();
-    const liveHeartbeatRunId = randomUUID();
     const previousIssue = await issueSvc.create(companyId, {
       projectId: routine.projectId,
       title: routine.title,
@@ -668,26 +667,6 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
       triggeredAt: new Date("2026-03-20T12:00:00.000Z"),
       linkedIssueId: previousIssue.id,
     });
-
-    await db.insert(heartbeatRuns).values({
-      id: liveHeartbeatRunId,
-      companyId,
-      agentId,
-      invocationSource: "assignment",
-      triggerDetail: "system",
-      status: "running",
-      contextSnapshot: { issueId: previousIssue.id },
-      startedAt: new Date("2026-03-20T12:01:00.000Z"),
-    });
-
-    await db
-      .update(issues)
-      .set({
-        checkoutRunId: liveHeartbeatRunId,
-        executionRunId: liveHeartbeatRunId,
-        executionLockedAt: new Date("2026-03-20T12:01:00.000Z"),
-      })
-      .where(eq(issues.id, previousIssue.id));
 
     const detailBefore = await svc.getDetail(routine.id);
     expect(detailBefore?.activeIssue?.id).toBe(previousIssue.id);
@@ -1183,6 +1162,54 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     ).rejects.toThrow(/default agent required/i);
   });
 
+  it("persists pause reason and paused timestamp when a routine is manually paused", async () => {
+    const { routine, svc } = await seedFixture();
+
+    const paused = await svc.update(
+      routine.id,
+      { status: "paused", pauseReason: "watchdog: routine_failure_rate tripped" },
+      {},
+    );
+    const detail = await svc.getDetail(routine.id);
+
+    expect(paused?.status).toBe("paused");
+    expect(paused?.pauseReason).toBe("watchdog: routine_failure_rate tripped");
+    expect(paused?.pausedAt).toBeInstanceOf(Date);
+    expect(detail?.pauseReason).toBe("watchdog: routine_failure_rate tripped");
+    expect(detail?.pausedAt).toBeInstanceOf(Date);
+
+    const resumed = await svc.update(routine.id, { status: "active" }, {});
+    expect(resumed?.status).toBe("active");
+    expect(resumed?.pauseReason).toBeNull();
+    expect(resumed?.pausedAt).toBeNull();
+  });
+
+  it("backfills a paused timestamp when a legacy paused routine is paused again with a reason", async () => {
+    const { routine, svc } = await seedFixture();
+
+    const initiallyPaused = await svc.update(routine.id, { status: "paused" }, {});
+    expect(initiallyPaused?.status).toBe("paused");
+
+    await db
+      .update(routines)
+      .set({ pauseReason: null, pausedAt: null })
+      .where(eq(routines.id, routine.id));
+
+    const repaired = await svc.update(
+      routine.id,
+      { status: "paused", pauseReason: "watchdog: routine_failure_rate tripped" },
+      {},
+    );
+
+    expect(repaired?.status).toBe("paused");
+    expect(repaired?.pauseReason).toBe("watchdog: routine_failure_rate tripped");
+    expect(repaired?.pausedAt).toBeInstanceOf(Date);
+
+    const detail = await svc.getDetail(routine.id);
+    expect(detail?.pauseReason).toBe("watchdog: routine_failure_rate tripped");
+    expect(detail?.pausedAt).toBeInstanceOf(Date);
+  });
+
   it("blocks schedule triggers when required variables do not have defaults", async () => {
     const { companyId, agentId, projectId, svc } = await seedFixture();
     const variableRoutine = await svc.create(
@@ -1509,5 +1536,151 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
 
     expect(run.source).toBe("webhook");
     expect(run.status).toBe("issue_created");
+  });
+
+  it("coalesces repeated webhook fires by routine even when always_enqueue would allow manual duplicates", async () => {
+    const { routine, svc } = await seedFixture();
+    await svc.update(routine.id, { concurrencyPolicy: "always_enqueue" }, {});
+    const { trigger } = await svc.createTrigger(
+      routine.id,
+      {
+        kind: "webhook",
+        signingMode: "none",
+      },
+      {},
+    );
+
+    const first = await svc.firePublicTrigger(trigger.publicId!, {
+      payload: { type: "binding_probe", probeRunId: "probe-1" },
+    });
+    const second = await svc.firePublicTrigger(trigger.publicId!, {
+      payload: { type: "binding_probe", probeRunId: "probe-2" },
+    });
+
+    expect(first.source).toBe("webhook");
+    expect(first.status).toBe("issue_created");
+    expect(second.source).toBe("webhook");
+    expect(second.status).toBe("coalesced");
+    expect(second.linkedIssueId).toBe(first.linkedIssueId);
+
+    const routineIssues = await db
+      .select({ id: issues.id })
+      .from(issues)
+      .where(eq(issues.originId, routine.id));
+
+    expect(routineIssues).toHaveLength(1);
+    expect(routineIssues[0]?.id).toBe(first.linkedIssueId);
+  });
+
+  it("reopens a routine run when the execution issue returns to an open status", async () => {
+    const { companyId, issueSvc, routine, svc } = await seedFixture();
+    const issue = await issueSvc.create(companyId, {
+      projectId: routine.projectId,
+      title: routine.title,
+      description: routine.description,
+      status: "blocked",
+      priority: routine.priority,
+      assigneeAgentId: routine.assigneeAgentId,
+      originKind: "routine_execution",
+      originId: routine.id,
+      originRunId: randomUUID(),
+    });
+
+    await db.insert(routineRuns).values({
+      id: issue.originRunId!,
+      companyId,
+      routineId: routine.id,
+      triggerId: null,
+      source: "manual",
+      status: "failed",
+      failureReason: "Execution issue moved to blocked",
+      triggeredAt: new Date("2026-03-20T12:00:00.000Z"),
+      linkedIssueId: issue.id,
+      completedAt: new Date("2026-03-20T12:05:00.000Z"),
+    });
+
+    await db.update(issues).set({ status: "todo" }).where(eq(issues.id, issue.id));
+    const synced = await svc.syncRunStatusForIssue(issue.id);
+
+    expect(synced).toMatchObject({
+      id: issue.originRunId,
+      status: "issue_created",
+      failureReason: null,
+      completedAt: null,
+    });
+  });
+
+  it("keeps a routine run open when the execution issue is blocked", async () => {
+    const { companyId, issueSvc, routine, svc } = await seedFixture();
+    const issue = await issueSvc.create(companyId, {
+      projectId: routine.projectId,
+      title: routine.title,
+      description: routine.description,
+      status: "blocked",
+      priority: routine.priority,
+      assigneeAgentId: routine.assigneeAgentId,
+      originKind: "routine_execution",
+      originId: routine.id,
+      originRunId: randomUUID(),
+    });
+
+    await db.insert(routineRuns).values({
+      id: issue.originRunId!,
+      companyId,
+      routineId: routine.id,
+      triggerId: null,
+      source: "manual",
+      status: "issue_created",
+      failureReason: null,
+      triggeredAt: new Date("2026-03-20T12:00:00.000Z"),
+      linkedIssueId: issue.id,
+      completedAt: null,
+    });
+
+    const synced = await svc.syncRunStatusForIssue(issue.id);
+
+    expect(synced).toMatchObject({
+      id: issue.originRunId,
+      status: "issue_created",
+      failureReason: null,
+      completedAt: null,
+    });
+  });
+
+  it("clears stale failure metadata when a routine execution issue eventually closes done", async () => {
+    const { companyId, issueSvc, routine, svc } = await seedFixture();
+    const issue = await issueSvc.create(companyId, {
+      projectId: routine.projectId,
+      title: routine.title,
+      description: routine.description,
+      status: "done",
+      priority: routine.priority,
+      assigneeAgentId: routine.assigneeAgentId,
+      originKind: "routine_execution",
+      originId: routine.id,
+      originRunId: randomUUID(),
+    });
+
+    await db.insert(routineRuns).values({
+      id: issue.originRunId!,
+      companyId,
+      routineId: routine.id,
+      triggerId: null,
+      source: "manual",
+      status: "completed",
+      failureReason: "Execution issue moved to blocked",
+      triggeredAt: new Date("2026-03-20T12:00:00.000Z"),
+      linkedIssueId: issue.id,
+      completedAt: new Date("2026-03-20T12:05:00.000Z"),
+    });
+
+    const synced = await svc.syncRunStatusForIssue(issue.id);
+
+    expect(synced).toMatchObject({
+      id: issue.originRunId,
+      status: "completed",
+      failureReason: null,
+    });
+    expect(synced?.completedAt).toBeTruthy();
   });
 });

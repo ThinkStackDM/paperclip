@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   activityLog,
@@ -418,6 +418,140 @@ describeEmbeddedPostgres("issue monitor scheduler", () => {
       assigneeAdapterOverrides: { modelProfile: "cheap" },
     });
     expect(["todo", "in_progress"]).toContain(recoveryIssue?.status);
+  });
+
+  it("consolidates duplicate monitor recovery alerts into one open recovery issue without another wake", async () => {
+    const { issueId, companyId, agentId } = await seedFixture({
+      monitor: {
+        timeoutAt: "2026-04-11T12:00:00.000Z",
+        recoveryPolicy: "create_recovery_issue",
+      },
+    });
+    const heartbeat = heartbeatService(db);
+
+    await heartbeat.tickTimers(new Date("2026-04-11T12:31:00.000Z"));
+
+    const firstRecoveryIssue = await db
+      .select()
+      .from(issues)
+      .where(
+        and(
+          eq(issues.companyId, companyId),
+          eq(issues.originKind, "stranded_issue_recovery"),
+          eq(issues.originId, issueId),
+        ),
+      )
+      .then((rows) => rows[0] ?? null);
+    expect(firstRecoveryIssue).not.toBeNull();
+
+    const rearmedCheckAt = new Date("2026-04-11T12:40:00.000Z");
+    await db
+      .update(issues)
+      .set({
+        executionPolicy: {
+          mode: "normal",
+          commentRequired: true,
+          stages: [],
+          monitor: {
+            nextCheckAt: rearmedCheckAt.toISOString(),
+            notes: "Check deploy",
+            scheduledBy: "assignee",
+            timeoutAt: "2026-04-11T12:10:00.000Z",
+            recoveryPolicy: "create_recovery_issue",
+          },
+        },
+        executionState: {
+          status: "idle",
+          currentStageId: null,
+          currentStageIndex: null,
+          currentStageType: null,
+          currentParticipant: null,
+          returnAssignee: null,
+          completedStageIds: [],
+          lastDecisionId: null,
+          lastDecisionOutcome: null,
+          monitor: {
+            status: "scheduled",
+            nextCheckAt: rearmedCheckAt.toISOString(),
+            lastTriggeredAt: null,
+            attemptCount: 1,
+            notes: "Check deploy",
+            scheduledBy: "assignee",
+            serviceName: null,
+            externalRef: null,
+            timeoutAt: "2026-04-11T12:10:00.000Z",
+            maxAttempts: null,
+            recoveryPolicy: "create_recovery_issue",
+            clearedAt: null,
+            clearReason: null,
+          },
+        },
+        monitorNextCheckAt: rearmedCheckAt,
+        monitorAttemptCount: 1,
+        monitorLastTriggeredAt: null,
+        monitorNotes: "Check deploy",
+        monitorScheduledBy: "assignee",
+      })
+      .where(eq(issues.id, issueId));
+
+    await heartbeat.tickTimers(new Date("2026-04-11T12:41:00.000Z"));
+
+    const recoveryIssues = await db
+      .select()
+      .from(issues)
+      .where(
+        and(
+          eq(issues.companyId, companyId),
+          eq(issues.originKind, "stranded_issue_recovery"),
+          eq(issues.originId, issueId),
+        ),
+      );
+    expect(recoveryIssues).toHaveLength(1);
+    expect(recoveryIssues[0]?.id).toBe(firstRecoveryIssue?.id);
+
+    const recoveryWakeups = await db
+      .select()
+      .from(agentWakeupRequests)
+      .where(and(eq(agentWakeupRequests.agentId, agentId), eq(agentWakeupRequests.reason, "issue_monitor_recovery_issue")));
+    expect(recoveryWakeups).toHaveLength(1);
+
+    const consolidationComments = await db
+      .select()
+      .from(issueComments)
+      .where(eq(issueComments.issueId, firstRecoveryIssue!.id));
+    expect(consolidationComments).toHaveLength(1);
+    expect(consolidationComments[0]?.body).toContain("consolidated a duplicate external-service monitor recovery alert");
+    expect(consolidationComments[0]?.body).toContain("reused the existing open recovery issue instead of waking the owner again");
+  });
+
+  it("creates distinct recovery issues for distinct monitor source issues", async () => {
+    const first = await seedFixture({
+      monitor: {
+        timeoutAt: "2026-04-11T12:00:00.000Z",
+        recoveryPolicy: "create_recovery_issue",
+      },
+    });
+    const second = await seedFixture({
+      monitor: {
+        timeoutAt: "2026-04-11T12:00:00.000Z",
+        recoveryPolicy: "create_recovery_issue",
+      },
+    });
+    const heartbeat = heartbeatService(db);
+
+    await heartbeat.tickTimers(new Date("2026-04-11T12:31:00.000Z"));
+
+    const recoveryIssues = await db
+      .select({ id: issues.id, originId: issues.originId })
+      .from(issues)
+      .where(
+        and(
+          eq(issues.companyId, first.companyId),
+          eq(issues.originKind, "stranded_issue_recovery"),
+        ),
+      );
+    expect(recoveryIssues).toHaveLength(2);
+    expect(recoveryIssues.map((row) => row.originId).sort()).toEqual([first.issueId, second.issueId].sort());
   });
 
   it("omits external monitor refs from wake payloads and activity details", async () => {

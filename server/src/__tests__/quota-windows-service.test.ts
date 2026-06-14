@@ -53,4 +53,77 @@ describe("fetchAllQuotaWindows", () => {
       },
     ]);
   });
+
+  it("falls back to a reactive estimate when the gemini live read fails and recent runs were rate-limited", async () => {
+    vi.setSystemTime(new Date("2026-06-11T12:00:00Z"));
+    vi.mocked(listServerAdapters).mockReturnValue([
+      {
+        type: "gemini_local",
+        getQuotaWindows: vi.fn().mockResolvedValue({
+          provider: "google",
+          ok: false,
+          error: "Gemini Code Assist quota: gemini OAuth token is expired",
+          windows: [],
+        }),
+      },
+    ] as never);
+
+    // Minimal drizzle query-builder stub returning one quota-exhausted gemini run.
+    const rows = [
+      {
+        error: 'ApiError: got status: 429 Too Many Requests. {"error":{"status":"RESOURCE_EXHAUSTED"}}',
+        stdoutExcerpt: null,
+        stderrExcerpt: null,
+        resultJson: null,
+        exitCode: 1,
+        finishedAt: new Date("2026-06-11T11:40:00Z"),
+        createdAt: new Date("2026-06-11T11:40:00Z"),
+      },
+    ];
+    const builder: Record<string, unknown> = {};
+    for (const method of ["select", "from", "innerJoin", "where", "orderBy"]) {
+      builder[method] = vi.fn(() => builder);
+    }
+    builder.limit = vi.fn(() => Promise.resolve(rows));
+    const db = builder as never;
+
+    const results = await fetchAllQuotaWindows(db);
+
+    expect(results).toEqual([
+      {
+        provider: "google",
+        source: "gemini-heartbeat-estimate",
+        ok: true,
+        windows: [
+          {
+            label: "Google AI (estimated)",
+            usedPercent: 100,
+            resetsAt: null,
+            valueLabel: "Exhausted",
+            detail: "Reactive estimate — last rate-limit at 2026-06-11T11:40:00.000Z",
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("keeps the live gemini result when it succeeds (no db query needed)", async () => {
+    const geminiGetQuotaWindows = vi.fn().mockResolvedValue({
+      provider: "google",
+      source: "gemini-code-assist",
+      ok: true,
+      windows: [{ label: "gemini-2.5-pro", usedPercent: 40, resetsAt: null, valueLabel: null, detail: null }],
+    });
+    vi.mocked(listServerAdapters).mockReturnValue([
+      { type: "gemini_local", getQuotaWindows: geminiGetQuotaWindows },
+    ] as never);
+
+    const limit = vi.fn();
+    const db = { select: vi.fn(() => ({ from: vi.fn() })), limit } as never;
+
+    const results = await fetchAllQuotaWindows(db);
+
+    expect(results[0]?.source).toBe("gemini-code-assist");
+    expect(limit).not.toHaveBeenCalled();
+  });
 });

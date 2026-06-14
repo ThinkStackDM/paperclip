@@ -9,12 +9,14 @@ const mockIssueService = vi.hoisted(() => ({
   getAncestors: vi.fn(),
   getRelationSummaries: vi.fn(),
   findMentionedProjectIds: vi.fn(),
+  getBoardActionRequirements: vi.fn(),
   getCommentCursor: vi.fn(),
   getComment: vi.fn(),
   listBlockerAttention: vi.fn(),
   listProductivityReviews: vi.fn(),
   getCurrentScheduledRetry: vi.fn(),
   listAttachments: vi.fn(),
+  applyBoardActionTitlePrefix: vi.fn(),
 }));
 
 const mockProjectService = vi.hoisted(() => ({
@@ -191,6 +193,7 @@ describe.sequential("issue goal context routes", () => {
     mockIssueService.getAncestors.mockResolvedValue([]);
     mockIssueService.getRelationSummaries.mockResolvedValue({ blockedBy: [], blocks: [] });
     mockIssueService.findMentionedProjectIds.mockResolvedValue([]);
+    mockIssueService.getBoardActionRequirements.mockResolvedValue(new Map());
     mockIssueService.getCommentCursor.mockResolvedValue({
       totalComments: 0,
       latestCommentId: null,
@@ -201,6 +204,9 @@ describe.sequential("issue goal context routes", () => {
     mockIssueService.listProductivityReviews.mockResolvedValue(new Map());
     mockIssueService.getCurrentScheduledRetry.mockResolvedValue(null);
     mockIssueService.listAttachments.mockResolvedValue([]);
+    mockIssueService.applyBoardActionTitlePrefix.mockImplementation((title: unknown, isRequired: boolean) =>
+      isRequired && typeof title === "string" ? `BOARD ACTION REQUIRED: ${title}` : title,
+    );
     mockDocumentsService.getIssueDocumentPayload.mockResolvedValue({});
     mockDocumentsService.getIssueDocumentByKey.mockResolvedValue(null);
     mockExecutionWorkspaceService.getById.mockResolvedValue(null);
@@ -379,6 +385,43 @@ describe.sequential("issue goal context routes", () => {
           url: "http://127.0.0.1:5173",
         }),
       ],
+    }));
+  });
+
+  it("surfaces board-action state on GET /issues/:id/heartbeat-context", async () => {
+    mockIssueService.getBoardActionRequirements.mockResolvedValue(new Map([
+      [
+        legacyProjectLinkedIssue.id,
+        {
+          source: "interaction",
+          kind: "interaction",
+          state: "pending_board_decision",
+          sourceId: "interaction-1",
+          sourceKind: "request_confirmation",
+          title: "Approve rollout",
+          summary: "Need board confirmation",
+          createdAt: new Date("2026-06-08T12:00:00Z"),
+          decisionText: "Approve, reject, or request revision on the rollout confirmation.",
+          resumeText: "Execution resumes after the interaction is resolved.",
+        },
+      ],
+    ]));
+
+    const res = await request(createApp()).get(
+      "/api/issues/11111111-1111-4111-8111-111111111111/heartbeat-context",
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockIssueService.applyBoardActionTitlePrefix).toHaveBeenCalledWith(
+      legacyProjectLinkedIssue.title,
+      true,
+    );
+    expect(res.body.issue.title).toBe("BOARD ACTION REQUIRED: Legacy onboarding task");
+    expect(res.body.issue.boardActionRequired).toBe(true);
+    expect(res.body.issue.boardAction).toEqual(expect.objectContaining({
+      source: "interaction",
+      sourceId: "interaction-1",
+      sourceKind: "request_confirmation",
     }));
   });
 });
