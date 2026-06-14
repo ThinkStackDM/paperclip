@@ -2391,7 +2391,7 @@ function boardActionDecisionTextFromApproval() {
 
 function isBoardActionInteraction(
   interaction: { kind: string; issueId: string; title: string | null; summary: string | null },
-  issueRow: { assigneeUserId: string | null | undefined },
+  issueRow: { assigneeUserId?: string | null },
 ) {
   if (interaction.kind !== "request_confirmation" && interaction.kind !== "ask_user_questions") return false;
   if (interaction.kind === "ask_user_questions" && issueRow.assigneeUserId) return false;
@@ -4155,11 +4155,17 @@ export function issueService(db: Db) {
       return Number(row?.count ?? 0);
     },
 
-    getBoardActionRequirements: async (companyId: string, issueRows: Array<{ id: string } | string>) => {
+    getBoardActionRequirements: async (
+      companyId: string,
+      issueRows: Array<{ id: string; assigneeUserId?: string | null } | string>,
+    ) => {
       if (!Array.isArray(issueRows) || issueRows.length === 0) return new Map();
       const normalizedRows = issueRows
         .map((issue) => (typeof issue === "string" ? { id: issue } : issue))
-        .filter((issue): issue is { id: string } => typeof issue.id === "string" && issue.id.length > 0);
+        .filter(
+          (issue): issue is { id: string; assigneeUserId?: string | null } =>
+            typeof issue.id === "string" && issue.id.length > 0,
+        );
       if (normalizedRows.length === 0) return new Map();
 
       const issueById = new Map(normalizedRows.map((issue) => [issue.id, issue]));

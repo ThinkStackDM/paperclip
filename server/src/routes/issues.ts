@@ -1302,7 +1302,8 @@ export function issueRoutes(
       `- Source: ${sourceLabel} for ${trackerIssueIdentifier ? trackerIssueIdentifier : issue.identifier ?? issue.id}.`;
   }
 
-  function isTrackerContextIssue(issue: IssueRouteSnapshot) {
+  type TrackerContextIssue = { id: string; identifier?: string | null; title?: string | null };
+  function isTrackerContextIssue(issue: TrackerContextIssue) {
     const title = issue.title ?? "";
     const identifier = issue.identifier ?? "";
     const mcTrackerPattern = /\bmc[\s-]*v?\d+\b/i;
@@ -1312,7 +1313,10 @@ export function issueRoutes(
       || mcTrackerPattern.test(identifier);
   }
 
-  function findTrackerContextIssue(ancestors: IssueRouteSnapshot[], issue: IssueRouteSnapshot) {
+  function findTrackerContextIssue(
+    ancestors: TrackerContextIssue[],
+    issue: TrackerContextIssue,
+  ): TrackerContextIssue | null {
     if (isTrackerContextIssue(issue)) {
       return issue;
     }
@@ -1336,7 +1340,7 @@ export function issueRoutes(
       title: string | null;
       resumeText: string;
     };
-    preferredNotificationIssue?: IssueRouteSnapshot | null;
+    preferredNotificationIssue?: TrackerContextIssue | null;
   }) {
     const { svc, issue, actor, boardAction, preferredNotificationIssue } = input;
     const candidateTargets = preferredNotificationIssue ? [preferredNotificationIssue, issue] : [issue];

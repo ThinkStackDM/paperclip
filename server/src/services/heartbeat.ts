@@ -8167,8 +8167,8 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       }) => {
         await appendRunEvent(run, seq++, {
           eventType: event.eventType,
-          stream: event.stream ?? "system",
-          level: event.level ?? "info",
+          stream: (event.stream ?? "system") as "system" | "stdout" | "stderr",
+          level: (event.level ?? "info") as "info" | "warn" | "error",
           message: event.message ?? "",
           payload: event.payload,
         });

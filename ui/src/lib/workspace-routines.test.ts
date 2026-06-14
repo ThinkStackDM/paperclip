@@ -17,6 +17,8 @@ function createRoutine(overrides: Partial<RoutineListItem> = {}): RoutineListIte
     assigneeAgentId: "agent-1",
     priority: "medium",
     status: "active",
+    pauseReason: null,
+    pausedAt: null,
     concurrencyPolicy: "coalesce_if_active",
     catchUpPolicy: "skip_missed",
     variables: [],

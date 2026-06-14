@@ -883,21 +883,22 @@ export function routineService(
     const originKind = origin?.kind ?? "routine_execution";
     const originId = origin?.id ?? routine.id;
     return executor
-      .select()
+      .select({
+        id: issues.id,
+        identifier: issues.identifier,
+        title: issues.title,
+        status: issues.status,
+        priority: issues.priority,
+        updatedAt: issues.updatedAt,
+        originRunId: issues.originRunId,
+      })
       .from(issues)
-      .innerJoin(
-        heartbeatRuns,
-        and(
-          eq(heartbeatRuns.id, issues.executionRunId),
-          inArray(heartbeatRuns.status, LIVE_HEARTBEAT_RUN_STATUSES),
-        ),
-      )
       .where(
         and(
           eq(issues.companyId, routine.companyId),
           eq(issues.originKind, originKind),
           eq(issues.originId, originId),
-          isNotNull(issues.executionRunId),
+          isNotNull(issues.originRunId),
           inArray(issues.status, OPEN_ISSUE_STATUSES),
           isNull(issues.hiddenAt),
           ...(fingerprintCondition ? [fingerprintCondition] : []),
@@ -1158,7 +1159,12 @@ export function routineService(
     const issueOriginId = managedIssueTemplate?.originId ?? input.routine.id;
     const issueBillingCode = managedIssueTemplate?.billingCode ?? null;
     const shouldAlwaysEnqueue = input.routine.concurrencyPolicy === "always_enqueue";
-    const coalesceByOriginOnly = input.source !== "manual" && !shouldAlwaysEnqueue;
+    // always_enqueue lets MANUAL runs create duplicates, but automated fires
+    // (webhook/schedule) must still coalesce by routine origin — otherwise a
+    // probe/webhook storm spawns duplicate execution issues (and trips the
+    // issues_open_routine_execution_uq unique constraint).
+    const automatedCoalesce = input.source !== "manual";
+    const coalesceByOriginOnly = automatedCoalesce;
     const dispatchFingerprint = createRoutineDispatchFingerprint({
       payload: triggerPayload,
       projectId,
@@ -1228,7 +1234,7 @@ export function routineService(
           kind: issueOriginKind,
           id: issueOriginId,
         }, { ignoreFingerprint: coalesceByOriginOnly });
-        const shouldReuseActiveIssue = activeIssue && !shouldAlwaysEnqueue;
+        const shouldReuseActiveIssue = activeIssue && (!shouldAlwaysEnqueue || automatedCoalesce);
         if (shouldReuseActiveIssue) {
           const status = input.routine.concurrencyPolicy === "skip_if_active" ? "skipped" : "coalesced";
           if (manualRunnerUserId) {
@@ -1285,7 +1291,7 @@ export function routineService(
             (error as { code?: string }).code === "23505" &&
             "constraint" in error &&
             (error as { constraint?: string }).constraint === "issues_open_routine_execution_uq";
-          if (!isOpenExecutionConflict || shouldAlwaysEnqueue) {
+          if (!isOpenExecutionConflict || (shouldAlwaysEnqueue && !automatedCoalesce)) {
             throw error;
           }
 
