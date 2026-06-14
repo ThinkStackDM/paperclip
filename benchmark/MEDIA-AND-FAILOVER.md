@@ -179,3 +179,40 @@ UPDATE agents SET adapter_config = jsonb_set(adapter_config, '{paperclipSkillSyn
   (adapter_config->'paperclipSkillSync'->'desiredSkills') - 'paperclipai/paperclip/terminal-bench-loop')
 WHERE company_id <> '<TSMC-id>' AND role IN ('engineer','cto') AND status <> 'terminated';
 ```
+
+---
+
+## Part F — Rollout executed (2026-06-14) + what remains
+
+### Done + verified (live)
+- **3 new skills registered** across all 7 companies (mirroring the bundled-skill pattern):
+  `make-a-skill` (create→benchmark→roll-out meta-skill) → all cto+ceo (27); `content-book-craft`
+  → TSB Author+Editor (2); `escalate-platform-work-to-tsmc` → all non-TSMC engineer/cto/ceo.
+- **Dev-build bundle trimmed** (`paperclip-dev`, `terminal-bench-loop`, `paperclip-create-plugin`)
+  from ALL non-TSMC active agents (kept on TSMC; kept `paperclip-create-agent` everywhere since
+  non-TSMC companies do spin up their own agents). Gated behind the escalate-to-TSMC rule.
+- **Roomy ChatGPT lane restored**: resumed 14 paused codex sisters + cleared 2 stale-`error`
+  KISS codex sisters → 16 codex agents now idle/available (was: all paused by the benchmark flip).
+  Post-resume health clean (0 failed runs; a sister already picked up work). Claude primaries left
+  active (Claude has headroom this week) — both lanes now available; no work cancelled.
+
+### The structural gap this surfaced (the big remaining build-out)
+Only **CEO/CTO agents have the full 3-lane sister set** (claude + codex + hermes). The **worker
+agents** (e.g. TSR ApplicationWriter / JobSourcer / CandidateIntakeSpecialist, TSC Polymarket-
+Engineer, etc.) are mostly **single-lane** — no roomy-lane sister to fail over to or to carry load.
+So the role-based split ("engineer/intake/ops on Grok+codex, designer/content on Claude") can't be
+fully realised until those workers get sisters.
+
+**Remaining (deliberate, larger phase):**
+1. **Spin up roomy-lane sisters for worker agents** that lack them (codex and/or hermes), with the
+   correct model + the same domain skills as their primary (parity, so failover keeps capability).
+2. **Role-based active-primary split** — make the roomy-lane sister the active primary for
+   terse/high-volume roles (engineer/researcher/pm/general/cto), keep Claude primary for
+   designer/cmo + TSB Author/Editor. This shifts the ~10k-issue/week load off the tight Claude
+   lane. It changes assignment on a busy live system, so do it **per-company, canary + verify**,
+   not fleet-wide at once. (Pausing an idle primary is clean; pausing a running one cancels its run,
+   which re-enqueues.)
+3. **TSB cheap-draft lane** (the agreed "next step"): give Author a gemini-flash drafting lane,
+   keep Editor on Claude.
+4. **Tune hermes sister models** to the value lane (grok-4-fast for terse, grok-4.3 for leadership)
+   once the exact model strings are confirmed.
