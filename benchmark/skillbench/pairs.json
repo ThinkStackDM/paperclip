@@ -43,6 +43,52 @@
           }
         }
       }
+    },
+    {
+      "id": "content-constraints",
+      "skill": "candidate-skills/content-constraint-discipline.md",
+      "task": {
+        "id": "constraints-bare",
+        "prompt": "Write a short promo blurb for \"Beacon\", an uptime-monitoring tool. Hard requirements: exactly 2 sentences; between 25 and 45 words total; must include the words \"uptime\" and \"alert\"; must NOT use any of \"seamless\", \"powerful\", \"next-gen\", \"leverage\"; must end with a question mark. Return ONLY the blurb, no preamble.",
+        "rubric": {
+          "deterministic": [
+            { "type": "min_words", "value": 25, "weight": 1 },
+            { "type": "max_words", "value": 45, "weight": 2 },
+            { "type": "contains", "value": "uptime", "weight": 1 },
+            { "type": "contains", "value": "alert", "weight": 1 },
+            { "type": "not_contains", "value": "seamless", "weight": 1 },
+            { "type": "not_contains", "value": "powerful", "weight": 1 },
+            { "type": "not_contains", "value": "next-gen", "weight": 1 },
+            { "type": "not_contains", "value": "leverage", "weight": 1 },
+            { "type": "regex", "pattern": "\\?\\s*$", "weight": 2 },
+            { "type": "regex", "pattern": "^[^.!?]*[.!?][^.!?]*[.!?]\\s*$", "weight": 2 }
+          ],
+          "judge": {
+            "criteria": [
+              { "name": "quality", "weight": 2, "guidance": "Reads as a genuine, appealing promo for an uptime/alerting tool despite the constraints; not stilted, padded, or nonsensical." }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "engineer-batching",
+      "skill": "candidate-skills/engineer-query-patterns.md",
+      "task": {
+        "id": "slow-code-bare",
+        "prompt": "This TypeScript runs slowly under load. Diagnose the root cause and give the fix (you may sketch code). Under 130 words.\n\n  async function loadAgentCards(agentIds: string[]) {\n    const cards = [];\n    for (const id of agentIds) {\n      const agent = await db.query.agents.findFirst({ where: eq(agents.id, id) });\n      const runs = await db.query.runs.findMany({ where: eq(runs.agentId, id), limit: 5 });\n      cards.push({ agent, runs });\n    }\n    return cards;\n  }",
+        "rubric": {
+          "deterministic": [
+            { "type": "contains_any", "values": ["N+1", "n+1", "per-item", "per item", "in a loop", "per iteration", "inArray", "IN (", "batch"], "weight": 3 },
+            { "type": "max_words", "value": 160, "weight": 1 }
+          ],
+          "judge": {
+            "criteria": [
+              { "name": "correctness", "weight": 3, "guidance": "Identifies the N+1 / per-iteration query pattern (a query per agent inside the loop -> ~2N queries) and the fix is to BATCH with inArray/IN + group in memory (2 queries instead of 2N). Penalize caching/index-only answers or keeping the loop." }
+            ]
+          }
+        }
+      }
     }
   ]
 }

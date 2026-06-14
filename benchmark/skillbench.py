@@ -197,8 +197,14 @@ def main():
         pairs = [p for p in pairs if p["id"] in want]
     models = _cfg["models"]
     if args.models:
-        want = {x.strip() for x in args.models.split(",")}
-        models = [m for m in models if m["id"] in want]
+        # resolve against the active lineup AND the staged variant catalog
+        roster = {m["id"]: m for m in (_cfg.get("models", []) + _cfg.get("models_catalog", []))}
+        want = [x.strip() for x in args.models.split(",") if x.strip()]
+        missing = [w for w in want if w not in roster]
+        if missing:
+            import sys
+            sys.exit(f"unknown model id(s): {', '.join(missing)}  (known: {', '.join(sorted(roster))})")
+        models = [roster[w] for w in want]
 
     cells = [(p, m, rep) for p in pairs for m in models for rep in range(1, args.reps + 1)]
     n_cells = len(cells)
