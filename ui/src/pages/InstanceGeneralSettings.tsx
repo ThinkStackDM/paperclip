@@ -7,7 +7,7 @@ import {
   MONTHLY_RETENTION_PRESETS,
   DEFAULT_BACKUP_RETENTION,
 } from "@paperclipai/shared";
-import { LogOut, SlidersHorizontal } from "lucide-react";
+import { LogOut, PauseCircle, Play, SlidersHorizontal } from "lucide-react";
 import { authApi } from "@/api/auth";
 import { healthApi } from "@/api/health";
 import { instanceSettingsApi } from "@/api/instanceSettings";
@@ -45,6 +45,23 @@ export function InstanceGeneralSettings() {
   const generalQuery = useQuery({
     queryKey: queryKeys.instance.generalSettings,
     queryFn: () => instanceSettingsApi.getGeneral(),
+  });
+  const runControlsQuery = useQuery({
+    queryKey: queryKeys.instance.runControls,
+    queryFn: () => instanceSettingsApi.getRunControls(),
+    refetchInterval: 30_000,
+  });
+  const [pauseFamilyInput, setPauseFamilyInput] = useState("");
+
+  const runControlsMutation = useMutation({
+    mutationFn: (action: () => Promise<unknown>) => action(),
+    onSuccess: async () => {
+      setActionError(null);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.instance.runControls });
+    },
+    onError: (error) => {
+      setActionError(error instanceof Error ? error.message : "Failed to update run controls.");
+    },
   });
   const healthQuery = useQuery({
     queryKey: queryKeys.health,
@@ -131,6 +148,127 @@ export function InstanceGeneralSettings() {
               value={healthQuery.data?.bootstrapInviteActive ? "Active" : "None"}
             />
           </div>
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-border bg-card p-5">
+        <div className="space-y-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-1.5">
+              <h2 className="text-sm font-semibold">Run controls</h2>
+              <p className="max-w-2xl text-sm text-muted-foreground">
+                Pause all agent runs instance-wide, or pause a single adapter family (for example{" "}
+                <code>claude_local</code> when usage limits are hit). Paused runs are deferred — they stay
+                queued and resume automatically when the pause is lifted.
+              </p>
+            </div>
+            {runControlsQuery.data?.pauseAll ? (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={runControlsMutation.isPending}
+                onClick={() => runControlsMutation.mutate(() => instanceSettingsApi.resumeInstanceRuns())}
+              >
+                <Play className="size-4" />
+                Resume instance
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={runControlsMutation.isPending || runControlsQuery.isLoading}
+                onClick={() =>
+                  runControlsMutation.mutate(() =>
+                    instanceSettingsApi.pauseInstanceRuns("Paused from instance settings"),
+                  )
+                }
+              >
+                <PauseCircle className="size-4" />
+                Pause instance
+              </Button>
+            )}
+          </div>
+
+          {runControlsQuery.data?.pauseAll ? (
+            <div className="flex items-center gap-2 rounded-lg border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-sm text-orange-400">
+              <PauseCircle className="h-4 w-4 shrink-0" />
+              Instance is paused
+              {runControlsQuery.data.pauseAll.reason ? ` — ${runControlsQuery.data.pauseAll.reason}` : ""}
+            </div>
+          ) : null}
+
+          <div className="space-y-2">
+            <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Adapter family pauses
+            </h3>
+            {Object.entries(runControlsQuery.data?.adapterPauses ?? {}).length === 0 ? (
+              <p className="text-sm text-muted-foreground">No adapter families are paused.</p>
+            ) : (
+              <ul className="space-y-1.5">
+                {Object.entries(runControlsQuery.data?.adapterPauses ?? {}).map(([adapterType, pause]) => (
+                  <li
+                    key={adapterType}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2"
+                  >
+                    <span className="min-w-0 truncate text-sm">
+                      <span className="font-mono text-xs">{adapterType}</span>
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        paused{pause.reason ? ` — ${pause.reason}` : ""}
+                      </span>
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={runControlsMutation.isPending}
+                      onClick={() =>
+                        runControlsMutation.mutate(() => instanceSettingsApi.resumeAdapterFamily(adapterType))
+                      }
+                    >
+                      <Play className="size-4" />
+                      Resume
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <form
+              className="flex items-center gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const adapterType = pauseFamilyInput.trim();
+                if (!adapterType) return;
+                runControlsMutation.mutate(async () => {
+                  await instanceSettingsApi.pauseAdapterFamily(adapterType, "Paused from instance settings");
+                  setPauseFamilyInput("");
+                });
+              }}
+            >
+              <input
+                value={pauseFamilyInput}
+                onChange={(event) => setPauseFamilyInput(event.target.value)}
+                placeholder="adapter type, e.g. claude_local"
+                className="h-8 w-64 rounded-md border border-border bg-background px-2.5 font-mono text-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring"
+                aria-label="Adapter family to pause"
+              />
+              <Button
+                type="submit"
+                variant="outline"
+                size="sm"
+                disabled={runControlsMutation.isPending || pauseFamilyInput.trim().length === 0}
+              >
+                <PauseCircle className="size-4" />
+                Pause family
+              </Button>
+            </form>
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            Concurrency caps per adapter type:{" "}
+            {Object.entries(runControlsQuery.data?.adapterConcurrency ?? {})
+              .map(([adapterType, cap]) => `${adapterType} ${cap}`)
+              .join(" · ") || "defaults"}
+            . Editable via <code>PATCH /api/instance/settings/run-controls/concurrency</code>.
+          </p>
         </div>
       </section>
 

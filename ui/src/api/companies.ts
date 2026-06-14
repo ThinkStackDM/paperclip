@@ -1,5 +1,8 @@
 import type {
   Company,
+  CompanyActivityWindow,
+  CompanyActivityWindowState,
+  CompanyRunPauseState,
   CompanyPortabilityExportRequest,
   CompanyPortabilityExportPreviewResult,
   CompanyPortabilityExportResult,
@@ -42,6 +45,17 @@ export const companiesApi = {
   ) => api.patch<Company>(`/companies/${companyId}`, data),
   updateBranding: (companyId: string, data: UpdateCompanyBranding) =>
     api.patch<Company>(`/companies/${companyId}/branding`, data),
+  getActivityWindow: (companyId: string) =>
+    api.get<{
+      window: CompanyActivityWindow | null;
+      state: CompanyActivityWindowState | null;
+      runPause: CompanyRunPauseState;
+    }>(`/companies/${companyId}/activity-window`),
+  setActivityWindow: (companyId: string, window: CompanyActivityWindow | null) =>
+    api.patch<Company>(`/companies/${companyId}/activity-window`, { window }),
+  pauseRuns: (companyId: string, reason?: string) =>
+    api.post<Company>(`/companies/${companyId}/pause`, reason ? { reason } : {}),
+  resumeRuns: (companyId: string) => api.delete<Company>(`/companies/${companyId}/pause`),
   archive: (companyId: string) => api.post<Company>(`/companies/${companyId}/archive`, {}),
   remove: (companyId: string) => api.delete<{ ok: true }>(`/companies/${companyId}`),
   exportBundle: (
