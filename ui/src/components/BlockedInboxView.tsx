@@ -289,6 +289,13 @@ function BlockedInboxRow({
 }: BlockedInboxRowProps) {
   const { label: ownerName, isAgent } = resolveOwnerName(row, agentNameById, userLabelById);
   const stoppedAge = formatStoppedAge(row.attention.stoppedSinceAt);
+  // Deep-link straight to the specific pending ask (anchor handlers already exist) instead of
+  // dumping the operator at the issue top: interactions -> the in-thread card; approvals -> the approval.
+  const askDeepLink = row.attention.approvalId
+    ? `/approvals/${row.attention.approvalId}`
+    : row.attention.interactionId
+      ? `/issues/${row.issue.identifier ?? row.issue.id}#interaction-${row.attention.interactionId}`
+      : undefined;
 
   const desktopTrailing = (
     <span className="flex shrink-0 items-center gap-3 text-xs">
@@ -342,6 +349,7 @@ function BlockedInboxRow({
     <IssueRow
       issue={row.issue}
       issueLinkState={issueLinkState}
+      toOverride={askDeepLink}
       desktopMetaLeading={
         <BlockedRowDesktopMeta
           row={row}

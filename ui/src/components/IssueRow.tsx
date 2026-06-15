@@ -36,6 +36,8 @@ interface IssueRowProps {
   onArchive?: () => void;
   archiveDisabled?: boolean;
   className?: string;
+  /** Deep-link override (e.g. `/issues/<id>#interaction-<id>` or `/approvals/<id>`); falls back to the issue detail path. */
+  toOverride?: string;
 }
 
 export function IssueRow({
@@ -59,6 +61,7 @@ export function IssueRow({
   onArchive,
   archiveDisabled,
   className,
+  toOverride,
 }: IssueRowProps) {
   const issuePathId = issue.identifier ?? issue.id;
   const identifier = issue.identifier ?? issue.id.slice(0, 8);
@@ -100,7 +103,7 @@ export function IssueRow({
 
   return (
     <Link
-      to={createIssueDetailPath(issuePathId)}
+      to={toOverride ?? createIssueDetailPath(issuePathId)}
       state={detailState}
       disableIssueQuicklook
       issuePrefetch={issue}
