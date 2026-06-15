@@ -116,6 +116,77 @@
           }
         }
       }
+    },
+    {
+      "id": "cro-landing",
+      "skill": "candidate-skills/landing-page-cro.md",
+      "task": {
+        "id": "cro-cv-page-bare",
+        "prompt": "We sell a CV-polishing service for $29 with a 48-hour turnaround. Draft a plan for the service's landing page: the sections it needs, in order, and the key copy/wording for each. Under 280 words. Return only the plan.",
+        "rubric": {
+          "deterministic": [
+            { "type": "contains_any", "values": ["CTA", "call to action", "button", "Polish my CV", "$29"], "weight": 2 },
+            { "type": "contains_any", "values": ["above the fold", "hero", "headline", "subhead", "fold"], "weight": 1 },
+            { "type": "contains_any", "values": ["proof", "testimonial", "before", "after", "sample", "trust", "review", "rating"], "weight": 2 },
+            { "type": "contains_any", "values": ["FAQ", "objection", "questions"], "weight": 1 },
+            { "type": "contains_any", "values": ["form", "fields", "friction", "account", "steps", "upload"], "weight": 1 },
+            { "type": "contains_any", "values": ["conversion", "track", "measure", "analytics", "GA4", "event", "baseline"], "weight": 1 }
+          ],
+          "judge": {
+            "criteria": [
+              { "name": "cro_structure", "weight": 3, "guidance": "Designs the page backwards from the single conversion action: ONE primary, repeated CTA written as action+value (ideally +price, e.g. 'Polish my CV - $29'), not a generic 'Get started'/'Learn more'. The above-the-fold answers what-it-is / what-you-get / what-to-do-next at a glance. Penalize multiple competing CTAs, a nav/carousel maze, or vague benefit-free copy." },
+              { "name": "persuasion", "weight": 2, "guidance": "Places proof near the ask (sample/before-after, numbers, trust signals), handles the top objections (price/trust/effort) inline, and removes friction (fewest form fields, no forced account before value, fast load). Rewards specific outcome copy ('land more interviews', '$29, 48 hours') over abstract adjectives." },
+              { "name": "measurement", "weight": 1, "guidance": "Calls for instrumenting ONE conversion event + knowing the baseline so lift is measurable, rather than shipping blind." }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "ab-thumbnail",
+      "skill": "candidate-skills/ab-testing-discipline.md",
+      "task": {
+        "id": "ab-thumbnail-bare",
+        "prompt": "Our YouTube channel swapped in a new thumbnail on one video three days ago. Since the swap it has gotten about 40 clicks and views are up roughly 30% versus the days before. Did the new thumbnail win? Tell us what to conclude and what to do next.",
+        "rubric": {
+          "deterministic": [
+            { "type": "contains_any", "values": ["sample", "noise", "too few", "small", "40 clicks", "not enough", "underpowered", "insufficient"], "weight": 3 },
+            { "type": "contains_any", "values": ["baseline", "pre-register", "threshold", "preset", "window", "in advance", "decide"], "weight": 2 },
+            { "type": "contains_any", "values": ["one variable", "one change", "confound", "other change", "seasonal", "algorithm", "isolate"], "weight": 2 },
+            { "type": "contains_any", "values": ["directional", "not proven", "inconclusive", "cannot conclude", "can't conclude", "longer"], "weight": 1 }
+          ],
+          "judge": {
+            "criteria": [
+              { "name": "correctness", "weight": 3, "guidance": "Refuses to declare a win on ~40 clicks over 3 days - recognizes the sample is far too small and the 30% is most likely noise. The right call is to keep running to a pre-set window (or at most treat it as DIRECTIONAL, not proven), not to lock in 'the new thumbnail won'. Penalize heavily any confident 'yes it won, roll it out'." },
+              { "name": "rigor", "weight": 2, "guidance": "Surfaces the discipline the bare prompt omitted on its own: a captured baseline (with date), a success metric + threshold set in advance, one-variable isolation, and naming possible confounds (other changes, seasonality, algorithm shift). Reward an explicit verdict framed as extend / directional with N stated." },
+              { "name": "actionability", "weight": 1, "guidance": "Gives a concrete next step (run to window X, set the threshold now, what single metric to read), not a vague 'gather more data'." }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "pricing-kdp",
+      "skill": "candidate-skills/pricing-strategy.md",
+      "task": {
+        "id": "pricing-ebook-bare",
+        "prompt": "We are about to publish our first how-to ebook (about 150 pages) on Amazon KDP. What price should we set it at, and why? Give your recommendation and reasoning. Under 200 words.",
+        "rubric": {
+          "deterministic": [
+            { "type": "contains_any", "values": ["2.99", "9.99", "70%", "royalty", "35%"], "weight": 3 },
+            { "type": "contains_any", "values": ["comp", "competitor", "top seller", "band", "genre", "what others charge", "similar"], "weight": 2 },
+            { "type": "contains_any", "values": ["net", "after fees", "margin", "delivery fee", "profit", "earn"], "weight": 2 },
+            { "type": "contains_any", "values": ["4.99", "5.99", "6.99", "3.99", "7.99"], "weight": 1 }
+          ],
+          "judge": {
+            "criteria": [
+              { "name": "pricing_method", "weight": 3, "guidance": "Anchors the price to the competitive band (what comparable KDP titles in the genre charge) rather than guessing or defaulting to cheap, and lands in/near the $2.99-$9.99 70%-royalty window for a stated reason. Penalize an arbitrary number with no comp reasoning, or racing to the bottom (e.g. $0.99) without noting it drops to the 35% royalty tier." },
+              { "name": "economics", "weight": 2, "guidance": "Shows it knows the platform royalty math - the 70% tier requires a $2.99-$9.99 list price (below $2.99 = 35%), and reasons about net/profit per sale, not just the headline price. Reward computing or referencing net-of-royalty earnings." },
+              { "name": "judgment", "weight": 1, "guidance": "Treats the price as revisable/testable (could test against a window reading profit, not just units) and commits to one clear charm-priced number, not 'it depends'." }
+            ]
+          }
+        }
+      }
     }
   ]
 }
