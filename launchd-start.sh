@@ -41,6 +41,17 @@ export PAPERCLIP_UI_DEV_MIDDLEWARE=true
 ROOT="$HOME/paperclip"
 cd "$ROOT"
 
+# --- Coexist mode (TSMC-10172 follow-up). The LIVE fleet (:3100 + runtime :13100)
+# is served from a pinned DEPLOY worktree; THIS launchd job runs the source/dev
+# server ALONGSIDE it on a dedicated port. Pinning PORT keeps the source server off
+# :3100 so a source-server crash or restart can NEVER evict the live deploy fleet —
+# it only blips the shared embedded Postgres, which the deploy fleet reconnects to.
+# The runtime identity port follows as PORT+10000 (3101 -> 13101). Opt back into the
+# legacy "source server reclaims :3100" behaviour with PAPERCLIP_RECLAIM_PRIMARY=1.
+export PORT="${PORT:-3101}"
+RUNTIME_PORT=$(( PORT + 10000 ))
+RECLAIM_PRIMARY="${PAPERCLIP_RECLAIM_PRIMARY:-0}"
+
 log() { echo "[launchd-start $(date '+%H:%M:%S')] $*" >&2; }
 
 # --- Single-instance guard (macOS has no flock): atomic mkdir lock + stale detection.
@@ -62,16 +73,25 @@ if ! mkdir "$LOCK_DIR" 2>/dev/null; then
 fi
 echo "$$" > "$LOCK_DIR/pid"
 
-# --- Stop any previous server (published pkg or source) cleanly and WAIT for drain.
-pkill -f "paperclipai run" 2>/dev/null || true
-OLD=$(lsof -tiTCP:3100 -sTCP:LISTEN 2>/dev/null || true)
-if [ -n "$OLD" ]; then
-  log "stopping previous server on :3100 (pid $OLD)"
-  kill -TERM $OLD 2>/dev/null || true
-  for _ in $(seq 1 25); do lsof -tiTCP:3100 -sTCP:LISTEN >/dev/null 2>&1 || break; sleep 1; done
-  STILL=$(lsof -tiTCP:3100 -sTCP:LISTEN 2>/dev/null || true)
-  [ -n "$STILL" ] && { log "force-killing :3100 (pid $STILL)"; kill -KILL $STILL 2>/dev/null || true; sleep 1; }
+# --- Stop a previous instance of THIS source server and WAIT for drain. In coexist
+# mode we only reclaim our OWN port (:$PORT); the live deploy fleet on :3100 is left
+# untouched. Legacy reclaim-primary mode (opt-in) also evicts :3100 + `paperclipai run`.
+if [ "$RECLAIM_PRIMARY" = "1" ]; then
+  pkill -f "paperclipai run" 2>/dev/null || true
+  RECLAIM_PORTS="3100 $PORT"
+else
+  RECLAIM_PORTS="$PORT"
 fi
+for RP in $RECLAIM_PORTS; do
+  OLD=$(lsof -tiTCP:$RP -sTCP:LISTEN 2>/dev/null || true)
+  if [ -n "$OLD" ]; then
+    log "stopping previous server on :$RP (pid $OLD)"
+    kill -TERM $OLD 2>/dev/null || true
+    for _ in $(seq 1 25); do lsof -tiTCP:$RP -sTCP:LISTEN >/dev/null 2>&1 || break; sleep 1; done
+    STILL=$(lsof -tiTCP:$RP -sTCP:LISTEN 2>/dev/null || true)
+    [ -n "$STILL" ] && { log "force-killing :$RP (pid $STILL)"; kill -KILL $STILL 2>/dev/null || true; sleep 1; }
+  fi
+done
 
 # --- Reap a STALE embedded-Postgres postmaster + lock file. Only remove the
 # pidfile when the recorded postmaster pid is confirmed DEAD — force-removing a
@@ -91,8 +111,15 @@ if [ -f "$PGPIDFILE" ]; then
   fi
 fi
 
-# --- Free orphaned runtime identity port(s) left by detached dev-servers.
-for P in 13100; do
+# --- Free orphaned runtime identity port(s) left by detached dev-servers. Coexist
+# mode only frees OUR runtime port ($RUNTIME_PORT); the deploy fleet's :13100 is left
+# alone (reclaim-primary mode also frees :13100).
+if [ "$RECLAIM_PRIMARY" = "1" ]; then
+  RUNTIME_PORTS="13100 $RUNTIME_PORT"
+else
+  RUNTIME_PORTS="$RUNTIME_PORT"
+fi
+for P in $RUNTIME_PORTS; do
   OWN=$(lsof -tiTCP:$P -sTCP:LISTEN 2>/dev/null || true)
   if [ -n "$OWN" ]; then
     log "freeing runtime port $P (pid $OWN)"
