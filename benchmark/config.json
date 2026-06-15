@@ -56,7 +56,7 @@
   },
 
   "adapters": {
-    "claude": { "extra_args": ["--allowedTools", ""] },
+    "claude": { "extra_args": ["--allowedTools", "", "--strict-mcp-config"] },
     "codex":  { "extra_args": ["--sandbox", "read-only", "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules"] },
     "gemini": { "extra_args": ["--approval-mode", "plan"] },
     "hermes": { "extra_args": ["--ignore-user-config", "--ignore-rules"] }

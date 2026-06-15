@@ -17,12 +17,13 @@ description: >
 - [ ] Numbers right: price, dates, dimensions, counts, contact email — checked, not assumed.
 - [ ] Links resolve (no 404s, no localhost/staging URLs, no dead CTAs).
 - [ ] Looks intentional on **mobile** (most traffic): web-design-polish + 120px/390px readability check.
+- [ ] **For any rendered/deployed page: you've actually SEEN it** — screenshot the live URL via the Playwright MCP (`browser_navigate` → `browser_take_screenshot`; `browser_resize` to 390px for mobile). Never tick "done" on a page you've only read as code.
 - [ ] Done comment states the *verification* (counts + live URL/path), not a claim — house standard.
 
 ## Domain gates (run the right one)
 - **Book** → epubcheck clean (0/0/0) + KDP Previewer first/last-chapter spot-check (kdp-publishing-pipeline).
 - **Etsy** → visual-truth gate (dims/ratio/sRGB/mobile), every ZIP/tile/tag present, dry-run N/N ready (etsy-listing-ops).
-- **Utility site** → smoke checks pass + view-source the deployed URL for title/meta/JSON-LD + Lighthouse (utility-site-shipping, web-design-polish).
+- **Utility site** → smoke checks pass + view-source the deployed URL for title/meta/JSON-LD + Playwright screenshot + a green `npx lighthouse <url>` (CWV = ranking/AdSense) (utility-site-shipping, web-design-polish).
 - **Video** → ffprobe matches spec, audio/caption/first-last-frame checks, per-asset licence note (video-gen-ops / video-editing).
 - **CV** → PASS QA per delivery SOP, .docx + .pdf both open clean, ATS-safe (recruitment-pipeline-ops).
 - **YMYL video** → linter pass + sign-off state machine (content-production-ops).

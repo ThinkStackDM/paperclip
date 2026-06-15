@@ -31,6 +31,7 @@ RUNBOOKS = {
     "etsy-seo-pricing-photography": "Etsy titles/tags/price/listing imagery that rank and convert; the conversion craft behind etsy-listing-ops' publish mechanics.",
     "seo-keyword-research-no-tools": "Find what people search and how to win it with only free first-party signals — Search Console, autocomplete, People-Also-Ask, related searches.",
     "customer-feedback-loop": "Turn reviews, refund reasons, support messages and ratings into a ranked backlog of product/listing fixes; closes the loop analytics-finops opens.",
+    "og-image-rendering": "Render branded thumbnails / OG cards / promo tiles with crisp legible text (which image-gen garbles), from a reusable template — next/og in-app or satori+resvg standalone. Free, local.",
 }
 
 KNOWLEDGE = {

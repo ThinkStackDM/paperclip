@@ -17,13 +17,17 @@ whisper wants 16kHz mono:
 ```bash
 ffmpeg -y -i assets/audio/vo.wav -ac 1 -ar 16000 assets/audio/_vo16.wav
 ```
-## Setup (once, lazy install)
+## Setup (already provisioned fleet-wide)
+`whisper-cli` (brew `whisper-cpp`) + the base.en model at `~/.cache/whisper-cpp/ggml-base.en.bin`
+are installed on this host — no install needed. For accents/technical audio, fetch a bigger model once:
 ```bash
-brew install whisper-cpp     # + fetch ggml-base.en.bin once (small.en/medium.en for accents/technical)
+curl -fsSL -o ~/.cache/whisper-cpp/ggml-small.en.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin
 ```
 ## Generate
 ```bash
-whisper-cpp --model models/ggml-base.en.bin --output-srt --output-file assets/audio/captions --max-len 42 assets/audio/_vo16.wav
+whisper-cli --model ~/.cache/whisper-cpp/ggml-base.en.bin --output-srt \
+  --output-file assets/audio/captions --max-len 42 assets/audio/_vo16.wav   # -> assets/audio/captions.srt
 ```
 ## Quality pass (always — whisper is good, not perfect)
 - Fix brand/product names, numbers/currency, acronyms, homophones.

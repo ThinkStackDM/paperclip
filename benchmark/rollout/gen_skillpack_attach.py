@@ -58,6 +58,9 @@ RULES = [
     (K + "customer-feedback-loop",
      f"status<>'terminated' AND (role IN ('ceo','cmo','pm') OR (company_id='{TSMC}' AND name='Ledger'))",
      "leadership + analytics (Ledger) across companies"),
+    (K + "og-image-rendering",
+     f"status<>'terminated' AND company_id IN ('{TSM}','{TSK}','{DP}','{TSB}') AND role IN ('ceo','cmo','cto','designer','engineer','general') AND name NOT ILIKE '%compiler%' AND name NOT ILIKE '%routingpa%' AND name NOT IN ('Concierge','Sentinel')",
+     "visual-asset producers in the 4 image-heavy companies (thumbnails/OG/tiles)"),
 
     # ---- KNOWLEDGE (gate-passed) -> WEAK/CHEAP LANES ONLY (grok-fast / gemini-flash) ----
     (K + "landing-page-cro",

@@ -22,7 +22,7 @@ The portfolio's failure mode is "built but earns nothing." A launch isn't "we hi
 
 ## T-0 (board-executed)
 - [ ] Board approves + publishes (agents never publish externally).
-- [ ] Verify LIVE not just submitted — view the real public listing/URL: metadata, price, images, working CTA.
+- [ ] Verify LIVE not just submitted — load the real public listing/URL (Playwright MCP `browser_navigate` + `browser_take_screenshot`, mobile width too): metadata, price, images, working CTA all correct on the page buyers actually see.
 - [ ] Fire the queued owned-channel distribution.
 
 ## T-plus (first 2 weeks)

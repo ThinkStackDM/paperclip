@@ -13,8 +13,9 @@ page reads as a scam. Apply this every time you build or touch a page.
 
 ## Components (don't hand-roll)
 - **Next.js / React sites:** use **shadcn/ui** — `npx shadcn@latest init` then
-  `npx shadcn@latest add button card …`. Accessible, themeable, production-grade. The shadcn
-  MCP (if available) lets you pull components/blocks by name.
+  `npx shadcn@latest add button card …`. Accessible, themeable, production-grade. **Use the shadcn
+  MCP** to pull production blocks by name instead of hand-rolling: `search_items_in_registries` →
+  `view_items_in_registries` → `get_add_command_for_items`, then `get_audit_checklist` after generating.
 - **Vanilla HTML sites (e.g. KISS utility sites):** use **daisyUI** via CDN (no build) for
   buttons/cards/navbars, or copy free Tailwind blocks from HyperUI / Meraki UI.
 
@@ -28,8 +29,11 @@ page reads as a scam. Apply this every time you build or touch a page.
    vercel.com/templates, HTML5 UP, Cruip free.
 6. **Illustration (non-photoreal):** unDraw / Open Doodles SVGs.
 
-## Assets & verify (free CLIs, install on demand)
+## Assets & verify (free CLIs + MCPs, install on demand)
 - Compress images: `npx sharp-cli` (resize/WebP/AVIF), `npx svgo file.svg` for SVGs.
-- Templated OG/social images: `@vercel/og`.
-- **Before you call it done:** audit the deployed URL — `npx lighthouse <url> --output=json`
-  (single page) or `npx unlighthouse --site <url>` (whole site). Fix perf/a11y/SEO regressions.
+- Templated OG/social/thumbnail images with **legible text** (image-gen garbles text): `@vercel/og` — see **og-image-rendering**.
+- **See it rendered before you call it done** — drive the **Playwright MCP** against the running/deployed
+  URL: `browser_navigate` → `browser_take_screenshot` (and `browser_resize` to 390px to check mobile).
+  Never ship a page you've only seen as code.
+- **Hard ship-gate:** audit the deployed URL — `npx lighthouse <url> --output=json` (single page) or
+  `npx unlighthouse --site <url>` (whole site). Fix perf/a11y/SEO regressions; don't mark done on a red Lighthouse.
