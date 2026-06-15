@@ -1,0 +1,35 @@
+---
+name: ship-it-qa-checklist
+description: >
+  The last-look QA gate before anything is marked done or sent to the board to publish — any
+  deliverable, any company. Use immediately before "done"/"request board publish" on a book,
+  listing, site, video, CV, or page. The universal "is this actually shippable" pass.
+---
+
+# Ship-It QA Checklist
+
+"Works locally" / "looks fine in the draft" is not done. Most failures are dumb, catchable misses.
+
+## Universal pass (every deliverable)
+- [ ] No placeholders / TBDs / lorem ipsum / template tokens left in the final artifact.
+- [ ] It actually opens/runs in the real environment the buyer uses (not just our editor).
+- [ ] Spelling/grammar/brand names correct everywhere (a misspelled brand kills trust).
+- [ ] Numbers right: price, dates, dimensions, counts, contact email — checked, not assumed.
+- [ ] Links resolve (no 404s, no localhost/staging URLs, no dead CTAs).
+- [ ] Looks intentional on **mobile** (most traffic): web-design-polish + 120px/390px readability check.
+- [ ] Done comment states the *verification* (counts + live URL/path), not a claim — house standard.
+
+## Domain gates (run the right one)
+- **Book** → epubcheck clean (0/0/0) + KDP Previewer first/last-chapter spot-check (kdp-publishing-pipeline).
+- **Etsy** → visual-truth gate (dims/ratio/sRGB/mobile), every ZIP/tile/tag present, dry-run N/N ready (etsy-listing-ops).
+- **Utility site** → smoke checks pass + view-source the deployed URL for title/meta/JSON-LD + Lighthouse (utility-site-shipping, web-design-polish).
+- **Video** → ffprobe matches spec, audio/caption/first-last-frame checks, per-asset licence note (video-gen-ops / video-editing).
+- **CV** → PASS QA per delivery SOP, .docx + .pdf both open clean, ATS-safe (recruitment-pipeline-ops).
+- **YMYL video** → linter pass + sign-off state machine (content-production-ops).
+
+## Discoverability + conversion (don't ship blind)
+- [ ] Metadata/keywords/tags present + chosen, not default (the relevant research skill).
+- [ ] Conversion/sale event will be recorded (analytics-finops).
+
+## The rule
+Can't tick a box → not done. Fix it or block explicitly with the owner named; never silently ship past it. Then → launch-gtm-checklist. External publish is always board-gated.
