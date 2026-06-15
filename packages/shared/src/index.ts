@@ -960,6 +960,7 @@ export {
   requestConfirmationTargetSchema,
   requestConfirmationPayloadSchema,
   requestConfirmationResultSchema,
+  requiredAskSummarySchema,
   createIssueThreadInteractionSchema,
   acceptIssueThreadInteractionSchema,
   rejectIssueThreadInteractionSchema,

@@ -7,6 +7,7 @@ import {
   createIssueInputSchema,
   issueThreadInteractionContinuationPolicySchema,
   requestConfirmationPayloadSchema,
+  requiredAskSummarySchema,
   suggestTasksPayloadSchema,
   updateIssueSchema,
   upsertIssueDocumentSchema,
@@ -128,7 +129,7 @@ const createAskUserQuestionsToolSchema = z.object({
   sourceCommentId: z.string().uuid().nullable().optional(),
   sourceRunId: z.string().uuid().nullable().optional(),
   title: z.string().trim().max(240).nullable().optional(),
-  summary: z.string().trim().max(1000).nullable().optional(),
+  summary: requiredAskSummarySchema,
   continuationPolicy: issueThreadInteractionContinuationPolicySchema.optional().default("wake_assignee"),
   payload: askUserQuestionsPayloadSchema,
 });
@@ -139,7 +140,7 @@ const createRequestConfirmationToolSchema = z.object({
   sourceCommentId: z.string().uuid().nullable().optional(),
   sourceRunId: z.string().uuid().nullable().optional(),
   title: z.string().trim().max(240).nullable().optional(),
-  summary: z.string().trim().max(1000).nullable().optional(),
+  summary: requiredAskSummarySchema,
   continuationPolicy: issueThreadInteractionContinuationPolicySchema.optional().default("none"),
   payload: requestConfirmationPayloadSchema,
 });
@@ -494,7 +495,9 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
     ),
     makeTool(
       "paperclipAskUserQuestions",
-      "Create an ask_user_questions interaction on an issue",
+      "Create an ask_user_questions interaction on an issue. REQUIRED: a `summary` written as a crisp "
+        + "ASK / WHY / ACTION (what you need decided, why it's blocked on the operator, what happens on each "
+        + "answer). Point any link at a USER-FACING page (the issue or a rendered doc), never an agent-internal path.",
       createAskUserQuestionsToolSchema,
       async ({ issueId, ...body }) =>
         client.requestJson("POST", `/issues/${encodeURIComponent(issueId)}/interactions`, {
@@ -506,7 +509,10 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
     ),
     makeTool(
       "paperclipRequestConfirmation",
-      "Create a request_confirmation interaction on an issue",
+      "Create a request_confirmation interaction on an issue. REQUIRED: a `summary` written as a crisp "
+        + "ASK / WHY / ACTION (what you need confirmed, why it needs the operator, what accept vs reject does). "
+        + "Point `payload.target.href` / any link at a USER-FACING page (the issue or a rendered doc), never an "
+        + "agent-internal path.",
       createRequestConfirmationToolSchema,
       async ({ issueId, ...body }) =>
         client.requestJson("POST", `/issues/${encodeURIComponent(issueId)}/interactions`, {

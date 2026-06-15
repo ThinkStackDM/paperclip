@@ -26,6 +26,8 @@ export interface DashboardSummary {
     monthUtilizationPercent: number;
   };
   pendingApprovals: number;
+  /** Pending issue-thread asks (request_confirmation / ask_user_questions) on live issues. */
+  pendingInteractions: number;
   budgets: {
     activeIncidents: number;
     pendingApprovals: number;
