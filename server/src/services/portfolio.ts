@@ -250,7 +250,7 @@ export function portfolioService(db: Db) {
         event_id: String(row.event_id),
         occurred_at: row.occurred_at instanceof Date
           ? row.occurred_at.toISOString()
-          : String(row.occurred_at),
+          : new Date(String(row.occurred_at)).toISOString(),
         kind: String(row.kind),
         channel: String(row.channel),
         amount_cents: Number(row.amount_cents ?? 0),

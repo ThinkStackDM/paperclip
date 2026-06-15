@@ -488,6 +488,7 @@ describeEmbeddedPostgres("portfolio routes", () => {
         sku: "BOOK-001",
         source_ref: "kdp-payout-001",
         agent_id: opcoAgentId,
+        occurred_at: "2026-06-10T09:00:00.000Z",
       });
       expect(fee).toMatchObject({
         company_id: opcoId,
