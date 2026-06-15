@@ -2644,6 +2644,15 @@ interface VirtualizedIssueChatThreadListHandle {
   measure: () => void;
 }
 
+// Deep-link hash prefixes the thread knows how to scroll to. Kept as a single
+// source of truth so the anchor-scroll effect and the no-anchor latest-default
+// effect agree on what counts as an anchor.
+const THREAD_ANCHOR_HASH_PREFIXES = ["#comment-", "#activity-", "#run-", "#interaction-"] as const;
+
+function isThreadAnchorHash(hash: string): boolean {
+  return THREAD_ANCHOR_HASH_PREFIXES.some((prefix) => hash.startsWith(prefix));
+}
+
 function issueChatMessageAnchorId(message: ThreadMessage): string | null {
   const custom = message.metadata.custom as { anchorId?: unknown } | undefined;
   return typeof custom?.anchorId === "string" ? custom.anchorId : null;
@@ -3927,14 +3936,7 @@ export function IssueChatThread({
 
   useEffect(() => {
     const hash = location.hash || (typeof window !== "undefined" ? window.location.hash : "");
-    if (
-      !(
-        hash.startsWith("#comment-")
-        || hash.startsWith("#activity-")
-        || hash.startsWith("#run-")
-        || hash.startsWith("#interaction-")
-      )
-    ) return;
+    if (!isThreadAnchorHash(hash)) return;
     if (messages.length === 0 || lastScrolledHashRef.current === hash) return;
     const targetId = hash.slice(1);
     let cancelled = false;
@@ -3956,6 +3958,28 @@ export function IssueChatThread({
       window.clearTimeout(timeout);
     };
   }, [location.hash, messageAnchorIndex, messages, useVirtualizedThread]);
+
+  // No deep-link anchor → land on the latest message (bottom) rather than the
+  // top. Long threads are read newest-first, and the old top-default forced a
+  // manual scroll to the end on every open. We reuse the settle loop (see
+  // scrollToLatestCommentWithSettle) so we walk to the true bottom as the
+  // virtualizer measures tall rows instead of stranding the user above the real
+  // end. An anchor hash owns the initial scroll (handled by the effect above)
+  // and must win, so we bail when one is present. Keyed by issueId because the
+  // route reuses this component across issues — React Router does not remount on
+  // a param change, so a plain once-per-mount guard would skip later issues.
+  const initialLatestScrollIssueRef = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (variant !== "full") return;
+    if (initialLatestScrollIssueRef.current === issueId) return;
+    if (messages.length === 0) return;
+    const hash = location.hash || (typeof window !== "undefined" ? window.location.hash : "");
+    // Mark this issue settled up-front so a deep-link anchor isn't re-evaluated
+    // and we don't fire again as live updates grow the message list.
+    initialLatestScrollIssueRef.current = issueId;
+    if (isThreadAnchorHash(hash)) return;
+    scrollToLatestCommentWithSettle(latestMessagesRef.current);
+  }, [variant, issueId, location.hash, messages]);
 
   function jumpToLatestFallback() {
     if (useVirtualizedThread) {
