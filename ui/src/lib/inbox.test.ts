@@ -295,6 +295,7 @@ const dashboard: DashboardSummary = {
     monthUtilizationPercent: 90,
   },
   pendingApprovals: 1,
+  pendingInteractions: 0,
   budgets: {
     activeIncidents: 0,
     pendingApprovals: 0,
@@ -331,11 +332,30 @@ describe("inbox helpers", () => {
     expect(result).toEqual({
       inbox: 5,
       approvals: 1,
+      interactions: 0,
       failedRuns: 2,
       joinRequests: 1,
       mineIssues: 1,
       alerts: 1,
     });
+  });
+
+  it("folds both ask systems — approvals AND pending interaction asks — into the inbox count", () => {
+    const result = computeInboxBadgeData({
+      approvals: [{ ...makeApproval("pending"), requestedByUserId: "user-1" }],
+      joinRequests: [],
+      dashboard: { ...dashboard, pendingInteractions: 3 },
+      heartbeatRuns: [],
+      mineIssues: [],
+      dismissedAlerts: new Set<string>(["alert:budget", "alert:agent-errors"]),
+      dismissedAtByKey: new Map<string, number>(),
+      currentUserId: "user-1",
+    });
+
+    // 1 actionable approval + 3 pending interaction asks = 4 in the unified badge.
+    expect(result.approvals).toBe(1);
+    expect(result.interactions).toBe(3);
+    expect(result.inbox).toBe(4);
   });
 
   it("drops dismissed runs and alerts from the computed badge", () => {
@@ -353,6 +373,7 @@ describe("inbox helpers", () => {
     expect(result).toEqual({
       inbox: 0,
       approvals: 0,
+      interactions: 0,
       failedRuns: 0,
       joinRequests: 0,
       mineIssues: 0,

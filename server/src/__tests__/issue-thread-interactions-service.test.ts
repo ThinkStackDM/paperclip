@@ -419,6 +419,7 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
       companyId,
     }, {
       kind: "ask_user_questions",
+      summary: "ASK: Pick the scope and any extras. WHY: Need direction before building. ACTION: Choose Phase 1/2 and optional tests/docs.",
       continuationPolicy: "wake_assignee",
       payload: {
         version: 1,
@@ -516,6 +517,7 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
       companyId,
     }, {
       kind: "ask_user_questions",
+      summary: "ASK: Pick the scope for this work. WHY: Need direction before proceeding. ACTION: Choose Phase 1 or Phase 2.",
       continuationPolicy: "wake_assignee",
       payload: {
         version: 1,
@@ -615,6 +617,7 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
     const input = {
       kind: "ask_user_questions" as const,
       idempotencyKey: "run-1:questionnaire",
+      summary: "ASK: Pick a scope for the run. WHY: Need direction before continuing. ACTION: Select Phase 2.",
       sourceRunId: runId,
       continuationPolicy: "wake_assignee" as const,
       payload: {
@@ -685,6 +688,7 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
       companyId,
     }, {
       kind: "request_confirmation",
+      summary: "ASK: Apply this plan? WHY: Acceptance creates follow-up work. ACTION: Approve to apply or keep editing.",
       continuationPolicy: "wake_assignee",
       payload: {
         version: 1,
@@ -725,6 +729,7 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
       companyId,
     }, {
       kind: "request_confirmation",
+      summary: "ASK: Confirm or decline this change. WHY: Declining must capture a reason. ACTION: Approve, or reject with a reason.",
       payload: {
         version: 1,
         prompt: "Decline only with a reason?",
@@ -788,6 +793,7 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
       companyId,
     }, {
       kind: "request_confirmation",
+      summary: "ASK: Approve this plan? WHY: Acceptance returns the work to the authoring agent. ACTION: Approve the plan or ask for changes.",
       continuationPolicy: "wake_assignee_on_accept",
       payload: {
         version: 1,
@@ -833,6 +839,7 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
       companyId,
     }, {
       kind: "request_confirmation",
+      summary: "ASK: Proceed with the current draft? WHY: A new board comment should supersede this. ACTION: Approve, or comment to supersede.",
       payload: {
         version: 1,
         prompt: "Proceed with the current draft?",
@@ -874,6 +881,7 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
       companyId,
     }, {
       kind: "request_confirmation",
+      summary: "ASK: Proceed with the current draft? WHY: Board sign-off is required before continuing. ACTION: Approve or reject the draft.",
       payload: {
         version: 1,
         prompt: "Proceed with the current draft?",
@@ -907,6 +915,7 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
       companyId,
     }, {
       kind: "request_confirmation",
+      summary: "ASK: Proceed with the current draft? WHY: Only later board comments should supersede. ACTION: Approve, or comment to supersede.",
       payload: {
         version: 1,
         prompt: "Proceed with the current draft?",
@@ -963,6 +972,7 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
       companyId,
     }, {
       kind: "request_confirmation",
+      summary: "ASK: Proceed with the current draft? WHY: A later board comment should supersede this. ACTION: Approve, or comment to supersede.",
       payload: {
         version: 1,
         prompt: "Proceed with the current draft?",
@@ -1080,6 +1090,7 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
       companyId,
     }, {
       kind: "request_confirmation",
+      summary: "ASK: Apply the plan document? WHY: The watched revision may change before accept. ACTION: Approve to apply revision 1.",
       continuationPolicy: "wake_assignee",
       payload: {
         version: 1,
@@ -1209,6 +1220,7 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
         companyId,
       }, {
         kind: "request_confirmation",
+        summary: "ASK: Mark this issue done? WHY: The workspace must be finalized first. ACTION: Approve once workspace_finalize succeeds.",
         continuationPolicy: "wake_assignee",
         payload: {
           version: 1,
@@ -1379,6 +1391,7 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
         companyId,
       }, {
         kind: "request_confirmation",
+        summary: "ASK: Mark this issue done? WHY: No workspace is attached, so accept can proceed. ACTION: Approve to mark done.",
         continuationPolicy: "wake_assignee",
         payload: {
           version: 1,

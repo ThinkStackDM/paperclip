@@ -77,6 +77,8 @@ export type InboxWorkItem =
 export interface InboxBadgeData {
   inbox: number;
   approvals: number;
+  /** Pending issue-thread asks (request_confirmation / ask_user_questions) — the second ask system. */
+  interactions: number;
   failedRuns: number;
   joinRequests: number;
   mineIssues: number;
@@ -1236,6 +1238,10 @@ export function computeInboxBadgeData({
       ACTIONABLE_APPROVAL_STATUSES.has(approval.status) &&
       !isInboxEntityDismissed(dismissedAtByKey, `approval:${approval.id}`, approval.updatedAt),
   ).length;
+  // The second ask system, server-counted: pending request_confirmation / ask_user_questions
+  // interactions on live issues. Folded into the badge so it reflects BOTH ask mechanisms, not
+  // just approvals — these asks were previously invisible unless the issue was also unread-mine.
+  const pendingInteractions = dashboard?.pendingInteractions ?? 0;
   const failedRuns = getLatestFailedRunsByAgent(heartbeatRuns).filter(
     (run) => !isInboxEntityDismissed(dismissedAtByKey, `run:${run.id}`, run.createdAt),
   ).length;
@@ -1258,8 +1264,10 @@ export function computeInboxBadgeData({
 
   return {
     // The inbox badge reflects personal/actionable work, not company-wide health alerts.
-    inbox: actionableApprovals + visibleJoinRequests + failedRuns + visibleMineIssues,
+    // Both ask systems contribute: company approvals AND issue-thread interaction asks.
+    inbox: actionableApprovals + pendingInteractions + visibleJoinRequests + failedRuns + visibleMineIssues,
     approvals: actionableApprovals,
+    interactions: pendingInteractions,
     failedRuns,
     joinRequests: visibleJoinRequests,
     mineIssues: visibleMineIssues,

@@ -5,6 +5,7 @@ import type { CatalogSkill } from "./types.js";
 const EXPECTED_BUNDLED_KEYS = [
   "paperclipai/bundled/docs/doc-maintenance",
   "paperclipai/bundled/paperclip-operations/issue-triage",
+  "paperclipai/bundled/paperclip-operations/operator-asks",
   "paperclipai/bundled/paperclip-operations/task-planning",
   "paperclipai/bundled/quality/qa-acceptance",
   "paperclipai/bundled/software-development/github-pr-workflow",
