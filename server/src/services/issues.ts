@@ -2975,6 +2975,53 @@ async function listIssueBlockedInboxAttentionMap(
     }
   }
 
+  // Deep-link enrichment: load pending asks for ALL displayed rows (rowIssueIds), not just the
+  // liveness-graph subset (graphIssueIds) — so in_review/todo asks still carry their interaction/
+  // approval id and the inbox can deep-link to the exact ask. Additive only: does not change any
+  // attention reason or precedence (that stays driven by interactionByIssueId/approvalByIssueId).
+  const [askInteractionRows, askApprovalRows] = await Promise.all([
+    rowIssueIds.length === 0
+      ? Promise.resolve([])
+      : dbOrTx
+          .select({ id: issueThreadInteractions.id, issueId: issueThreadInteractions.issueId })
+          .from(issueThreadInteractions)
+          .where(and(
+            eq(issueThreadInteractions.companyId, companyId),
+            inArray(issueThreadInteractions.status, [...BLOCKED_INBOX_PENDING_INTERACTION_STATUSES]),
+            inArray(issueThreadInteractions.issueId, rowIssueIds),
+          )),
+    rowIssueIds.length === 0
+      ? Promise.resolve([])
+      : dbOrTx
+          .select({ approvalId: approvals.id, issueId: issueApprovals.issueId })
+          .from(issueApprovals)
+          .innerJoin(approvals, eq(issueApprovals.approvalId, approvals.id))
+          .where(and(
+            eq(issueApprovals.companyId, companyId),
+            eq(approvals.companyId, companyId),
+            inArray(approvals.status, [...BLOCKED_INBOX_PENDING_APPROVAL_STATUSES]),
+            inArray(issueApprovals.issueId, rowIssueIds),
+          )),
+  ]);
+  const askInteractionByIssueId = new Map<string, string>();
+  for (const r of askInteractionRows as Array<{ id: string; issueId: string }>) {
+    if (!askInteractionByIssueId.has(r.issueId)) askInteractionByIssueId.set(r.issueId, r.id);
+  }
+  const askApprovalByIssueId = new Map<string, string>();
+  for (const r of askApprovalRows as Array<{ approvalId: string; issueId: string }>) {
+    if (!askApprovalByIssueId.has(r.issueId)) askApprovalByIssueId.set(r.issueId, r.approvalId);
+  }
+  for (const [issueId, att] of result) {
+    if (!att.interactionId) {
+      const iid = askInteractionByIssueId.get(issueId);
+      if (iid) att.interactionId = iid;
+    }
+    if (!att.approvalId) {
+      const aid = askApprovalByIssueId.get(issueId);
+      if (aid) att.approvalId = aid;
+    }
+  }
+
   return result;
 }
 
