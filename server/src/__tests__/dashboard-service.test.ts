@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { agents, companies, createDb, heartbeatRuns } from "@paperclipai/db";
+import { agents, companies, createDb, heartbeatRuns, issues, issueThreadInteractions } from "@paperclipai/db";
 import {
   getEmbeddedPostgresTestSupport,
   startEmbeddedPostgresTestDatabase,
@@ -48,6 +48,8 @@ describeEmbeddedPostgres("dashboard service", () => {
 
   afterEach(async () => {
     await db.delete(heartbeatRuns);
+    await db.delete(issueThreadInteractions);
+    await db.delete(issues);
     await db.delete(agents);
     await db.delete(companies);
   });
@@ -165,5 +167,52 @@ describeEmbeddedPostgres("dashboard service", () => {
       other: 1,
       total: 3,
     });
+  });
+
+  it("counts pending interaction asks on live issues, excluding suggest_tasks, resolved, and terminal-issue asks", async () => {
+    const companyId = randomUUID();
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+
+    const liveIssueId = randomUUID();
+    const doneIssueId = randomUUID();
+    await db.insert(issues).values([
+      { id: liveIssueId, companyId, title: "Live work", status: "todo", priority: "medium" },
+      { id: doneIssueId, companyId, title: "Finished work", status: "done", priority: "medium" },
+    ]);
+
+    await db.insert(issueThreadInteractions).values([
+      // Counts: two pending operator asks on a live issue (regardless of the issue's todo status).
+      {
+        id: randomUUID(), companyId, issueId: liveIssueId, kind: "request_confirmation", status: "pending",
+        continuationPolicy: "none", summary: "ASK / WHY / ACTION", payload: { version: 1, prompt: "Approve?" },
+      },
+      {
+        id: randomUUID(), companyId, issueId: liveIssueId, kind: "ask_user_questions", status: "pending",
+        continuationPolicy: "wake_assignee", summary: "ASK / WHY / ACTION", payload: { version: 1, questions: [] },
+      },
+      // Excluded: suggest_tasks is agent-to-agent, not an operator ask.
+      {
+        id: randomUUID(), companyId, issueId: liveIssueId, kind: "suggest_tasks", status: "pending",
+        continuationPolicy: "wake_assignee", payload: { version: 1, tasks: [] },
+      },
+      // Excluded: already resolved.
+      {
+        id: randomUUID(), companyId, issueId: liveIssueId, kind: "request_confirmation", status: "accepted",
+        continuationPolicy: "none", summary: "done", payload: { version: 1, prompt: "Old?" },
+      },
+      // Excluded: pending, but its issue is terminal (done) — the janitor would have closed it.
+      {
+        id: randomUUID(), companyId, issueId: doneIssueId, kind: "request_confirmation", status: "pending",
+        continuationPolicy: "none", summary: "stale", payload: { version: 1, prompt: "Stale?" },
+      },
+    ]);
+
+    const summary = await dashboardService(db).summary(companyId);
+    expect(summary.pendingInteractions).toBe(2);
   });
 });

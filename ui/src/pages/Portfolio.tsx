@@ -14,12 +14,14 @@ import { getAgentFallbackLane } from "../lib/agent-lanes";
 import { timeAgo } from "../lib/timeAgo";
 import { cn } from "../lib/utils";
 import { AgentLaneBadge } from "../components/AgentLaneBadge";
+import { BlockedReasonChip } from "../components/BlockedReasonChip";
 import { EntityRow } from "../components/EntityRow";
 import { StatusIcon } from "../components/StatusIcon";
 import { PriorityIcon } from "../components/PriorityIcon";
 import { ThinkStackLogo } from "../components/ThinkStackLogo";
 
 const PORTFOLIO_ISSUE_PAGE_SIZE = 500;
+const PORTFOLIO_ATTENTION_PAGE_SIZE = 200;
 const PORTFOLIO_REFETCH_INTERVAL_MS = 30_000;
 const ACTIVE_NOW_CAP = 30;
 
@@ -137,6 +139,7 @@ type CompanyPortfolioData = {
   /** Issues with coordination noise stripped out. */
   realIssues: Issue[];
   openCounts: Record<(typeof OPEN_STATUS_ORDER)[number], number>;
+  /** Attention-flagged issues (pending asks, stalled blockers, recovery) — drives "Needs you". */
   needsYou: Issue[];
   active: Issue[];
   noiseHiddenToday: number;
@@ -299,8 +302,22 @@ function CompanyCard({ data }: { data: CompanyPortfolioData }) {
   );
 }
 
+/**
+ * Deep-link straight to the pending ask (anchor handlers already exist) rather than the issue
+ * top: approvals -> the approval page; interactions -> the in-thread card. Paths are fully
+ * company-qualified because Portfolio is cross-company (the router can't infer the prefix here).
+ */
+function askDeepLink(company: Company, issue: Issue): string | undefined {
+  const attention = issue.blockedInboxAttention;
+  if (!attention) return undefined;
+  if (attention.approvalId) return `/${company.issuePrefix}/approvals/${attention.approvalId}`;
+  if (attention.interactionId) return `${issuePath(company, issue)}#interaction-${attention.interactionId}`;
+  return undefined;
+}
+
 function PortfolioIssueRow({ data, issue, showCompany }: { data: CompanyPortfolioData; issue: Issue; showCompany?: boolean }) {
   const assigneeName = issue.assigneeAgentId ? data.agentNameById.get(issue.assigneeAgentId) ?? null : null;
+  const attention = issue.blockedInboxAttention;
   return (
     <EntityRow
       leading={
@@ -311,13 +328,23 @@ function PortfolioIssueRow({ data, issue, showCompany }: { data: CompanyPortfoli
       }
       identifier={issue.identifier ?? issue.id.slice(0, 8)}
       title={issue.title}
+      titleSuffix={
+        attention ? (
+          <BlockedReasonChip
+            reason={attention.reason}
+            severity={attention.severity}
+            compact
+            className="ml-1.5 max-w-[10rem] align-middle"
+          />
+        ) : undefined
+      }
       subtitle={
         showCompany
           ? `${data.company.name}${assigneeName ? ` · ${assigneeName}` : ""}`
           : assigneeName ?? undefined
       }
       trailing={<span className="text-xs text-muted-foreground">{timeAgo(issue.updatedAt)}</span>}
-      to={issuePath(data.company, issue)}
+      to={askDeepLink(data.company, issue) ?? issuePath(data.company, issue)}
     />
   );
 }
@@ -335,6 +362,9 @@ export function Portfolio() {
     [companies],
   );
 
+  // Full issue list per company — drives the status counts, "Active now", and the noise ledger.
+  // Deliberately WITHOUT attention: computing the attention graph over 500 issues × 7 companies
+  // is ~6.5s/1.2MB each and would jam the live server. "Needs you" uses the lean query below.
   const issueQueries = useQueries({
     queries: visibleCompanies.map((company) => ({
       queryKey: [...queryKeys.issues.list(company.id), "portfolio", PORTFOLIO_ISSUE_PAGE_SIZE],
@@ -344,6 +374,26 @@ export function Portfolio() {
           limit: PORTFOLIO_ISSUE_PAGE_SIZE,
           sortField: "updated" as const,
           sortDir: "desc" as const,
+        }),
+      refetchInterval: PORTFOLIO_REFETCH_INTERVAL_MS,
+    })),
+  });
+
+  // "Needs you" is driven by the attention model, not raw status — so pending asks
+  // (request_confirmation / ask_user_questions / linked approvals) parked on todo/in_progress
+  // issues surface too, not just blocked/in_review rows. The `attention=blocked` endpoint returns
+  // ONLY the rows that need a human (lean: ~1.2s / 60KB), each already carrying its attention
+  // reason + interaction/approval id for deep-linking. Separate query so the rest of the page
+  // renders immediately and isn't blocked on the attention computation.
+  const attentionQueries = useQueries({
+    queries: visibleCompanies.map((company) => ({
+      queryKey: queryKeys.issues.listBlockedAttention(company.id),
+      queryFn: () =>
+        issuesApi.list(company.id, {
+          attention: "blocked" as const,
+          includeBlockedInboxAttention: true,
+          includeBlockedBy: true,
+          limit: PORTFOLIO_ATTENTION_PAGE_SIZE,
         }),
       refetchInterval: PORTFOLIO_REFETCH_INTERVAL_MS,
     })),
@@ -363,6 +413,7 @@ export function Portfolio() {
   const companyData: CompanyPortfolioData[] = useMemo(() => {
     return visibleCompanies.map((company, index) => {
       const issues = issueQueries[index]?.data;
+      const attentionIssues = attentionQueries[index]?.data;
       const agents = agentQueries[index]?.data;
       const realIssues = (issues ?? []).filter((issue) => !isCoordinationNoiseIssue(issue));
       const openCounts = {
@@ -403,7 +454,12 @@ export function Portfolio() {
         issuesError: issueQueries[index]?.isError ?? false,
         realIssues,
         openCounts,
-        needsYou: realIssues.filter((issue) => issue.status === "blocked" || issue.status === "in_review"),
+        // Attention-driven, not status-driven: every issue the server flags as stopped /
+        // awaiting a decision — including pending asks (request_confirmation / ask_user_questions
+        // / linked approvals) that sit on todo or in_progress issues and were invisible before.
+        // Each row already carries its `blockedInboxAttention`. Drop coordination noise so the
+        // queue stays human-sized, mirroring the rest of the page.
+        needsYou: (attentionIssues ?? []).filter((issue) => !isCoordinationNoiseIssue(issue)),
         active: realIssues.filter((issue) => issue.status === "in_progress"),
         noiseHiddenToday,
         primaryAgentCount,
@@ -414,7 +470,7 @@ export function Portfolio() {
       };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibleCompanies, issueQueries, agentQueries, hour]);
+  }, [visibleCompanies, issueQueries, attentionQueries, agentQueries, hour]);
 
   // Order the "Needs you" company groups to follow the sprint: the company whose
   // sprint window is live now is the hero (top), TSMC (always-on) just under it, then
@@ -440,6 +496,7 @@ export function Portfolio() {
 
   const noiseLedger = companyData.filter((data) => data.noiseHiddenToday > 0);
   const anyLoading = companiesLoading || issueQueries.some((query) => query.isLoading);
+  const anyNeedsYouLoading = companiesLoading || attentionQueries.some((query) => query.isLoading);
 
   return (
     <div
@@ -472,12 +529,13 @@ export function Portfolio() {
           )}
         </section>
 
-        {/* Needs you — blocked + awaiting review, the stuff only the operator can move */}
+        {/* Needs you — every issue the attention model flags as stopped or awaiting a decision
+            (pending asks, stalled blockers, recovery), regardless of status. */}
         <section aria-label="Needs you" className="flex flex-col gap-3">
-          <SectionHeading title="Needs you" count={needsYouTotal} subtitle="blocked or awaiting your review" />
+          <SectionHeading title="Needs you" count={needsYouTotal} subtitle="stopped or awaiting your decision" />
           {needsYouTotal === 0 ? (
             <p className="text-sm text-muted-foreground">
-              {anyLoading ? "Loading…" : "Nothing is waiting on you. All clear."}
+              {anyNeedsYouLoading ? "Loading…" : "Nothing is waiting on you. All clear."}
             </p>
           ) : (
             needsYouCompanies.map((data) => {
