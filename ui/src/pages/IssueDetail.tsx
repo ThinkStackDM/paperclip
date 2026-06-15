@@ -4216,7 +4216,9 @@ export function IssueDetail() {
           </ScrollArea>
         </SheetContent>
       </Sheet>
-      <ScrollToBottom />
+      {/* The thread now opens at the latest message, so the floating button
+          jumps back up to the oldest instead of down to the newest. */}
+      <ScrollToBottom direction="top" />
     </div>
   );
 }
