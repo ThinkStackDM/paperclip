@@ -731,6 +731,16 @@ export const requestConfirmationResultSchema = z.object({
   staleTarget: requestConfirmationTargetSchema.nullable().optional(),
 });
 
+// Operator asks (request_confirmation / ask_user_questions) MUST carry a summary: a crisp
+// ASK / WHY / ACTION so the board inbox is actionable at a glance and deep-links land on something
+// readable. (suggest_tasks is agent-to-agent and stays optional.) The validator only enforces
+// presence + length; the make-a-skill rule enforces the ASK/WHY/ACTION + user-facing-link quality.
+export const requiredAskSummarySchema = z
+  .string()
+  .trim()
+  .min(1, "summary is required for asks — write a crisp ASK / WHY / ACTION (one line each)")
+  .max(1000);
+
 export const createIssueThreadInteractionSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("suggest_tasks"),
@@ -748,7 +758,7 @@ export const createIssueThreadInteractionSchema = z.discriminatedUnion("kind", [
     sourceCommentId: z.string().uuid().nullable().optional(),
     sourceRunId: z.string().uuid().nullable().optional(),
     title: z.string().trim().max(240).nullable().optional(),
-    summary: z.string().trim().max(1000).nullable().optional(),
+    summary: requiredAskSummarySchema,
     continuationPolicy: issueThreadInteractionContinuationPolicySchema.optional().default("wake_assignee"),
     payload: askUserQuestionsPayloadSchema,
   }),
@@ -758,7 +768,7 @@ export const createIssueThreadInteractionSchema = z.discriminatedUnion("kind", [
     sourceCommentId: z.string().uuid().nullable().optional(),
     sourceRunId: z.string().uuid().nullable().optional(),
     title: z.string().trim().max(240).nullable().optional(),
-    summary: z.string().trim().max(1000).nullable().optional(),
+    summary: requiredAskSummarySchema,
     continuationPolicy: issueThreadInteractionContinuationPolicySchema.optional().default("none"),
     payload: requestConfirmationPayloadSchema,
   }),

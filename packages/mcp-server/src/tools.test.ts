@@ -249,6 +249,7 @@ describe("paperclip MCP tools", () => {
       issueId: "PAP-1135",
       idempotencyKey: "confirmation:PAP-1135:plan:33333333-3333-4333-8333-333333333333",
       title: "Plan approval",
+      summary: "ASK: Accept this plan? WHY: it gates implementation. ACTION: accept resumes work.",
       payload: {
         version: 1,
         prompt: "Accept this plan?",
@@ -274,6 +275,7 @@ describe("paperclip MCP tools", () => {
       continuationPolicy: "none",
       idempotencyKey: "confirmation:PAP-1135:plan:33333333-3333-4333-8333-333333333333",
       title: "Plan approval",
+      summary: "ASK: Accept this plan? WHY: it gates implementation. ACTION: accept resumes work.",
       payload: {
         version: 1,
         prompt: "Accept this plan?",

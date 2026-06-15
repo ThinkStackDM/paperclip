@@ -1,6 +1,14 @@
-import { and, eq, gte, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, notInArray, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
-import { agents, approvals, companies, costEvents, heartbeatRuns, issues } from "@paperclipai/db";
+import {
+  agents,
+  approvals,
+  companies,
+  costEvents,
+  heartbeatRuns,
+  issues,
+  issueThreadInteractions,
+} from "@paperclipai/db";
 import { notFound } from "../errors.js";
 import { budgetService } from "./budgets.js";
 
@@ -50,6 +58,23 @@ export function dashboardService(db: Db) {
         .select({ count: sql<number>`count(*)` })
         .from(approvals)
         .where(and(eq(approvals.companyId, companyId), eq(approvals.status, "pending")))
+        .then((rows) => Number(rows[0]?.count ?? 0));
+
+      // The OTHER ask system: pending issue-thread interactions that need a human decision
+      // (request_confirmation / ask_user_questions), on issues that are still live. Counted
+      // alongside pendingApprovals so the sidebar inbox badge can reflect BOTH ask mechanisms
+      // — previously these asks were invisible to the badge unless the issue was also unread-mine.
+      const pendingInteractions = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(issueThreadInteractions)
+        .innerJoin(issues, eq(issueThreadInteractions.issueId, issues.id))
+        .where(and(
+          eq(issueThreadInteractions.companyId, companyId),
+          eq(issueThreadInteractions.status, "pending"),
+          inArray(issueThreadInteractions.kind, ["request_confirmation", "ask_user_questions"]),
+          isNull(issues.hiddenAt),
+          notInArray(issues.status, ["done", "cancelled"]),
+        ))
         .then((rows) => Number(rows[0]?.count ?? 0));
 
       const agentCounts: Record<string, number> = {
@@ -149,6 +174,7 @@ export function dashboardService(db: Db) {
           monthUtilizationPercent: Number(utilization.toFixed(2)),
         },
         pendingApprovals,
+        pendingInteractions,
         budgets: {
           activeIncidents: budgetOverview.activeIncidents.length,
           pendingApprovals: budgetOverview.pendingApprovalCount,

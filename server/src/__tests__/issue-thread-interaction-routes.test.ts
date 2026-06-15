@@ -876,6 +876,7 @@ describe.sequential("issue thread interaction routes", () => {
       .post("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/interactions")
       .send({
         kind: "request_confirmation",
+        summary: "ASK: Approve the rollout? WHY: Board sign-off is required before shipping. ACTION: Approve or reject the rollout.",
         continuationPolicy: "wake_assignee_on_accept",
         payload: {
           version: 1,

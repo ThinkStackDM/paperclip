@@ -5,6 +5,7 @@ describe("issue thread interaction schemas", () => {
   it("parses request_confirmation payloads with default no-wake continuation", () => {
     const parsed = createIssueThreadInteractionSchema.parse({
       kind: "request_confirmation",
+      summary: "ASK: Apply this plan? WHY: it gates implementation. ACTION: accept ships it.",
       payload: {
         version: 1,
         prompt: "Apply this plan?",
@@ -37,6 +38,7 @@ describe("issue thread interaction schemas", () => {
   it("accepts issue document targets for request_confirmation interactions", () => {
     const parsed = createIssueThreadInteractionSchema.parse({
       kind: "request_confirmation",
+      summary: "ASK: Accept plan v2? WHY: it gates the build. ACTION: accept resumes work.",
       continuationPolicy: "wake_assignee_on_accept",
       payload: {
         version: 1,
@@ -69,6 +71,7 @@ describe("issue thread interaction schemas", () => {
   it("accepts custom targets for request_confirmation interactions", () => {
     const parsed = createIssueThreadInteractionSchema.parse({
       kind: "request_confirmation",
+      summary: "ASK: Proceed with the external checklist? WHY: external dependency. ACTION: accept continues.",
       payload: {
         version: 1,
         prompt: "Proceed with the external checklist?",
@@ -95,6 +98,7 @@ describe("issue thread interaction schemas", () => {
   it("rejects unsafe request_confirmation target hrefs", () => {
     const base = {
       kind: "request_confirmation",
+      summary: "ASK: Proceed? WHY: gate. ACTION: accept continues.",
       payload: {
         version: 1,
         prompt: "Proceed?",
@@ -119,5 +123,39 @@ describe("issue thread interaction schemas", () => {
         },
       })).toThrow("href must not use javascript:, data:, or protocol-relative URLs");
     }
+  });
+
+  it("requires a non-empty summary on operator asks but not on suggest_tasks", () => {
+    // request_confirmation and ask_user_questions are operator asks — summary is mandatory.
+    expect(() => createIssueThreadInteractionSchema.parse({
+      kind: "request_confirmation",
+      payload: { version: 1, prompt: "Apply this plan?" },
+    })).toThrow();
+    expect(() => createIssueThreadInteractionSchema.parse({
+      kind: "request_confirmation",
+      summary: "   ",
+      payload: { version: 1, prompt: "Apply this plan?" },
+    })).toThrow();
+    expect(() => createIssueThreadInteractionSchema.parse({
+      kind: "ask_user_questions",
+      payload: {
+        version: 1,
+        questions: [{
+          id: "q1",
+          prompt: "Which environment?",
+          options: [
+            { id: "staging", label: "Staging" },
+            { id: "prod", label: "Production" },
+          ],
+        }],
+      },
+    })).toThrow();
+
+    // suggest_tasks is agent-to-agent — summary stays optional.
+    const suggest = createIssueThreadInteractionSchema.parse({
+      kind: "suggest_tasks",
+      payload: { version: 1, tasks: [{ clientKey: "t1", title: "Follow-up task" }] },
+    });
+    expect(suggest.kind).toBe("suggest_tasks");
   });
 });
