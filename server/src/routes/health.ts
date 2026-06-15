@@ -5,6 +5,7 @@ import { and, count, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import { heartbeatRuns, instanceUserRoles, invites } from "@paperclipai/db";
 import type { DeploymentExposure, DeploymentMode } from "@paperclipai/shared";
 import { readPersistedDevServerStatus, toDevServerHealthStatus, writeDevServerRestartRequest } from "../dev-server-status.js";
+import { getInstanceIdentity } from "../instance-identity.js";
 import { logger } from "../middleware/logger.js";
 import { instanceSettingsService } from "../services/instance-settings.js";
 import { serverVersion } from "../version.js";
@@ -90,7 +91,7 @@ export function healthRoutes(
     if (!db) {
       res.json(
         exposeFullDetails
-          ? { status: "ok", version: serverVersion }
+          ? { status: "ok", version: serverVersion, instance: getInstanceIdentity() }
           : { status: "ok", deploymentMode: opts.deploymentMode },
       );
       return;
@@ -103,7 +104,8 @@ export function healthRoutes(
       res.status(503).json({
         status: "unhealthy",
         version: serverVersion,
-        error: "database_unreachable"
+        error: "database_unreachable",
+        ...(exposeFullDetails ? { instance: getInstanceIdentity() } : {}),
       });
       return;
     }
@@ -176,6 +178,7 @@ export function healthRoutes(
       features: {
         companyDeletionEnabled: opts.companyDeletionEnabled,
       },
+      instance: getInstanceIdentity(),
       ...(devServer ? { devServer } : {}),
     });
   });

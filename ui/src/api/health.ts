@@ -12,6 +12,13 @@ export type DevServerHealthStatus = {
   lastRestartAt: string | null;
 };
 
+export type InstanceIdentity = {
+  sourceDir: string;
+  commit: string | null;
+  pid: number;
+  startedAt: string;
+};
+
 export type HealthStatus = {
   status: "ok";
   version?: string;
@@ -23,6 +30,7 @@ export type HealthStatus = {
   features?: {
     companyDeletionEnabled?: boolean;
   };
+  instance?: InstanceIdentity;
   devServer?: DevServerHealthStatus;
 };
 
