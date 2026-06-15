@@ -73,6 +73,7 @@ interface ClaudeExecutionInput {
   executionTarget?: ReturnType<typeof readAdapterExecutionTarget>;
   authToken?: string;
   onLog?: (stream: "stdout" | "stderr", chunk: string) => Promise<void>;
+  onEvent?: (event: { eventType: string; level?: string; message?: string; payload?: Record<string, any> }) => Promise<void>;
 }
 
 interface ClaudeRuntimeConfig {
@@ -329,6 +330,7 @@ export async function runClaudeLogin(input: {
   context?: Record<string, unknown>;
   authToken?: string;
   onLog?: (stream: "stdout" | "stderr", chunk: string) => Promise<void>;
+  onEvent?: (event: { eventType: string; level?: string; message?: string; payload?: Record<string, any> }) => Promise<void>;
 }) {
   const onLog = input.onLog ?? (async () => {});
   const runtime = await buildClaudeRuntimeConfig({
@@ -360,7 +362,7 @@ export async function runClaudeLogin(input: {
 }
 
 export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExecutionResult> {
-  const { runId, agent, runtime, config, context, onLog, onMeta, onSpawn, authToken } = ctx;
+  const { runId, agent, runtime, config, context, onLog, onEvent, onMeta, onSpawn, authToken } = ctx;
   const executionTarget = readAdapterExecutionTarget({
     executionTarget: ctx.executionTarget,
     legacyRemoteExecution: ctx.executionTransport?.remoteExecution,

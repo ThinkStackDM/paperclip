@@ -2558,6 +2558,17 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
     recoveryCause?: StrandedRecoveryCause;
     successfulRunHandoffEvidence?: SuccessfulRunHandoffRecoveryEvidence | null;
   }) {
+
+    // Re-verify the current status to avoid overwriting a terminal state reached in a race.
+    const current = await db
+      .select({ status: issues.status })
+      .from(issues)
+      .where(eq(issues.id, input.issue.id))
+      .limit(1)
+      .then((rows) => rows[0] ?? null);
+    if (!current || isTerminalIssueStatus(current.status)) {
+      return null;
+    }
     if (isStrandedIssueRecoveryIssue(input.issue)) {
       return escalateStrandedRecoveryIssueInPlace({
         issue: input.issue,
@@ -2739,6 +2750,19 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
     };
 
     for (const issue of candidates) {
+
+      // Re-fetch to avoid stale data from the initial candidates query
+      const freshIssue = await db
+        .select()
+        .from(issues)
+        .where(eq(issues.id, issue.id))
+        .limit(1)
+        .then((rows) => rows[0] ?? null);
+
+      if (!freshIssue || isTerminalIssueStatus(freshIssue.status)) {
+        result.skipped += 1;
+        continue;
+      }
       const agentId = issue.assigneeAgentId;
       if (!agentId) {
         result.skipped += 1;

@@ -128,4 +128,83 @@ describe("claude_local transient-upstream terminal reporting", () => {
       await fs.rm(root, { recursive: true, force: true });
     }
   });
+
+  it("reports transient upstream errors even when Claude process exits before result", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-claude-report-exit-"));
+    const { workspace, commandPath, restore } = await setupExecuteEnv(root);
+    const script = `#!/usr/bin/env node
+process.stderr.write("Rate limit reached. Try again later.\\n");
+process.exit(1);
+`;
+    await fs.writeFile(commandPath, script, "utf8");
+    await fs.chmod(commandPath, 0o755);
+
+    const logs: string[] = [];
+    const onLog = async (stream: string, chunk: string) => {
+      logs.push(chunk);
+    };
+
+    try {
+      const result = await execute({
+        runId: "run-claude-report-exit",
+        agent: { id: "agent-1", companyId: "co-1", name: "Test", adapterType: "claude_local", adapterConfig: {} },
+        runtime: { sessionId: null, sessionParams: null, sessionDisplayId: null, taskKey: null },
+        config: {
+          command: commandPath,
+          cwd: workspace,
+          promptTemplate: "Do work.",
+        },
+        context: {},
+        authToken: "tok",
+        onLog,
+      });
+
+      expect(result.errorCode).toBe("claude_transient_upstream");
+      const allLogs = logs.join("");
+      expect(allLogs).toContain("[paperclip] Detected transient upstream error (e.g. rate limit).");
+    } finally {
+      restore();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reports session limit errors", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-claude-report-session-limit-"));
+    const { workspace, commandPath, restore } = await setupExecuteEnv(root);
+    const script = `#!/usr/bin/env node
+process.stderr.write("You've hit your session limit.\\n");
+process.exit(1);
+`;
+    await fs.writeFile(commandPath, script, "utf8");
+    await fs.chmod(commandPath, 0o755);
+
+    const logs: string[] = [];
+    const onLog = async (stream: string, chunk: string) => {
+      logs.push(chunk);
+    };
+
+    try {
+      const result = await execute({
+        runId: "run-claude-report-session-limit",
+        agent: { id: "agent-1", companyId: "co-1", name: "Test", adapterType: "claude_local", adapterConfig: {} },
+        runtime: { sessionId: null, sessionParams: null, sessionDisplayId: null, taskKey: null },
+        config: {
+          command: commandPath,
+          cwd: workspace,
+          promptTemplate: "Do work.",
+        },
+        context: {},
+        authToken: "tok",
+        onLog,
+      });
+
+      // Currently this will likely fail because session limit is not yet classified in execute.ts
+      expect(result.errorCode).toBe("claude_session_limit");
+      const allLogs = logs.join("");
+      expect(allLogs).toContain("[paperclip] Detected session limit.");
+    } finally {
+      restore();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
 });
