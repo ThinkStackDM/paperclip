@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import express from "express";
+import { eq } from "drizzle-orm";
 import request from "supertest";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { agents, companies, createDb, heartbeatRuns, issues } from "@paperclipai/db";
+import { agents, companies, createDb, financeEvents, heartbeatRuns, issues } from "@paperclipai/db";
 import { errorHandler } from "../middleware/index.js";
 import { portfolioRoutes } from "../routes/portfolio.js";
 import {
@@ -46,6 +47,7 @@ describeEmbeddedPostgres("portfolio routes", () => {
   }, 20_000);
 
   afterEach(async () => {
+    await db.delete(financeEvents);
     await db.delete(issues);
     await db.delete(heartbeatRuns);
     await db.delete(agents);
@@ -341,5 +343,406 @@ describeEmbeddedPostgres("portfolio routes", () => {
 
     expect(res.status).toBe(403);
     expect(res.body.error).toBe("Portfolio company scope denied");
+  });
+
+  describe("finance_events", () => {
+    it("returns revenue rows for Ledger across a parented OpCo", async () => {
+      const opcoId = randomUUID();
+      const outsiderId = randomUUID();
+      const ledgerId = randomUUID();
+      const opcoAgentId = randomUUID();
+      const since = new Date("2026-06-08T00:00:00.000Z");
+      const until = new Date("2026-06-15T00:00:00.000Z");
+
+      await db.insert(companies).values([
+        {
+          id: TSMC_COMPANY_ID,
+          name: "TSMC",
+          issuePrefix: "TSMC",
+          requireBoardApprovalForNewAgents: false,
+        },
+        {
+          id: opcoId,
+          name: "ThinkStack Books",
+          issuePrefix: "TSB",
+          parentCompanyId: TSMC_COMPANY_ID,
+          requireBoardApprovalForNewAgents: false,
+        },
+        {
+          id: outsiderId,
+          name: "Outside Co",
+          issuePrefix: "OUT",
+          requireBoardApprovalForNewAgents: false,
+        },
+      ]);
+
+      await db.insert(agents).values([
+        {
+          id: ledgerId,
+          companyId: TSMC_COMPANY_ID,
+          name: "Ledger",
+          role: "analyst",
+          status: "idle",
+          capabilities: "portfolio_metrics:read, finance",
+          adapterType: "codex_local",
+          adapterConfig: {},
+          runtimeConfig: {},
+          permissions: {},
+        },
+        {
+          id: opcoAgentId,
+          companyId: opcoId,
+          name: "OpCo Agent",
+          role: "engineer",
+          status: "idle",
+          adapterType: "codex_local",
+          adapterConfig: {},
+          runtimeConfig: {},
+          permissions: {},
+        },
+      ]);
+
+      await db.insert(financeEvents).values([
+        {
+          companyId: opcoId,
+          agentId: opcoAgentId,
+          eventKind: "revenue",
+          direction: "credit",
+          biller: "kdp",
+          amountCents: 499,
+          currency: "USD",
+          occurredAt: new Date("2026-06-10T09:00:00.000Z"),
+          externalInvoiceId: "kdp-payout-001",
+          metadataJson: { sku: "BOOK-001" },
+        },
+        {
+          companyId: opcoId,
+          eventKind: "fee",
+          direction: "debit",
+          biller: "stripe",
+          amountCents: 30,
+          currency: "USD",
+          occurredAt: new Date("2026-06-11T09:00:00.000Z"),
+        },
+        // outside the window — must not appear
+        {
+          companyId: opcoId,
+          eventKind: "revenue",
+          direction: "credit",
+          biller: "kdp",
+          amountCents: 100,
+          currency: "USD",
+          occurredAt: new Date("2026-06-01T00:00:00.000Z"),
+        },
+        // different (non-parented) company — would only leak if scoping failed
+        {
+          companyId: outsiderId,
+          eventKind: "revenue",
+          direction: "credit",
+          biller: "kdp",
+          amountCents: 999,
+          currency: "USD",
+          occurredAt: new Date("2026-06-10T09:00:00.000Z"),
+        },
+      ]);
+
+      const res = await request(makeActor({
+        type: "agent",
+        agentId: ledgerId,
+        companyId: TSMC_COMPANY_ID,
+        source: "agent_key",
+      }, db))
+        .get("/api/portfolio/finance_events")
+        .query({
+          since: since.toISOString(),
+          until: until.toISOString(),
+          companyIds: opcoId,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.schema).toEqual({
+        version: "v1",
+        window: { from: since.toISOString(), to: until.toISOString() },
+        fields: [
+          "company_id",
+          "event_id",
+          "occurred_at",
+          "kind",
+          "channel",
+          "amount_cents",
+          "currency",
+          "sku",
+          "source_ref",
+          "agent_id",
+        ],
+      });
+      expect(res.body.rows.length).toBe(2);
+      const revenue = res.body.rows.find((r: { kind: string }) => r.kind === "revenue");
+      const fee = res.body.rows.find((r: { kind: string }) => r.kind === "fee");
+      expect(revenue).toMatchObject({
+        company_id: opcoId,
+        kind: "revenue",
+        channel: "kdp",
+        amount_cents: 499,
+        currency: "USD",
+        sku: "BOOK-001",
+        source_ref: "kdp-payout-001",
+        agent_id: opcoAgentId,
+      });
+      expect(fee).toMatchObject({
+        company_id: opcoId,
+        kind: "fee",
+        channel: "stripe",
+        amount_cents: 30,
+        sku: null,
+        source_ref: null,
+        agent_id: null,
+      });
+    });
+
+    it("rejects forged companyIds on GET finance_events", async () => {
+      const opcoId = randomUUID();
+      const outsiderId = randomUUID();
+      const ledgerId = randomUUID();
+
+      await db.insert(companies).values([
+        {
+          id: TSMC_COMPANY_ID,
+          name: "TSMC",
+          issuePrefix: "TSMC",
+          requireBoardApprovalForNewAgents: false,
+        },
+        {
+          id: opcoId,
+          name: "TSR",
+          issuePrefix: "TSR",
+          parentCompanyId: TSMC_COMPANY_ID,
+          requireBoardApprovalForNewAgents: false,
+        },
+        {
+          id: outsiderId,
+          name: "Outside Co",
+          issuePrefix: "OUT",
+          requireBoardApprovalForNewAgents: false,
+        },
+      ]);
+
+      await db.insert(agents).values({
+        id: ledgerId,
+        companyId: TSMC_COMPANY_ID,
+        name: "Ledger",
+        role: "analyst",
+        status: "idle",
+        capabilities: "portfolio_metrics:read",
+        adapterType: "codex_local",
+        adapterConfig: {},
+        runtimeConfig: {},
+        permissions: {},
+      });
+
+      const res = await request(makeActor({
+        type: "agent",
+        agentId: ledgerId,
+        companyId: TSMC_COMPANY_ID,
+        source: "agent_key",
+      }, db))
+        .get("/api/portfolio/finance_events")
+        .query({
+          since: "2026-06-08T00:00:00.000Z",
+          until: "2026-06-15T00:00:00.000Z",
+          companyIds: `${opcoId},${outsiderId}`,
+        });
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe("Portfolio company scope denied");
+    });
+
+    it("rejects agents without portfolio capability on GET finance_events", async () => {
+      const opcoId = randomUUID();
+      const agentId = randomUUID();
+
+      await db.insert(companies).values([
+        {
+          id: TSMC_COMPANY_ID,
+          name: "TSMC",
+          issuePrefix: "TSMC",
+          requireBoardApprovalForNewAgents: false,
+        },
+        {
+          id: opcoId,
+          name: "ThinkStack Media",
+          issuePrefix: "TSM",
+          parentCompanyId: TSMC_COMPANY_ID,
+          requireBoardApprovalForNewAgents: false,
+        },
+      ]);
+
+      await db.insert(agents).values({
+        id: agentId,
+        companyId: TSMC_COMPANY_ID,
+        name: "NoCap",
+        role: "engineer",
+        status: "idle",
+        capabilities: "finance",
+        adapterType: "codex_local",
+        adapterConfig: {},
+        runtimeConfig: {},
+        permissions: {},
+      });
+
+      const res = await request(makeActor({
+        type: "agent",
+        agentId,
+        companyId: TSMC_COMPANY_ID,
+        source: "agent_key",
+      }, db))
+        .get("/api/portfolio/finance_events")
+        .query({
+          since: "2026-06-08T00:00:00.000Z",
+          until: "2026-06-15T00:00:00.000Z",
+          companyIds: opcoId,
+        });
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe("Agent lacks portfolio_metrics:read");
+    });
+
+    it("lets an OpCo agent POST a revenue row to its own company and is idempotent on source_ref", async () => {
+      const opcoId = randomUUID();
+      const opcoAgentId = randomUUID();
+
+      await db.insert(companies).values([
+        {
+          id: TSMC_COMPANY_ID,
+          name: "TSMC",
+          issuePrefix: "TSMC",
+          requireBoardApprovalForNewAgents: false,
+        },
+        {
+          id: opcoId,
+          name: "Dastardly Print",
+          issuePrefix: "DP",
+          parentCompanyId: TSMC_COMPANY_ID,
+          requireBoardApprovalForNewAgents: false,
+        },
+      ]);
+
+      await db.insert(agents).values({
+        id: opcoAgentId,
+        companyId: opcoId,
+        name: "Etsy Ingestor",
+        role: "engineer",
+        status: "idle",
+        adapterType: "codex_local",
+        adapterConfig: {},
+        runtimeConfig: {},
+        permissions: {},
+      });
+
+      const app = makeActor({
+        type: "agent",
+        agentId: opcoAgentId,
+        companyId: opcoId,
+        source: "agent_key",
+      }, db);
+
+      const payload = {
+        company_id: opcoId,
+        kind: "revenue",
+        channel: "etsy",
+        amount_cents: 1499,
+        currency: "USD",
+        occurred_at: "2026-06-14T18:00:00.000Z",
+        sku: "PRINT-042",
+        source_ref: "etsy-order-1234567890",
+        agent_id: opcoAgentId,
+        description: "Etsy sale: PRINT-042",
+      };
+
+      const first = await request(app).post("/api/portfolio/finance_events").send(payload);
+      expect(first.status).toBe(201);
+      expect(first.body.created).toBe(true);
+      expect(first.body.row).toMatchObject({
+        company_id: opcoId,
+        kind: "revenue",
+        channel: "etsy",
+        amount_cents: 1499,
+        currency: "USD",
+        sku: "PRINT-042",
+        source_ref: "etsy-order-1234567890",
+        agent_id: opcoAgentId,
+      });
+      expect(first.body.row.event_id).toEqual(expect.any(String));
+
+      const second = await request(app).post("/api/portfolio/finance_events").send(payload);
+      expect(second.status).toBe(200);
+      expect(second.body.created).toBe(false);
+      expect(second.body.row.event_id).toBe(first.body.row.event_id);
+
+      const stored = await db
+        .select({ id: financeEvents.id })
+        .from(financeEvents)
+        .where(eq(financeEvents.companyId, opcoId));
+      expect(stored.length).toBe(1);
+    });
+
+    it("forbids an OpCo agent from POSTing finance events for another company", async () => {
+      const opcoId = randomUUID();
+      const otherOpcoId = randomUUID();
+      const opcoAgentId = randomUUID();
+
+      await db.insert(companies).values([
+        {
+          id: TSMC_COMPANY_ID,
+          name: "TSMC",
+          issuePrefix: "TSMC",
+          requireBoardApprovalForNewAgents: false,
+        },
+        {
+          id: opcoId,
+          name: "Dastardly Print",
+          issuePrefix: "DP",
+          parentCompanyId: TSMC_COMPANY_ID,
+          requireBoardApprovalForNewAgents: false,
+        },
+        {
+          id: otherOpcoId,
+          name: "ThinkStack Media",
+          issuePrefix: "TSM",
+          parentCompanyId: TSMC_COMPANY_ID,
+          requireBoardApprovalForNewAgents: false,
+        },
+      ]);
+
+      await db.insert(agents).values({
+        id: opcoAgentId,
+        companyId: opcoId,
+        name: "Etsy Ingestor",
+        role: "engineer",
+        status: "idle",
+        adapterType: "codex_local",
+        adapterConfig: {},
+        runtimeConfig: {},
+        permissions: {},
+      });
+
+      const res = await request(makeActor({
+        type: "agent",
+        agentId: opcoAgentId,
+        companyId: opcoId,
+        source: "agent_key",
+      }, db))
+        .post("/api/portfolio/finance_events")
+        .send({
+          company_id: otherOpcoId,
+          kind: "revenue",
+          channel: "etsy",
+          amount_cents: 1499,
+          occurred_at: "2026-06-14T18:00:00.000Z",
+        });
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe("Agent can only write finance events for its own company");
+    });
   });
 });
