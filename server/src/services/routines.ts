@@ -1159,12 +1159,16 @@ export function routineService(
     const issueOriginId = managedIssueTemplate?.originId ?? input.routine.id;
     const issueBillingCode = managedIssueTemplate?.billingCode ?? null;
     const shouldAlwaysEnqueue = input.routine.concurrencyPolicy === "always_enqueue";
-    // always_enqueue lets MANUAL runs create duplicates, but automated fires
-    // (webhook/schedule) must still coalesce by routine origin — otherwise a
-    // probe/webhook storm spawns duplicate execution issues (and trips the
-    // issues_open_routine_execution_uq unique constraint).
     const automatedCoalesce = input.source !== "manual";
-    const coalesceByOriginOnly = automatedCoalesce;
+    // Origin-only coalesce folds any new automated fire into the oldest open
+    // execution issue regardless of payload. That is fine for skip_if_active /
+    // coalesce_if_active (they want to suppress while *any* anchor is active),
+    // but for always_enqueue it silently absorbs heterogeneous fires behind a
+    // stale blocked/in_review anchor — see TSMC-10038. For always_enqueue we
+    // fall back to fingerprint-based coalesce so genuinely duplicate retries
+    // still fold while cross-OpCo Portfolio Intake traffic spawns fresh
+    // execution issues.
+    const coalesceByOriginOnly = automatedCoalesce && !shouldAlwaysEnqueue;
     const dispatchFingerprint = createRoutineDispatchFingerprint({
       payload: triggerPayload,
       projectId,
@@ -1277,7 +1281,13 @@ export function routineService(
             originKind: issueOriginKind,
             originId: issueOriginId,
             originRunId: createdRun.id,
-            originFingerprint: shouldAlwaysEnqueue ? `${dispatchFingerprint}:${createdRun.id}` : dispatchFingerprint,
+            // Manual always_enqueue runs store a per-run-unique fingerprint so
+            // re-runs from the same user can coexist. Automated always_enqueue
+            // fires must persist the raw dispatchFingerprint so the next fire's
+            // fingerprint-based coalesce can see them (TSMC-10038).
+            originFingerprint: shouldAlwaysEnqueue && !automatedCoalesce
+              ? `${dispatchFingerprint}:${createdRun.id}`
+              : dispatchFingerprint,
             billingCode: issueBillingCode,
             executionWorkspaceId: input.executionWorkspaceId ?? null,
             executionWorkspacePreference: input.executionWorkspacePreference ?? null,

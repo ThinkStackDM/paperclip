@@ -1538,7 +1538,7 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     expect(run.status).toBe("issue_created");
   });
 
-  it("coalesces repeated webhook fires by routine even when always_enqueue would allow manual duplicates", async () => {
+  it("folds duplicate always_enqueue webhook fires that share a dispatch fingerprint", async () => {
     const { routine, svc } = await seedFixture();
     await svc.update(routine.id, { concurrencyPolicy: "always_enqueue" }, {});
     const { trigger } = await svc.createTrigger(
@@ -1550,12 +1550,9 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
       {},
     );
 
-    const first = await svc.firePublicTrigger(trigger.publicId!, {
-      payload: { type: "binding_probe", probeRunId: "probe-1" },
-    });
-    const second = await svc.firePublicTrigger(trigger.publicId!, {
-      payload: { type: "binding_probe", probeRunId: "probe-2" },
-    });
+    const payload = { type: "binding_probe", probeRunId: "probe-1" };
+    const first = await svc.firePublicTrigger(trigger.publicId!, { payload });
+    const second = await svc.firePublicTrigger(trigger.publicId!, { payload });
 
     expect(first.source).toBe("webhook");
     expect(first.status).toBe("issue_created");
@@ -1570,6 +1567,68 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
 
     expect(routineIssues).toHaveLength(1);
     expect(routineIssues[0]?.id).toBe(first.linkedIssueId);
+  });
+
+  it("spawns fresh execution issues for heterogeneous always_enqueue webhook fires (TSMC-10038)", async () => {
+    const { routine, svc } = await seedFixture();
+    await svc.update(routine.id, { concurrencyPolicy: "always_enqueue" }, {});
+    const { trigger } = await svc.createTrigger(
+      routine.id,
+      {
+        kind: "webhook",
+        signingMode: "none",
+      },
+      {},
+    );
+
+    const first = await svc.firePublicTrigger(trigger.publicId!, {
+      payload: { type: "directive_receipt_ack", from: "thiaa-recruitment", revisionId: 5 },
+    });
+    const second = await svc.firePublicTrigger(trigger.publicId!, {
+      payload: { type: "portfolio_status", from: "thiaaaaa-kiss", summaryId: "ks-2026-06-15" },
+    });
+    const third = await svc.firePublicTrigger(trigger.publicId!, {
+      payload: { type: "ask_reply", from: "thiaaaa-pod", askId: "fallback-monitor" },
+    });
+
+    for (const run of [first, second, third]) {
+      expect(run.source).toBe("webhook");
+      expect(run.status).toBe("issue_created");
+    }
+    const linkedIds = new Set([first.linkedIssueId, second.linkedIssueId, third.linkedIssueId]);
+    expect(linkedIds.size).toBe(3);
+
+    const routineIssues = await db
+      .select({ id: issues.id })
+      .from(issues)
+      .where(eq(issues.originId, routine.id));
+    expect(routineIssues).toHaveLength(3);
+  });
+
+  it("does not absorb a heterogeneous always_enqueue fire behind a blocked anchor (TSMC-10038)", async () => {
+    const { routine, svc } = await seedFixture();
+    await svc.update(routine.id, { concurrencyPolicy: "always_enqueue" }, {});
+    const { trigger } = await svc.createTrigger(
+      routine.id,
+      {
+        kind: "webhook",
+        signingMode: "none",
+      },
+      {},
+    );
+
+    const anchor = await svc.firePublicTrigger(trigger.publicId!, {
+      payload: { type: "portfolio_status", from: "tsd", summaryId: "tsd-halt-9576" },
+    });
+    expect(anchor.status).toBe("issue_created");
+    await db.update(issues).set({ status: "blocked" }).where(eq(issues.id, anchor.linkedIssueId!));
+
+    const followUp = await svc.firePublicTrigger(trigger.publicId!, {
+      payload: { type: "directive_receipt_ack", from: "thiaa-recruitment", revisionId: 8 },
+    });
+
+    expect(followUp.status).toBe("issue_created");
+    expect(followUp.linkedIssueId).not.toBe(anchor.linkedIssueId);
   });
 
   it("reopens a routine run when the execution issue returns to an open status", async () => {
