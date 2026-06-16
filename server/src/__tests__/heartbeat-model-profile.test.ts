@@ -4,6 +4,7 @@ import {
   type AdapterModelProfileDefinition,
 } from "../adapters/index.js";
 import {
+  computeStrongFailoverForce,
   hasInactiveForcedModelProfile,
   mergeModelProfileAdapterConfig,
   normalizeModelProfileWakeContext,
@@ -206,5 +207,34 @@ describe("readActiveForcedModelProfile (limit-failover swap-back)", () => {
   it("returns null (and reports active=false) when no force is set", () => {
     expect(readActiveForcedModelProfile({}, now)).toBeNull();
     expect(hasInactiveForcedModelProfile({}, now)).toBe(false);
+  });
+});
+
+describe("computeStrongFailoverForce (codex usage-limit trigger)", () => {
+  const now = new Date("2026-06-16T12:00:00.000Z");
+  const futureReset = "2026-06-16T13:00:00.000Z";
+
+  it("promotes to strong until the reset when no force is set", () => {
+    expect(computeStrongFailoverForce({}, futureReset, now)).toEqual({ profile: "strong", until: futureReset });
+  });
+
+  it("accepts a Date reset", () => {
+    expect(computeStrongFailoverForce({}, new Date(futureReset), now)).toEqual({ profile: "strong", until: futureReset });
+  });
+
+  it("no-ops when the reset is in the past or invalid", () => {
+    expect(computeStrongFailoverForce({}, "2026-06-16T11:00:00.000Z", now)).toBeNull();
+    expect(computeStrongFailoverForce({}, "not-a-date", now)).toBeNull();
+    expect(computeStrongFailoverForce({}, null, now)).toBeNull();
+  });
+
+  it("does not shorten an existing strong force that already extends past the reset", () => {
+    const rc = { modelProfileForce: { profile: "strong", until: "2026-06-16T14:00:00.000Z" } };
+    expect(computeStrongFailoverForce(rc, futureReset, now)).toBeNull();
+  });
+
+  it("extends an existing strong force when the new reset is later", () => {
+    const rc = { modelProfileForce: { profile: "strong", until: "2026-06-16T12:30:00.000Z" } };
+    expect(computeStrongFailoverForce(rc, futureReset, now)).toEqual({ profile: "strong", until: futureReset });
   });
 });

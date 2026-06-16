@@ -1196,6 +1196,30 @@ export function hasInactiveForcedModelProfile(runtimeConfig: unknown, now: Date 
   return readActiveForcedModelProfile(runtimeConfig, now) === null;
 }
 
+/**
+ * Limit-failover trigger decision (THIAAAAA-853 Part B). Given an agent's current runtimeConfig
+ * and a usage-limit reset time, returns the `modelProfileForce` to persist (promote to "strong"
+ * until reset), or null when no update is warranted: the reset is past/invalid, or the agent is
+ * already forced to "strong" until at least that time (never shorten an existing force). Pure so
+ * the trigger logic is unit-tested without the DB.
+ */
+export function computeStrongFailoverForce(
+  runtimeConfig: unknown,
+  until: string | Date | null | undefined,
+  now: Date = new Date(),
+): { profile: "strong"; until: string } | null {
+  if (until == null) return null;
+  const untilMs = until instanceof Date ? until.getTime() : Date.parse(until);
+  if (Number.isNaN(untilMs) || untilMs <= now.getTime()) return null;
+  const existing = parseObject(parseObject(runtimeConfig).modelProfileForce);
+  const existingProfile = readModelProfileKey(existing.profile);
+  const existingUntilMs = typeof existing.until === "string" ? Date.parse(existing.until) : Number.NaN;
+  if (existingProfile === "strong" && !Number.isNaN(existingUntilMs) && existingUntilMs >= untilMs) {
+    return null;
+  }
+  return { profile: "strong", until: new Date(untilMs).toISOString() };
+}
+
 export function normalizeModelProfileWakeContext(input: {
   contextSnapshot: Record<string, unknown>;
   payload: Record<string, unknown> | null | undefined;
@@ -5586,6 +5610,34 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
         ? resolveCodexTransientFallbackMode(nextAttempt)
         : null;
     const transientRetryNotBefore = transientRecovery?.retryNotBefore ?? null;
+
+    // Limit-failover (THIAAAAA-853 Part B): on a codex_local usage-limit (a transient retry that
+    // carries a reset time), promote the agent to the "strong" lane until reset; Part A applies it
+    // and auto swaps back at reset. Env-gated, default OFF (ship dark → review → activate).
+    if (
+      process.env.CODEX_LIMIT_STRONG_FAILOVER === "true" &&
+      agent.adapterType === "codex_local" &&
+      transientRetryNotBefore
+    ) {
+      const force = computeStrongFailoverForce(agent.runtimeConfig, transientRetryNotBefore, now);
+      if (force) {
+        const nextRuntimeConfig = { ...parseObject(agent.runtimeConfig), modelProfileForce: force };
+        await db
+          .update(agents)
+          .set({ runtimeConfig: nextRuntimeConfig, updatedAt: now })
+          .where(eq(agents.id, agent.id));
+        logger.warn(
+          {
+            event: "codex_limit_strong_failover",
+            companyId: agent.companyId,
+            agentId: agent.id,
+            runId: run.id,
+            until: force.until,
+          },
+          "promoted codex_local agent to the strong lane until its usage-limit reset (THIAAAAA-853)",
+        );
+      }
+    }
 
     if (!baseSchedule) {
       await appendRunEvent(run, await nextRunEventSeq(run.id), {
