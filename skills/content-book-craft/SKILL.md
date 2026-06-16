@@ -46,3 +46,8 @@ as crutches, "delve", "tapestry", "testament to", "navigate the landscape", "in 
 "at the end of the day", empty hedges ("arguably", "it could be said"). No throat-clearing
 intros ("This chapter will explore…"). No bullet-list filler where prose is wanted. If a
 sentence could appear in any book on any topic, rewrite it so it could only appear in *this* one.
+
+
+<!-- TOOLS-2026-06 -->
+## Local tools
+- Export finished drafts to **EPUB / PDF / DOCX** with `pandoc` (e.g. `pandoc book.md -o book.epub`). Use it instead of hand-rolling formats.

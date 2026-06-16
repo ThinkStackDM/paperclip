@@ -47,3 +47,8 @@ THIA-17 (30-day observation) repeatedly tripped `long_active_duration`. Resoluti
 ## References
 
 - `references/eval-ops-evidence.md` — canonical comment shapes, the THIA-17 crash-fix history, and the routine issue descriptions of record.
+
+
+<!-- TOOLS-2026-06 -->
+## Local tools
+- Crunch price/market history fast with `duckdb` (SQL over CSV/JSON/parquet). Crypto/exchange data via `ccxt` (`uv run --with ccxt`). See [[crypto-trading-ops]].

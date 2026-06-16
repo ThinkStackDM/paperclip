@@ -47,3 +47,8 @@ Stripe is **test mode only** until the board flips live creds ("build wedge laun
 ## References
 
 - `references/pipeline-evidence.md` — issue trail for the Davin lane and the wedge build-out.
+
+
+<!-- TOOLS-2026-06 -->
+## Local tools
+- OCR scanned/image resumes and docs with `tesseract` (e.g. `tesseract cv.png out` → `out.txt`) before parsing.

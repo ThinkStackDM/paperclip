@@ -265,3 +265,8 @@ lsof -nP -iTCP:<port> -sTCP:LISTEN
 | Agent tries manual postgres operations | NEVER do this — all DB ops go through the CLI (see Hard Rules above) |
 | Dev server dies between heartbeats | Launch in a detached `tmux` session — see "Persistent Dev Servers" above |
 | Pushed feature branch to `paperclipai/paperclip` when a fork exists | Push to the user's fork remote instead — see "Forks" above |
+
+
+<!-- TOOLS-2026-06 -->
+## MCP tools
+- Before coding against a dependency, pull **live, version-accurate docs** with the **Context7** MCP (`resolve-library-id` → `get-library-docs`). Don't guess library APIs from memory.

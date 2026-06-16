@@ -61,3 +61,8 @@ GrowthAnalyst (or the CMO before that hire) posts one per company per week, boar
 - "Listing optimization" → ContentMarketer reads the domain skill + live listing, drafts changes with before/after and target keyword, approval-gates the publish.
 - "Content calendar" → SocialMediaManager maintains a rolling 2-week calendar document; drafts batched for one board approval sitting.
 - "Growth experiment" → run the loop above; the issue is not done without a verdict.
+
+
+<!-- TOOLS-2026-06 -->
+## MCP tools
+- Use the **DuckDuckGo search** MCP (`ddg-search`) for live web research — competitor scans, SERP checks, trend lookups — instead of guessing or relying on stale memory.
