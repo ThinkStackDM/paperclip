@@ -83,5 +83,12 @@ export const heartbeatRuns = pgTable(
       table.status,
       table.processStartedAt,
     ),
+    // Serves the company-scoped run lists (heartbeat.list, dashboard, live-runs)
+    // which filter by company_id and order by created_at desc. Without it those
+    // queries seq-scan the whole table; see 0100_heartbeat_runs_company_created_idx.
+    companyCreatedIdx: index("heartbeat_runs_company_created_idx").on(
+      table.companyId,
+      table.createdAt.desc(),
+    ),
   }),
 );

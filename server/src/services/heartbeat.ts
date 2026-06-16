@@ -532,33 +532,58 @@ async function resolveRunScopedMentionedSkillKeys(input: {
         eq(issueComments.companyId, input.companyId),
       ),
     );
-  // Skill mentions carry the company_skills.id (a uuid). Free-text / name-based
-  // mentions like `skill://etsy-listing-ops` are not resolvable here, and feeding
-  // them into an `id IN (...)` filter on a uuid column throws a DrizzleQueryError
-  // that aborts the entire heartbeat at setup. Drop non-uuid mentions instead.
-  const mentionedSkillIds = extractMentionedSkillIdsFromSources([
+  // Skill mentions normally carry the company_skills.id (a uuid), but agents
+  // routinely author name-based mentions like `skill://etsy-listing-ops`.
+  // Resolve uuid mentions by id and name-based mentions by slug/name/key. Never
+  // feed a non-uuid value into the uuid `id` filter — that throws a
+  // DrizzleQueryError that would abort the entire heartbeat at setup.
+  const mentions = extractMentionedSkillIdsFromSources([
     issue.title,
     issue.description ?? "",
     ...comments.map((comment) => comment.body),
-  ]).filter(isUuidLike);
-  if (mentionedSkillIds.length === 0) return [];
+  ]);
+  if (mentions.length === 0) return [];
+
+  const uuidMentions = mentions.filter(isUuidLike);
+  const nameMentions = mentions.filter((mention) => !isUuidLike(mention));
+
+  const matchers = [
+    uuidMentions.length > 0 ? inArray(companySkillsTable.id, uuidMentions) : null,
+    nameMentions.length > 0 ? inArray(companySkillsTable.slug, nameMentions) : null,
+    nameMentions.length > 0 ? inArray(companySkillsTable.name, nameMentions) : null,
+    nameMentions.length > 0 ? inArray(companySkillsTable.key, nameMentions) : null,
+  ].filter((matcher): matcher is NonNullable<typeof matcher> => matcher !== null);
+  if (matchers.length === 0) return [];
 
   const skillRows = await input.db
     .select({
       id: companySkillsTable.id,
       key: companySkillsTable.key,
+      slug: companySkillsTable.slug,
+      name: companySkillsTable.name,
     })
     .from(companySkillsTable)
-    .where(
-      and(
-        eq(companySkillsTable.companyId, input.companyId),
-        inArray(companySkillsTable.id, mentionedSkillIds),
-      ),
-    );
-  const skillKeyById = new Map(skillRows.map((row) => [row.id, row.key]));
-  return mentionedSkillIds
-    .map((skillId) => skillKeyById.get(skillId) ?? null)
-    .filter((skillKey): skillKey is string => Boolean(skillKey));
+    .where(and(eq(companySkillsTable.companyId, input.companyId), or(...matchers)));
+
+  // A mention may be written as the id, slug, name, or full key; map each form
+  // to the canonical skill key, then return distinct keys in mention order.
+  const keyByToken = new Map<string, string>();
+  for (const row of skillRows) {
+    keyByToken.set(row.id, row.key);
+    keyByToken.set(row.slug, row.key);
+    keyByToken.set(row.name, row.key);
+    keyByToken.set(row.key, row.key);
+  }
+  const resolvedKeys: string[] = [];
+  const seen = new Set<string>();
+  for (const mention of mentions) {
+    const key = keyByToken.get(mention);
+    if (key && !seen.has(key)) {
+      seen.add(key);
+      resolvedKeys.push(key);
+    }
+  }
+  return resolvedKeys;
 }
 
 function leaseReleaseStatusForRunStatus(

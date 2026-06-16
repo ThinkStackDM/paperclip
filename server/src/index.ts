@@ -41,6 +41,7 @@ import {
 import { createFeedbackTraceShareClientFromConfig } from "./services/feedback-share-client.js";
 import { buildRuntimeApiCandidateUrls, choosePrimaryRuntimeApiUrl } from "./runtime-api.js";
 import { createPluginWorkerManager } from "./services/plugin-worker-manager.js";
+import { startHeartbeatHistoryRetention } from "./services/heartbeat-retention.js";
 import { createStorageServiceFromConfig } from "./storage/index.js";
 import { printStartupBanner } from "./startup-banner.js";
 import { getBoardClaimWarningUrl, initializeBoardClaimChallenge } from "./board-claim.js";
@@ -76,6 +77,7 @@ type EmbeddedPostgresCtor = new (opts: {
   port: number;
   persistent: boolean;
   initdbFlags?: string[];
+  postgresFlags?: string[];
   onLog?: (message: unknown) => void;
   onError?: (message: unknown) => void;
 }) => EmbeddedPostgresInstance;
@@ -416,6 +418,13 @@ export async function startServer(): Promise<StartedServer> {
           port,
           persistent: true,
           initdbFlags: ["--encoding=UTF8", "--locale=C", "--lc-messages=C"],
+          // The embedded default shared_buffers (128MB) is far too small for the
+          // fleet's hot set (heartbeat_runs alone is >1GB), so list endpoints that
+          // scan it thrash the cache under concurrent load. Pin a larger value as
+          // code so it survives a fresh initdb (a live ALTER SYSTEM only persists
+          // in the existing cluster's postgresql.auto.conf). Override via
+          // PAPERCLIP_PG_SHARED_BUFFERS (e.g. "256MB" on small hosts).
+          postgresFlags: ["-c", `shared_buffers=${process.env.PAPERCLIP_PG_SHARED_BUFFERS ?? "512MB"}`],
           onLog: appendEmbeddedPostgresLog,
           onError: appendEmbeddedPostgresLog,
         });
@@ -885,7 +894,16 @@ export async function startServer(): Promise<StartedServer> {
       });
     }, backupIntervalMs);
   }
-  
+
+  // Heartbeat-history retention. Opt-in: stays inert unless a positive
+  // PAPERCLIP_HEARTBEAT_RETENTION_DAYS is set, so it never prunes live data
+  // implicitly. Prunes only the high-volume leaf tables (run events, activity
+  // log, unreferenced wakeup requests) — never heartbeat_runs or financial tables.
+  const heartbeatRetentionDays = Number(process.env.PAPERCLIP_HEARTBEAT_RETENTION_DAYS);
+  if (Number.isFinite(heartbeatRetentionDays) && heartbeatRetentionDays > 0) {
+    startHeartbeatHistoryRetention(db, { retentionDays: heartbeatRetentionDays });
+  }
+
   // Wait for external adapters to finish loading before accepting requests.
   // Without this, adapter type validation (assertKnownAdapterType) would
   // reject valid external adapter types during the startup loading window.
