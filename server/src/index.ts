@@ -824,7 +824,43 @@ export async function startServer(): Promise<StartedServer> {
         .catch((err) => {
           logger.error({ err }, "sprint window session purge failed");
         });
-  
+
+      // Hung-run watchdog: kill runs whose local child is still alive but stuck
+      // (silent past the no-output threshold, or past the hard runtime cap). The
+      // orphan reaper only handles dead pids, so an alive-but-hung child would
+      // otherwise hold the agent's slot until its process happens to die.
+      if (config.heartbeatHungRunNoOutputMs > 0 || config.heartbeatHungRunMaxRuntimeMs > 0) {
+        void heartbeat
+          .terminateHungRuns({
+            noOutputMs: config.heartbeatHungRunNoOutputMs,
+            maxRuntimeMs: config.heartbeatHungRunMaxRuntimeMs,
+          })
+          .then((result) => {
+            if (result.terminated > 0) {
+              logger.warn({ ...result }, "hung-run watchdog terminated runs");
+            }
+          })
+          .catch((err) => {
+            logger.error({ err }, "hung-run watchdog failed");
+          });
+      }
+
+      // End-of-sprint: terminate still-running, non-exempt runs once a company's
+      // activity window has closed (also unblocks the sprint session purge above,
+      // which skips companies that still have running runs).
+      if (config.terminateRunsOnWindowClose) {
+        void heartbeat
+          .terminateRunsForClosedWindows()
+          .then((result) => {
+            if (result.terminated > 0) {
+              logger.warn({ ...result }, "terminated runs for closed activity windows");
+            }
+          })
+          .catch((err) => {
+            logger.error({ err }, "activity-window run termination failed");
+          });
+      }
+
       // Periodically reap orphaned runs (5-min staleness threshold) and make sure
       // persisted queued work is still being driven forward.
       void heartbeat

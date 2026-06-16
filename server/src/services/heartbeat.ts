@@ -7003,6 +7003,84 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     return { reaped: reaped.length, runIds: reaped };
   }
 
+  /**
+   * Hung-run watchdog. Terminates runs whose local child process is still ALIVE
+   * (so reapOrphanedRuns, which only fails dead-pid runs, will never touch them)
+   * but that are clearly stuck: either no output for `noOutputMs` (silence), or
+   * total runtime past the hard `maxRuntimeMs` cap. Reuses cancelRunInternal so
+   * the child is killed, the run is finalized, env leases are released, the agent
+   * returns to idle, and the next queued run is started. Window-exempt agents
+   * (shell handlers, compilers, runtimeConfig.ignoreActivityWindow) are skipped so
+   * intentionally long-lived runs are never killed. Pass 0 for an arm to disable it.
+   */
+  async function terminateHungRuns(opts: { noOutputMs: number; maxRuntimeMs: number; now?: Date }) {
+    const noOutputMs = Math.max(0, opts.noOutputMs ?? 0);
+    const maxRuntimeMs = Math.max(0, opts.maxRuntimeMs ?? 0);
+    if (noOutputMs <= 0 && maxRuntimeMs <= 0) return { terminated: 0, runIds: [] as string[] };
+    const now = opts.now ?? new Date();
+
+    const activeRuns = await db
+      .select({
+        run: heartbeatRuns,
+        adapterType: agents.adapterType,
+        runtimeConfig: agents.runtimeConfig,
+      })
+      .from(heartbeatRuns)
+      .innerJoin(agents, eq(heartbeatRuns.agentId, agents.id))
+      .where(eq(heartbeatRuns.status, "running"));
+
+    const terminated: string[] = [];
+    for (const { run, adapterType, runtimeConfig } of activeRuns) {
+      // Only adapters that spawn a tracked local child can "hang" in a killable
+      // sense; remote/other adapters have no local pid to terminate.
+      if (!isTrackedLocalChildProcessAdapter(adapterType)) continue;
+      // Never kill intentionally long-lived / window-exempt agents.
+      if (isActivityWindowExemptAgent({ adapterType, runtimeConfig: parseObject(runtimeConfig) })) continue;
+
+      // A dead/absent child is an orphan, not a hang — reapOrphanedRuns owns it.
+      const childAlive =
+        (run.processPid != null && isProcessAlive(run.processPid)) ||
+        (run.processGroupId != null && isProcessGroupAlive(run.processGroupId));
+      if (!childAlive) continue;
+
+      const silenceRef = run.lastOutputAt ?? run.processStartedAt ?? run.startedAt ?? run.createdAt;
+      const silenceMs = silenceRef ? now.getTime() - new Date(silenceRef).getTime() : 0;
+      const runtimeRef = run.processStartedAt ?? run.startedAt;
+      const runtimeMs = runtimeRef ? now.getTime() - new Date(runtimeRef).getTime() : 0;
+
+      const silenceHit = noOutputMs > 0 && silenceMs >= noOutputMs;
+      const runtimeHit = maxRuntimeMs > 0 && runtimeMs >= maxRuntimeMs;
+      if (!silenceHit && !runtimeHit) continue;
+
+      const reason = silenceHit
+        ? `Terminated by hung-run watchdog: no output for ${Math.round(silenceMs / 60000)}m (threshold ${Math.round(noOutputMs / 60000)}m)`
+        : `Terminated by hung-run watchdog: runtime ${Math.round(runtimeMs / 60000)}m exceeded hard cap ${Math.round(maxRuntimeMs / 60000)}m`;
+
+      try {
+        await cancelRunInternal(run.id, reason);
+        terminated.push(run.id);
+        await logActivity(db, {
+          companyId: run.companyId,
+          actorType: "system",
+          actorId: "hung_run_watchdog",
+          agentId: run.agentId,
+          runId: run.id,
+          action: "heartbeat.hung_run_terminated",
+          entityType: "heartbeat_run",
+          entityId: run.id,
+          details: { reason, silenceMs, runtimeMs, silenceHit, runtimeHit },
+        });
+      } catch (err) {
+        logger.error({ err, runId: run.id, agentId: run.agentId }, "hung-run watchdog termination failed");
+      }
+    }
+
+    if (terminated.length > 0) {
+      logger.warn({ terminatedCount: terminated.length, runIds: terminated }, "hung-run watchdog terminated runs");
+    }
+    return { terminated: terminated.length, runIds: terminated };
+  }
+
   async function resumeQueuedRuns() {
     const queuedRuns = await db
       .select({ agentId: heartbeatRuns.agentId })
@@ -7110,6 +7188,67 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     }
 
     return { companies: purgedCompanyIds.length, companyIds: purgedCompanyIds, agents: purgedAgents };
+  }
+
+  /**
+   * End-of-sprint run termination. When a company's activity window has closed,
+   * terminate still-running, non-exempt runs instead of letting them ride past the
+   * sprint boundary. (A run that straddles the close also blocks the sprint session
+   * purge above, which skips companies that still have running runs — so this also
+   * unblocks that purge.) Operator-invoked runs (triggerDetail "manual") are left
+   * alone, mirroring the run gate's manual-override bypass of the activity window.
+   */
+  async function terminateRunsForClosedWindows(opts?: { now?: Date }) {
+    const now = opts?.now ?? new Date();
+    const windowedCompanies = await db
+      .select({ id: companies.id, activityWindow: companies.activityWindow })
+      .from(companies)
+      .where(isNotNull(companies.activityWindow));
+
+    const terminated: string[] = [];
+    for (const company of windowedCompanies) {
+      const window = parseCompanyActivityWindow(company.activityWindow);
+      if (!window) continue;
+      const state = getActivityWindowState(window, now);
+      if (state.open) continue; // window still open — nothing to terminate
+
+      const runningRuns = await db
+        .select({
+          run: heartbeatRuns,
+          adapterType: agents.adapterType,
+          runtimeConfig: agents.runtimeConfig,
+        })
+        .from(heartbeatRuns)
+        .innerJoin(agents, eq(heartbeatRuns.agentId, agents.id))
+        .where(and(eq(agents.companyId, company.id), eq(heartbeatRuns.status, "running")));
+
+      for (const { run, adapterType, runtimeConfig } of runningRuns) {
+        if (isActivityWindowExemptAgent({ adapterType, runtimeConfig: parseObject(runtimeConfig) })) continue;
+        if (run.triggerDetail === "manual") continue; // operator override bypasses the window
+        try {
+          await cancelRunInternal(run.id, "Terminated: activity window closed (end of sprint)");
+          terminated.push(run.id);
+          await logActivity(db, {
+            companyId: company.id,
+            actorType: "system",
+            actorId: "activity_window",
+            agentId: run.agentId,
+            runId: run.id,
+            action: "heartbeat.window_close_terminated",
+            entityType: "heartbeat_run",
+            entityId: run.id,
+            details: { windowTimezone: window.timezone },
+          });
+        } catch (err) {
+          logger.error({ err, runId: run.id, agentId: run.agentId }, "activity-window run termination failed");
+        }
+      }
+    }
+
+    if (terminated.length > 0) {
+      logger.warn({ terminatedCount: terminated.length, runIds: terminated }, "terminated runs for closed activity windows");
+    }
+    return { terminated: terminated.length, runIds: terminated };
   }
 
   async function reconcileStrandedAssignedIssues() {
@@ -10491,6 +10630,8 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     reportRunActivity: clearDetachedRunWarning,
 
     reapOrphanedRuns,
+    terminateHungRuns,
+    terminateRunsForClosedWindows,
 
     promoteDueScheduledRetries,
     retryScheduledRetryNow,

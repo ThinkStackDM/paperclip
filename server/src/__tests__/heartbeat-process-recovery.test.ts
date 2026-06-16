@@ -1068,6 +1068,133 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     expect(issue?.executionRunId).toBe(retryRun?.id ?? null);
   });
 
+  it("terminates a hung run whose child is alive but silent past the no-output threshold", async () => {
+    const child = spawnAliveProcess();
+    childProcesses.add(child);
+    expect(child.pid).toBeTypeOf("number");
+
+    // startedAt is seeded far in the past and lastOutputAt is unset, so the
+    // silence window is exceeded; the child pid is alive (so it's NOT an orphan
+    // the reaper would touch — only the hung-run watchdog handles this case).
+    const { runId, agentId } = await seedRunFixture({
+      processPid: child.pid ?? null,
+      agentStatus: "running",
+      includeIssue: false,
+    });
+    const heartbeat = heartbeatService(db);
+
+    const result = await heartbeat.terminateHungRuns({ noOutputMs: 60_000, maxRuntimeMs: 0 });
+    expect(result.terminated).toBe(1);
+    expect(result.runIds).toEqual([runId]);
+
+    expect(await waitForPidExit(child.pid as number, 2_000)).toBe(true);
+
+    const run = await heartbeat.getRun(runId);
+    expect(run?.status).toBe("cancelled");
+
+    const agent = await db
+      .select()
+      .from(agents)
+      .where(eq(agents.id, agentId))
+      .then((rows) => rows[0] ?? null);
+    expect(agent?.status).toBe("idle");
+  });
+
+  it("leaves an alive run alone when it produced output within the no-output window", async () => {
+    const child = spawnAliveProcess();
+    childProcesses.add(child);
+
+    const { runId } = await seedRunFixture({
+      processPid: child.pid ?? null,
+      agentStatus: "running",
+      includeIssue: false,
+    });
+    // Fresh output now → silence window not exceeded; runtime cap disabled.
+    await db
+      .update(heartbeatRuns)
+      .set({ lastOutputAt: new Date() })
+      .where(eq(heartbeatRuns.id, runId));
+    const heartbeat = heartbeatService(db);
+
+    const result = await heartbeat.terminateHungRuns({ noOutputMs: 60_000, maxRuntimeMs: 0 });
+    expect(result.terminated).toBe(0);
+    expect(isPidAlive(child.pid)).toBe(true);
+
+    const run = await heartbeat.getRun(runId);
+    expect(run?.status).toBe("running");
+  });
+
+  it("does not touch a dead-pid run (that is the orphan reaper's job, not the hung-run watchdog)", async () => {
+    const { runId } = await seedRunFixture({
+      processPid: 999_999_999,
+      agentStatus: "running",
+      includeIssue: false,
+    });
+    const heartbeat = heartbeatService(db);
+
+    const result = await heartbeat.terminateHungRuns({ noOutputMs: 1, maxRuntimeMs: 1 });
+    expect(result.terminated).toBe(0);
+
+    const run = await heartbeat.getRun(runId);
+    expect(run?.status).toBe("running");
+  });
+
+  it("terminates a non-exempt running run once its company's activity window has closed", async () => {
+    const child = spawnAliveProcess();
+    childProcesses.add(child);
+
+    const { companyId, runId } = await seedRunFixture({
+      processPid: child.pid ?? null,
+      agentStatus: "running",
+      includeIssue: false,
+    });
+    await db
+      .update(companies)
+      .set({ activityWindow: { startHour: 9, endHour: 17, timezone: "UTC" } })
+      .where(eq(companies.id, companyId));
+    const heartbeat = heartbeatService(db);
+
+    // 22:00 UTC is after the 17:00 close → window closed.
+    const closedNow = new Date("2026-03-19T22:00:00.000Z");
+    const result = await heartbeat.terminateRunsForClosedWindows({ now: closedNow });
+    expect(result.terminated).toBe(1);
+    expect(result.runIds).toEqual([runId]);
+
+    expect(await waitForPidExit(child.pid as number, 2_000)).toBe(true);
+
+    const run = await heartbeat.getRun(runId);
+    expect(run?.status).toBe("cancelled");
+  });
+
+  it("leaves a manually-invoked run alone at window close (operator override)", async () => {
+    const child = spawnAliveProcess();
+    childProcesses.add(child);
+
+    const { companyId, runId } = await seedRunFixture({
+      processPid: child.pid ?? null,
+      agentStatus: "running",
+      includeIssue: false,
+    });
+    await db
+      .update(companies)
+      .set({ activityWindow: { startHour: 9, endHour: 17, timezone: "UTC" } })
+      .where(eq(companies.id, companyId));
+    await db
+      .update(heartbeatRuns)
+      .set({ triggerDetail: "manual" })
+      .where(eq(heartbeatRuns.id, runId));
+    const heartbeat = heartbeatService(db);
+
+    const result = await heartbeat.terminateRunsForClosedWindows({
+      now: new Date("2026-03-19T22:00:00.000Z"),
+    });
+    expect(result.terminated).toBe(0);
+    expect(isPidAlive(child.pid)).toBe(true);
+
+    const run = await heartbeat.getRun(runId);
+    expect(run?.status).toBe("running");
+  });
+
   it("blocks the issue when process-loss retry is exhausted and the immediate continuation recovery also fails", async () => {
     mockAdapterExecute.mockRejectedValueOnce(new Error("continuation recovery failed"));
 

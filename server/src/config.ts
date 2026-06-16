@@ -85,8 +85,22 @@ export interface Config {
   feedbackExportBackendToken: string | undefined;
   heartbeatSchedulerEnabled: boolean;
   heartbeatSchedulerIntervalMs: number;
+  heartbeatHungRunNoOutputMs: number;
+  heartbeatHungRunMaxRuntimeMs: number;
+  terminateRunsOnWindowClose: boolean;
   companyDeletionEnabled: boolean;
   telemetryEnabled: boolean;
+}
+
+/**
+ * Parse a non-negative millisecond threshold from an env var. Unlike `Number(x) || default`,
+ * an explicit "0" is honored (which disables the corresponding feature) instead of falling
+ * back to the default.
+ */
+function readThresholdMs(raw: string | undefined, fallbackMs: number): number {
+  if (raw === undefined || raw.trim() === "") return fallbackMs;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.trunc(parsed) : fallbackMs;
 }
 
 function detectTailnetBindHost(): string | undefined {
@@ -331,6 +345,14 @@ export function loadConfig(): Config {
     feedbackExportBackendToken,
     heartbeatSchedulerEnabled: process.env.HEARTBEAT_SCHEDULER_ENABLED !== "false",
     heartbeatSchedulerIntervalMs: Math.max(10000, Number(process.env.HEARTBEAT_SCHEDULER_INTERVAL_MS) || 30000),
+    // Hung-run watchdog: terminate a run whose local child process is still alive but has
+    // produced no output for this long (silence), or whose total runtime exceeds the hard
+    // cap. Set the matching env var to 0 to disable that arm. Defaults: 12m silence, 30m cap.
+    heartbeatHungRunNoOutputMs: readThresholdMs(process.env.HEARTBEAT_HUNG_RUN_NO_OUTPUT_MS, 12 * 60 * 1000),
+    heartbeatHungRunMaxRuntimeMs: readThresholdMs(process.env.HEARTBEAT_HUNG_RUN_MAX_RUNTIME_MS, 30 * 60 * 1000),
+    // Terminate still-running, non-exempt runs when a company's activity window closes
+    // (end of sprint). Set HEARTBEAT_TERMINATE_RUNS_ON_WINDOW_CLOSE=false to disable.
+    terminateRunsOnWindowClose: process.env.HEARTBEAT_TERMINATE_RUNS_ON_WINDOW_CLOSE !== "false",
     companyDeletionEnabled,
     telemetryEnabled: fileConfig?.telemetry?.enabled ?? true,
   };
