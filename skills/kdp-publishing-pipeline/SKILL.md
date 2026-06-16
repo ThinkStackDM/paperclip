@@ -58,3 +58,8 @@ Maintain an explicit **blocker list on the gate issue** and add new pre-publish 
 ## References
 
 - `references/book1-evidence.md` — issue-by-issue evidence trail and document anchors (book-pack, chapter-map, metadata-pack, author-central-pack).
+
+
+<!-- TOOLS-2026-06 -->
+## Local tools
+- Manuscript → EPUB/PDF: `pandoc`. Cover + interior print-prep (resize, CMYK, PDF/X, compression): `magick` (ImageMagick) and `gs` (Ghostscript).

@@ -79,3 +79,8 @@ and licence-filter flags: **references/api-reference.md**.
   contexts, or watermarks — even when the licence technically allows them.
 - Music/audio beds: Pixabay music or other explicit-licence sources only; "found it
   on a beats site" is not a licence.
+
+
+<!-- TOOLS-2026-06 -->
+## Local tools
+- Fetch reference footage/audio with `yt-dlp` for *reference only* — respect each source's ToS and licensing before using a clip in output.
