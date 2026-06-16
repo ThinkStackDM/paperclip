@@ -1103,7 +1103,7 @@ interface ParsedIssueAssigneeAdapterOverrides {
   useProjectWorkspace: boolean | null;
 }
 
-type ModelProfileRequestSource = "issue_override" | "wake_context";
+type ModelProfileRequestSource = "issue_override" | "wake_context" | "limit_failover_force";
 type AppliedModelProfileConfigSource = "agent_runtime" | "adapter_default";
 
 export interface ModelProfileApplication {
@@ -1161,6 +1161,41 @@ function readContextModelProfile(
   return readModelProfileKey(contextSnapshot?.modelProfile);
 }
 
+/**
+ * Limit-triggered failover primitive (THIAAAAA-853): an agent's runtimeConfig may carry
+ * `modelProfileForce: { profile, until }`, set when a usage-limit is hit, forcing a stronger
+ * model profile until `until` (the upstream resetAt). Returns the forced profile only while
+ * still active; an expired / invalid / absent force returns null — that is the timed
+ * swap-back (the dispatch caller additionally clears an expired force lazily).
+ */
+export function readActiveForcedModelProfile(
+  runtimeConfig: unknown,
+  now: Date = new Date(),
+): ModelProfileKey | null {
+  const force = parseObject(parseObject(runtimeConfig).modelProfileForce);
+  if (Object.keys(force).length === 0) return null;
+  const profile = readModelProfileKey(force.profile);
+  if (!profile) return null;
+  const until = force.until;
+  const untilMs =
+    typeof until === "number"
+      ? until
+      : typeof until === "string"
+        ? Date.parse(until)
+        : until instanceof Date
+          ? until.getTime()
+          : Number.NaN;
+  if (Number.isNaN(untilMs)) return null;
+  return untilMs > now.getTime() ? profile : null;
+}
+
+/** True when runtimeConfig carries a modelProfileForce that is no longer active (expired/invalid). */
+export function hasInactiveForcedModelProfile(runtimeConfig: unknown, now: Date = new Date()): boolean {
+  const force = parseObject(parseObject(runtimeConfig).modelProfileForce);
+  if (Object.keys(force).length === 0) return false;
+  return readActiveForcedModelProfile(runtimeConfig, now) === null;
+}
+
 export function normalizeModelProfileWakeContext(input: {
   contextSnapshot: Record<string, unknown>;
   payload: Record<string, unknown> | null | undefined;
@@ -1195,15 +1230,20 @@ export function resolveModelProfileApplication(input: {
   issueModelProfile: ModelProfileKey | null | undefined;
   contextSnapshot: Record<string, unknown> | null | undefined;
   profileResolutionFallbackReason?: string | null;
+  // An active limit-failover force (THIAAAAA-853) overrides the issue/context request.
+  forcedProfile?: ModelProfileKey | null;
 }): ModelProfileApplication {
+  const forcedProfile = input.forcedProfile ?? null;
   const issueModelProfile = input.issueModelProfile ?? null;
   const contextModelProfile = readContextModelProfile(input.contextSnapshot);
-  const requested = issueModelProfile ?? contextModelProfile;
-  const requestedBy: ModelProfileRequestSource | null = issueModelProfile
-    ? "issue_override"
-    : contextModelProfile
-      ? "wake_context"
-      : null;
+  const requested = forcedProfile ?? issueModelProfile ?? contextModelProfile;
+  const requestedBy: ModelProfileRequestSource | null = forcedProfile
+    ? "limit_failover_force"
+    : issueModelProfile
+      ? "issue_override"
+      : contextModelProfile
+        ? "wake_context"
+        : null;
 
   if (!requested) {
     return {
@@ -7770,12 +7810,28 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
         "Failed to resolve adapter model profiles; falling back to primary adapter config",
       );
     }
+    // Limit-failover (THIAAAAA-853): honor an active modelProfileForce on the agent, and
+    // lazily clear it once it has expired (the timed swap-back back to the normal profile).
+    const forcedProfile = readActiveForcedModelProfile(agent.runtimeConfig);
+    if (!forcedProfile && hasInactiveForcedModelProfile(agent.runtimeConfig)) {
+      const nextRuntimeConfig = { ...parseObject(agent.runtimeConfig) };
+      delete nextRuntimeConfig.modelProfileForce;
+      await db
+        .update(agents)
+        .set({ runtimeConfig: nextRuntimeConfig, updatedAt: new Date() })
+        .where(eq(agents.id, agent.id));
+      logger.info(
+        { event: "model_profile_force_swap_back", companyId: agent.companyId, agentId: agent.id, runId: run.id },
+        "cleared expired modelProfileForce (limit-failover swap-back, THIAAAAA-853)",
+      );
+    }
     const modelProfileApplication = resolveModelProfileApplication({
       adapterModelProfiles,
       agentRuntimeConfig: agent.runtimeConfig,
       issueModelProfile: issueAssigneeOverrides?.modelProfile ?? null,
       contextSnapshot: context,
       profileResolutionFallbackReason,
+      forcedProfile,
     });
     const modelProfileMetadata = modelProfileRunMetadata(modelProfileApplication);
     if (modelProfileMetadata) {

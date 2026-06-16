@@ -57,6 +57,16 @@ export const modelProfiles: AdapterModelProfileDefinition[] = [
     },
     source: "adapter_default",
   },
+  {
+    key: "strong",
+    label: "Strong",
+    description: "Promote to the strongest Codex local lane (gpt-5.4) for limit-triggered failover; reverts automatically at resetAt.",
+    adapterConfig: {
+      model: "gpt-5.4",
+      modelReasoningEffort: "medium",
+    },
+    source: "adapter_default",
+  },
 ];
 
 export const agentConfigurationDoc = `# codex_local agent configuration

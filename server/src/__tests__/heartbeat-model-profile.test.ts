@@ -4,8 +4,10 @@ import {
   type AdapterModelProfileDefinition,
 } from "../adapters/index.js";
 import {
+  hasInactiveForcedModelProfile,
   mergeModelProfileAdapterConfig,
   normalizeModelProfileWakeContext,
+  readActiveForcedModelProfile,
   resolveModelProfileApplication,
 } from "../services/heartbeat.ts";
 
@@ -143,5 +145,66 @@ describe("heartbeat model profile application", () => {
     });
 
     expect(contextSnapshot).toMatchObject({ modelProfile: "cheap" });
+  });
+
+  it("resolves the codex_local strong profile to gpt-5.4/medium", async () => {
+    const modelProfile = resolveModelProfileApplication({
+      adapterModelProfiles: await listAdapterModelProfiles("codex_local"),
+      agentRuntimeConfig: {},
+      issueModelProfile: "strong",
+      contextSnapshot: {},
+    });
+
+    expect(modelProfile).toMatchObject({
+      requested: "strong",
+      requestedBy: "issue_override",
+      applied: "strong",
+      configSource: "adapter_default",
+      fallbackReason: null,
+      adapterConfig: { model: "gpt-5.4", modelReasoningEffort: "medium" },
+    });
+  });
+
+  it("an active forced profile overrides the issue/context request (limit failover)", async () => {
+    const modelProfile = resolveModelProfileApplication({
+      adapterModelProfiles: await listAdapterModelProfiles("codex_local"),
+      agentRuntimeConfig: {},
+      issueModelProfile: "cheap",
+      contextSnapshot: { modelProfile: "cheap" },
+      forcedProfile: "strong",
+    });
+
+    expect(modelProfile).toMatchObject({
+      requested: "strong",
+      requestedBy: "limit_failover_force",
+      applied: "strong",
+      adapterConfig: { model: "gpt-5.4", modelReasoningEffort: "medium" },
+    });
+  });
+});
+
+describe("readActiveForcedModelProfile (limit-failover swap-back)", () => {
+  const now = new Date("2026-06-16T12:00:00.000Z");
+
+  it("returns the forced profile while the force is still active", () => {
+    const rc = { modelProfileForce: { profile: "strong", until: "2026-06-16T13:00:00.000Z" } };
+    expect(readActiveForcedModelProfile(rc, now)).toBe("strong");
+    expect(hasInactiveForcedModelProfile(rc, now)).toBe(false);
+  });
+
+  it("returns null and reports inactive once the force has expired (swap-back)", () => {
+    const rc = { modelProfileForce: { profile: "strong", until: "2026-06-16T11:00:00.000Z" } };
+    expect(readActiveForcedModelProfile(rc, now)).toBeNull();
+    expect(hasInactiveForcedModelProfile(rc, now)).toBe(true);
+  });
+
+  it("ignores an unknown forced profile key", () => {
+    const rc = { modelProfileForce: { profile: "turbo", until: "2026-06-16T13:00:00.000Z" } };
+    expect(readActiveForcedModelProfile(rc, now)).toBeNull();
+  });
+
+  it("returns null (and reports active=false) when no force is set", () => {
+    expect(readActiveForcedModelProfile({}, now)).toBeNull();
+    expect(hasInactiveForcedModelProfile({}, now)).toBe(false);
   });
 });
