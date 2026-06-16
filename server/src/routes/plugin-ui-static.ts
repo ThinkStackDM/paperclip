@@ -176,6 +176,29 @@ function computeETag(size: number, mtimeMs: number): string {
   return `"${hash}"`;
 }
 
+/**
+ * Walk an error's `cause` chain looking for a specific (Postgres) error `code`.
+ * Drizzle wraps driver errors, so the original code is nested under `.cause`
+ * rather than sitting on the top-level error object.
+ */
+function hasErrorCode(error: unknown, code: string): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 6 && current != null; depth++) {
+    if (
+      typeof current === "object" &&
+      "code" in current &&
+      (current as { code?: unknown }).code === code
+    ) {
+      return true;
+    }
+    current =
+      typeof current === "object" && current !== null && "cause" in current
+        ? (current as { cause?: unknown }).cause
+        : undefined;
+  }
+  return false;
+}
+
 // ---------------------------------------------------------------------------
 // Route factory
 // ---------------------------------------------------------------------------
@@ -246,11 +269,12 @@ export function pluginUiStaticRoutes(db: Db, options: PluginUiStaticRouteOptions
     try {
       plugin = await registry.getById(pluginId);
     } catch (error) {
-      const maybeCode =
-        typeof error === "object" && error !== null && "code" in error
-          ? (error as { code?: unknown }).code
-          : undefined;
-      if (maybeCode !== "22P02") {
+      // A non-UUID pluginId (e.g. a plugin key like "thinkstack.mc-liveness")
+      // makes Postgres reject the `id = $1` cast with code 22P02. Drizzle wraps
+      // the driver error, so the code sits on the `cause` chain rather than the
+      // top-level error — walk it. Only the not-a-uuid case falls through to the
+      // getByKey() lookup below; any other failure is real and re-thrown.
+      if (!hasErrorCode(error, "22P02")) {
         throw error;
       }
     }
