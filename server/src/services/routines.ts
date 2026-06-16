@@ -1245,6 +1245,92 @@ export function routineService(
     }
   }
 
+  /**
+   * Eager companion to the resolveTriggerSecret self-heal (THIAAAAAA-203): rather than
+   * waiting for a fire to hit the missing binding, this sweep proactively restores any
+   * webhook trigger whose company_secret_bindings row has gone missing while its secret is
+   * still live. The trigger's `secretId` is the authoritative ownership record, so recreating
+   * the derived binding from it is safe — the same operation the fire-path self-heal performs.
+   * Runs on the scheduler tick; toggle WEBHOOK_BINDING_RECONCILE=false.
+   */
+  async function reconcileWebhookSecretBindings() {
+    const missing = await db
+      .select({
+        triggerId: routineTriggers.id,
+        routineId: routineTriggers.routineId,
+        secretId: routineTriggers.secretId,
+        companyId: routines.companyId,
+      })
+      .from(routineTriggers)
+      .innerJoin(routines, eq(routines.id, routineTriggers.routineId))
+      .leftJoin(
+        companySecretBindings,
+        and(
+          eq(companySecretBindings.companyId, routines.companyId),
+          eq(companySecretBindings.secretId, routineTriggers.secretId),
+          eq(companySecretBindings.targetType, "routine"),
+          // target_id is text; routine_id is uuid — cast for the comparison.
+          sql`${companySecretBindings.targetId} = ${routineTriggers.routineId}::text`,
+        ),
+      )
+      .where(
+        and(
+          eq(routineTriggers.kind, "webhook"),
+          isNotNull(routineTriggers.secretId),
+          isNull(companySecretBindings.id),
+        ),
+      );
+
+    const repaired: string[] = [];
+    for (const t of missing) {
+      if (!t.secretId) continue;
+      // Only restore when the underlying secret is still live and in-company — never paper
+      // over a genuinely deleted or foreign secret.
+      const secret = await db
+        .select({ status: companySecrets.status, companyId: companySecrets.companyId })
+        .from(companySecrets)
+        .where(eq(companySecrets.id, t.secretId))
+        .then((rows) => rows[0] ?? null);
+      if (!secret || secret.companyId !== t.companyId || secret.status !== "active") continue;
+
+      const configPath = routineWebhookSecretConfigPath(t.secretId);
+      try {
+        await secretsSvc.createBinding({
+          companyId: t.companyId,
+          secretId: t.secretId,
+          targetType: "routine",
+          targetId: t.routineId,
+          configPath,
+        });
+        repaired.push(t.triggerId);
+        logger.warn(
+          {
+            event: "webhook_binding_reconcile",
+            companyId: t.companyId,
+            routineId: t.routineId,
+            triggerId: t.triggerId,
+            secretId: t.secretId,
+            configPath,
+          },
+          "eagerly recreated missing webhook secret binding (THIAAAAAA-203 reconcile)",
+        );
+      } catch (err) {
+        // A concurrent fire-path self-heal may have just recreated it (409) — treat as success.
+        if (!isConflictError(err)) {
+          logger.error(
+            { event: "webhook_binding_reconcile_failed", err, triggerId: t.triggerId },
+            "eager webhook binding reconcile failed",
+          );
+        }
+      }
+    }
+
+    if (repaired.length > 0) {
+      logger.info({ repaired: repaired.length, triggerIds: repaired }, "reconciled missing webhook secret bindings");
+    }
+    return { repaired: repaired.length, triggerIds: repaired };
+  }
+
   async function touchIssueForUserInbox(
     executor: Db,
     input: {
@@ -2533,6 +2619,7 @@ export function routineService(
     },
 
     cancelSupersededRoutineExecutionIssues,
+    reconcileWebhookSecretBindings,
 
     tickScheduledTriggers: async (now: Date = new Date()) => {
       const due = await db

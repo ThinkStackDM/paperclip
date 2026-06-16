@@ -1891,4 +1891,46 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     });
     expect(secondRun.source).toBe("webhook");
   });
+
+  it("eagerly reconciles a missing webhook binding without waiting for a fire", async () => {
+    const { routine, svc } = await seedFixture();
+    const { trigger } = await svc.createTrigger(routine.id, { kind: "webhook", signingMode: "bearer" }, {});
+    await db.delete(companySecretBindings).where(eq(companySecretBindings.secretId, trigger.secretId!));
+    await expect(
+      db.select().from(companySecretBindings).where(eq(companySecretBindings.secretId, trigger.secretId!)),
+    ).resolves.toHaveLength(0);
+
+    const result = await svc.reconcileWebhookSecretBindings();
+    expect(result.repaired).toBe(1);
+    expect(result.triggerIds).toEqual([trigger.id]);
+
+    const restored = await db
+      .select()
+      .from(companySecretBindings)
+      .where(eq(companySecretBindings.secretId, trigger.secretId!));
+    expect(restored).toHaveLength(1);
+    expect(restored[0]?.configPath).toBe(`webhookSecret:${trigger.secretId}`);
+    expect(restored[0]?.targetType).toBe("routine");
+    expect(restored[0]?.targetId).toBe(routine.id);
+  });
+
+  it("leaves a missing binding alone when the underlying secret is not active", async () => {
+    const { routine, svc } = await seedFixture();
+    const { trigger } = await svc.createTrigger(routine.id, { kind: "webhook", signingMode: "bearer" }, {});
+    await db.delete(companySecretBindings).where(eq(companySecretBindings.secretId, trigger.secretId!));
+    await db.update(companySecrets).set({ status: "disabled" }).where(eq(companySecrets.id, trigger.secretId!));
+
+    const result = await svc.reconcileWebhookSecretBindings();
+    expect(result.repaired).toBe(0);
+    await expect(
+      db.select().from(companySecretBindings).where(eq(companySecretBindings.secretId, trigger.secretId!)),
+    ).resolves.toHaveLength(0);
+  });
+
+  it("reconcile is a no-op when all webhook bindings are present", async () => {
+    const { routine, svc } = await seedFixture();
+    await svc.createTrigger(routine.id, { kind: "webhook", signingMode: "bearer" }, {});
+    const result = await svc.reconcileWebhookSecretBindings();
+    expect(result.repaired).toBe(0);
+  });
 });

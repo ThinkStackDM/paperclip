@@ -828,6 +828,22 @@ export async function startServer(): Promise<StartedServer> {
           });
       }
 
+      // Eager webhook-binding reconcile: proactively restore any webhook trigger whose
+      // secret binding has gone missing while the secret is live (companion to the
+      // resolveTriggerSecret fire-path self-heal). Set WEBHOOK_BINDING_RECONCILE=false to disable.
+      if (process.env.WEBHOOK_BINDING_RECONCILE !== "false") {
+        void routines
+          .reconcileWebhookSecretBindings()
+          .then((result) => {
+            if (result.repaired > 0) {
+              logger.info({ ...result }, "reconciled missing webhook secret bindings");
+            }
+          })
+          .catch((err) => {
+            logger.error({ err }, "webhook binding reconcile failed");
+          });
+      }
+
       // Sprint-end session purge: clear agent sessions for companies whose
       // activity window has just closed so the next sprint starts fresh.
       void heartbeat
