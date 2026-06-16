@@ -215,6 +215,7 @@ export function CompanySettings() {
             <div className="shrink-0">
               <CompanyPatternIcon
                 companyName={companyName || selectedCompany.name}
+                prefix={selectedCompany.issuePrefix}
                 logoUrl={logoUrl || null}
                 brandColor={brandColor || null}
                 className="rounded-[14px]"

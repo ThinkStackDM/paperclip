@@ -126,7 +126,7 @@ import { PageSkeleton } from "@/components/PageSkeleton";
 import { Identity } from "@/components/Identity";
 import { IssueReferencePill } from "@/components/IssueReferencePill";
 import { MembershipAction } from "@/components/MembershipAction";
-import { ThinkStackLogo } from "@/components/ThinkStackLogo";
+import { ThinkStackLogo, ThinkStackWordmark } from "@/components/ThinkStackLogo";
 
 /* ------------------------------------------------------------------ */
 /*  Section wrapper                                                    */
@@ -260,6 +260,31 @@ export function DesignGuide() {
           </div>
         </SubSection>
 
+        <SubSection title="ThinkStack brand">
+          <div className="flex flex-col gap-4">
+            <div>
+              <div
+                className="h-8 w-full max-w-md rounded-md border border-border"
+                style={{ background: "var(--ts-gradient)" }}
+              />
+              <p className="mt-1.5 text-xs font-mono">--ts-gradient</p>
+              <p className="text-xs text-muted-foreground">
+                Brand hue ramp — logo, section accents, health strips. Used as a gradient only.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              <Swatch name="Brand red" cssVar="--ts-red" />
+              <Swatch name="Brand orange — single accent" cssVar="--ts-accent" />
+              <Swatch name="Brand yellow" cssVar="--ts-yellow" />
+              <Swatch name="Brand green" cssVar="--ts-green" />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              The orange <span className="font-mono">--ts-accent</span> is the single-color accent for
+              non-status emphasis only: focus rings, selected/active state, and primary CTAs.
+            </p>
+          </div>
+        </SubSection>
+
         <SubSection title="Sidebar">
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             <Swatch name="Sidebar" cssVar="--sidebar" />
@@ -339,6 +364,7 @@ export function DesignGuide() {
             <Button variant="outline">Outline</Button>
             <Button variant="ghost">Ghost</Button>
             <Button variant="destructive">Destructive</Button>
+            <Button variant="brand">Brand</Button>
             <Button variant="link">Link</Button>
           </div>
         </SubSection>
@@ -405,7 +431,7 @@ export function DesignGuide() {
             <ThinkStackLogo size={48} />
           </div>
           <p className="text-xs text-muted-foreground">
-            Inline SVG approximation of the ThinkStack mark. Used as the Portfolio nav icon and page
+            Inline SVG recreation of the ThinkStack mark. Used as the Portfolio nav icon and page
             header. The matching accent ramp is{" "}
             <span className="font-mono">#e85d4a → #f5a623 → #f7d038 → #5cb85c</span>:
           </p>
@@ -413,6 +439,29 @@ export function DesignGuide() {
             className="h-1 w-48 rounded-full"
             style={{ background: "linear-gradient(90deg, #e85d4a, #f5a623, #f7d038, #5cb85c)" }}
           />
+        </SubSection>
+
+        <SubSection title="Variants — dark (default) vs light">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="flex items-center justify-center gap-5 rounded-lg bg-neutral-950 p-5">
+              <ThinkStackLogo size={44} variant="dark" />
+              <ThinkStackWordmark iconSize={34} variant="dark" />
+            </div>
+            <div className="flex items-center justify-center gap-5 rounded-lg border border-border bg-white p-5">
+              <ThinkStackLogo size={44} variant="light" />
+              <ThinkStackWordmark iconSize={34} variant="light" />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">Dark</span> (black tile / black channels) is
+            the in-app default; <span className="font-medium text-foreground">light</span> (white
+            channels, transparent) is for light surfaces. Static recreations also live at{" "}
+            <span className="font-mono">/brands/thinkstack-*.svg</span> for in-app spots that need a
+            URL — <span className="font-medium text-foreground">Paperclip-internal only</span>; for
+            anything outside Paperclip use the original official ThinkStack files. Companies building
+            their own brand can override per-company via <span className="font-mono">logoUrl</span> /{" "}
+            <span className="font-mono">brandColor</span> (see CompanyPatternIcon).
+          </p>
         </SubSection>
       </Section>
 

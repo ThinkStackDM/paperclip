@@ -97,7 +97,7 @@ const STATE_TONE: Record<RecoveryCardCardState, {
     iconClass: "text-muted-foreground",
     labelClass: "text-muted-foreground",
     Icon: Eye,
-    divider: "border-border/70",
+    divider: "border-border",
   },
   escalated: {
     label: "RECOVERY ESCALATED",

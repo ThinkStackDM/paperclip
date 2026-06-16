@@ -30,6 +30,13 @@ export default defineConfig(({ mode }) => ({
         target: "http://localhost:3100",
         ws: true,
       },
+      // Plugin UI bundles are served by the backend at /_plugins/:id/ui/*.
+      // Without this, the dev server's SPA fallback returns index.html for those
+      // dynamic imports, so the browser parses HTML as JS ("Unexpected token '<'")
+      // and plugin UI (e.g. thinkstack.mc-liveness) fails to load in preview.
+      "/_plugins": {
+        target: "http://localhost:3100",
+      },
     },
   },
 }));

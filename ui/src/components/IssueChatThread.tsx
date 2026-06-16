@@ -3407,7 +3407,7 @@ const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerP
       data-testid="issue-chat-composer"
       data-pending-work-mode={pendingWorkMode}
       className={cn(
-        "relative rounded-md border border-border/70 bg-background/95 p-[15px] shadow-[0_-12px_28px_rgba(15,23,42,0.08)] backdrop-blur transition-[border-color,background-color,box-shadow] duration-150 supports-[backdrop-filter]:bg-background/85 dark:shadow-[0_-12px_28px_rgba(0,0,0,0.28)]",
+        "relative rounded-md border border-border bg-background/95 p-[15px] shadow-[0_-12px_28px_rgba(15,23,42,0.08)] backdrop-blur transition-[border-color,background-color,box-shadow] duration-150 supports-[backdrop-filter]:bg-background/85 focus-within:border-ts-accent/60 dark:shadow-[0_-12px_28px_rgba(0,0,0,0.28)]",
         isPlanning && "border-amber-500/60 bg-amber-50/60 supports-[backdrop-filter]:bg-amber-50/40 dark:border-amber-500/50 dark:bg-amber-500/[0.07] dark:supports-[backdrop-filter]:bg-amber-500/[0.07]",
         isDragOver && "border-primary/45 bg-background shadow-[0_-12px_28px_rgba(15,23,42,0.08),0_0_0_1px_hsl(var(--primary)/0.16)]",
       )}
@@ -3611,7 +3611,7 @@ const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerP
           />
         ) : null}
 
-        <Button size="sm" disabled={!canSubmit} onClick={() => void handleSubmit()}>
+        <Button variant="brand" size="sm" disabled={!canSubmit} onClick={() => void handleSubmit()}>
           {submitting ? "Posting..." : "Send"}
         </Button>
       </div>

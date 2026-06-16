@@ -23,6 +23,12 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-ts-red: var(--ts-red);
+  --color-ts-orange: var(--ts-orange);
+  --color-ts-yellow: var(--ts-yellow);
+  --color-ts-green: var(--ts-green);
+  --color-ts-accent: var(--ts-accent);
+  --color-ts-accent-foreground: var(--ts-accent-foreground);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
@@ -61,9 +67,9 @@
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --border: oklch(0.9 0 0);
+  --input: oklch(0.88 0 0);
+  --ring: var(--ts-accent);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
@@ -93,6 +99,21 @@
   --paperclip-doc-annotation-highlight-focused: #fde047;
   --paperclip-doc-annotation-highlight-stale: #fef08a;
   --paperclip-doc-annotation-highlight-resolved: #fef9c3;
+
+  /* ── ThinkStack brand accent system ──────────────────────────────────
+     The brand mark is a red→orange→yellow→green gradient on near-black.
+     This block is the single source of truth for brand color. The gradient
+     carries hero brand moments (logo, section accents, health strips); the
+     warm orange is the single-color accent for non-status emphasis only —
+     focus rings, selected/active state, and primary CTAs. Status hues keep
+     their own meaning, so the brand accent never appears as a status. */
+  --ts-red: #e85d4a;
+  --ts-orange: #f5a623;
+  --ts-yellow: #f7d038;
+  --ts-green: #5cb85c;
+  --ts-accent: #f5a623;
+  --ts-accent-foreground: #1a1206;
+  --ts-gradient: linear-gradient(90deg, var(--ts-red), var(--ts-orange), var(--ts-yellow), var(--ts-green));
 }
 
 .dark {
@@ -112,9 +133,9 @@
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.637 0.237 25.331);
   --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.269 0 0);
-  --input: oklch(0.269 0 0);
-  --ring: oklch(0.439 0 0);
+  --border: oklch(0.32 0 0);
+  --input: oklch(0.37 0 0);
+  --ring: var(--ts-accent);
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
