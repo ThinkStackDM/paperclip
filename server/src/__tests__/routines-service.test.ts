@@ -11,9 +11,11 @@ import {
   createDb,
   executionWorkspaces,
   heartbeatRuns,
+  issueComments,
   instanceSettings,
   issueInboxArchives,
   issueReadStates,
+  issueRelations,
   issues,
   projectWorkspaces,
   projects,
@@ -68,6 +70,8 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     await db.delete(companySecretVersions);
     await db.delete(companySecrets);
     await db.delete(heartbeatRuns);
+    await db.delete(issueComments);
+    await db.delete(issueRelations);
     await db.delete(issues);
     await db.delete(executionWorkspaces);
     await db.delete(projectWorkspaces);
@@ -189,6 +193,79 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
 
     return { companyId, agentId, issueSvc, projectId, routine, svc, wakeups };
   }
+
+  let routineFireSeq = 100000;
+  async function insertRoutineFire(input: {
+    companyId: string;
+    routineId: string;
+    status: string;
+    createdAt: Date;
+    n: number;
+  }) {
+    const id = randomUUID();
+    const seq = ++routineFireSeq;
+    await db.insert(issues).values({
+      id,
+      companyId: input.companyId,
+      title: `routine fire ${input.n}`,
+      status: input.status,
+      priority: "medium",
+      issueNumber: seq,
+      identifier: `RT-${id.slice(0, 8)}`,
+      originKind: "routine_execution",
+      originId: input.routineId,
+      createdAt: input.createdAt,
+    });
+    return id;
+  }
+
+  it("cancels a blocked routine fire superseded by a newer fire of an active routine", async () => {
+    const { companyId, routine, svc } = await seedFixture();
+    const stale = await insertRoutineFire({ companyId, routineId: routine.id, status: "blocked", createdAt: new Date("2026-03-19T00:00:00Z"), n: 1 });
+    await insertRoutineFire({ companyId, routineId: routine.id, status: "todo", createdAt: new Date("2026-03-19T01:00:00Z"), n: 2 });
+
+    const result = await svc.cancelSupersededRoutineExecutionIssues();
+    expect(result.cancelled).toBe(1);
+    expect(result.issueIds).toEqual([stale]);
+
+    const row = await db.select({ status: issues.status }).from(issues).where(eq(issues.id, stale)).then((r) => r[0] ?? null);
+    expect(row?.status).toBe("cancelled");
+  });
+
+  it("leaves a blocked routine fire that has not been superseded", async () => {
+    const { companyId, routine, svc } = await seedFixture();
+    const lone = await insertRoutineFire({ companyId, routineId: routine.id, status: "blocked", createdAt: new Date("2026-03-19T00:00:00Z"), n: 1 });
+
+    const result = await svc.cancelSupersededRoutineExecutionIssues();
+    expect(result.cancelled).toBe(0);
+    const row = await db.select({ status: issues.status }).from(issues).where(eq(issues.id, lone)).then((r) => r[0] ?? null);
+    expect(row?.status).toBe("blocked");
+  });
+
+  it("leaves a superseded blocked fire that still carries an active first-class blocker", async () => {
+    const { companyId, routine, svc } = await seedFixture();
+    const stale = await insertRoutineFire({ companyId, routineId: routine.id, status: "blocked", createdAt: new Date("2026-03-19T00:00:00Z"), n: 1 });
+    await insertRoutineFire({ companyId, routineId: routine.id, status: "todo", createdAt: new Date("2026-03-19T01:00:00Z"), n: 2 });
+    const blocker = await insertRoutineFire({ companyId, routineId: routine.id, status: "in_progress", createdAt: new Date("2026-03-19T00:30:00Z"), n: 3 });
+    await db.insert(issueRelations).values({ companyId, issueId: blocker, relatedIssueId: stale, type: "blocks" });
+
+    const result = await svc.cancelSupersededRoutineExecutionIssues();
+    expect(result.cancelled).toBe(0);
+    const row = await db.select({ status: issues.status }).from(issues).where(eq(issues.id, stale)).then((r) => r[0] ?? null);
+    expect(row?.status).toBe("blocked");
+  });
+
+  it("leaves a superseded blocked fire when its routine is paused", async () => {
+    const { companyId, routine, svc } = await seedFixture();
+    const stale = await insertRoutineFire({ companyId, routineId: routine.id, status: "blocked", createdAt: new Date("2026-03-19T00:00:00Z"), n: 1 });
+    await insertRoutineFire({ companyId, routineId: routine.id, status: "todo", createdAt: new Date("2026-03-19T01:00:00Z"), n: 2 });
+    await db.update(routines).set({ status: "paused" }).where(eq(routines.id, routine.id));
+
+    const result = await svc.cancelSupersededRoutineExecutionIssues();
+    expect(result.cancelled).toBe(0);
+    const row = await db.select({ status: issues.status }).from(issues).where(eq(issues.id, stale)).then((r) => r[0] ?? null);
+    expect(row?.status).toBe("blocked");
+  });
 
   it("filters listed routines by project", async () => {
     const { companyId, agentId, projectId, routine, svc } = await seedFixture();

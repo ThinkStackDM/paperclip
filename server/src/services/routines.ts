@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, ne, not, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte, ne, not, or, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   agents,
@@ -9,8 +9,10 @@ import {
   executionWorkspaces,
   goals,
   heartbeatRuns,
+  issueComments,
   issueInboxArchives,
   issueReadStates,
+  issueRelations,
   issues,
   pluginManagedResources,
   plugins,
@@ -959,6 +961,110 @@ export function routineService(
           inArray(issues.id, staleIssueIds),
         ),
       );
+  }
+
+  /**
+   * Board-noise cleanup. Each routine fire creates a routine_execution issue; when a fire's
+   * run is lost/fails, recovery leaves that issue `blocked`, and the next fire's
+   * clearTerminalExecutionIssueLocks() only releases the execution lock — it never closes the
+   * stale issue. Those superseded blocked fires then pile up on the board (they were the
+   * dominant source of manual cleanup). This cancels a blocked routine_execution issue ONLY
+   * when it is definitively dead: its routine is still active AND has fired a newer execution
+   * since (superseded) AND it has no active first-class blocker (a real dependency would keep
+   * it legitimately blocked). Terminal-only (status -> cancelled), so it cannot loop —
+   * stranded-issue recovery ignores cancelled issues, and the routine keeps firing fresh
+   * executions on schedule.
+   */
+  async function cancelSupersededRoutineExecutionIssues() {
+    const blocked = await db
+      .select({
+        id: issues.id,
+        companyId: issues.companyId,
+        originId: issues.originId,
+        createdAt: issues.createdAt,
+      })
+      .from(issues)
+      .where(
+        and(
+          eq(issues.originKind, "routine_execution"),
+          eq(issues.status, "blocked"),
+          isNull(issues.hiddenAt),
+          isNotNull(issues.originId),
+        ),
+      );
+
+    const cancelled: string[] = [];
+    for (const iss of blocked) {
+      if (!iss.originId) continue;
+
+      // Routine must still be active (paused/archived routines are left alone).
+      const routine = await db
+        .select({ status: routines.status })
+        .from(routines)
+        .where(eq(routines.id, iss.originId))
+        .then((rows) => rows[0] ?? null);
+      if (!routine || routine.status !== "active") continue;
+
+      // Must be superseded by a newer fire of the same routine.
+      const newerFire = await db
+        .select({ id: issues.id })
+        .from(issues)
+        .where(
+          and(
+            eq(issues.originKind, "routine_execution"),
+            eq(issues.originId, iss.originId),
+            gt(issues.createdAt, iss.createdAt),
+          ),
+        )
+        .limit(1)
+        .then((rows) => rows[0] ?? null);
+      if (!newerFire) continue;
+
+      // Must carry NO active first-class blocker (an unresolved dependency would keep it
+      // legitimately blocked — never cancel those).
+      const activeBlocker = await db
+        .select({ id: issueRelations.issueId })
+        .from(issueRelations)
+        .innerJoin(issues, eq(issues.id, issueRelations.issueId))
+        .where(
+          and(
+            eq(issueRelations.relatedIssueId, iss.id),
+            eq(issueRelations.type, "blocks"),
+            not(inArray(issues.status, ["done", "cancelled"])),
+          ),
+        )
+        .limit(1)
+        .then((rows) => rows[0] ?? null);
+      if (activeBlocker) continue;
+
+      await db
+        .update(issues)
+        .set({
+          status: "cancelled",
+          checkoutRunId: null,
+          executionRunId: null,
+          executionLockedAt: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(issues.id, iss.id));
+
+      await db.insert(issueComments).values({
+        companyId: iss.companyId,
+        issueId: iss.id,
+        body:
+          "Auto-cancelled: superseded routine execution. This routine has fired a newer execution since this instance was blocked, and it carries no active blocker — clearing the stale fire to keep the board clean. The routine continues to fire fresh executions on schedule.",
+      });
+
+      cancelled.push(iss.id);
+    }
+
+    if (cancelled.length > 0) {
+      logger.info(
+        { cancelled: cancelled.length, issueIds: cancelled },
+        "cancelled superseded routine-execution issues",
+      );
+    }
+    return { cancelled: cancelled.length, issueIds: cancelled };
   }
 
   async function finalizeRun(runId: string, patch: Partial<typeof routineRuns.$inferInsert>, executor: Db = db) {
@@ -2353,6 +2459,8 @@ export function routineService(
           : null,
       }));
     },
+
+    cancelSupersededRoutineExecutionIssues,
 
     tickScheduledTriggers: async (now: Date = new Date()) => {
       const due = await db

@@ -812,6 +812,22 @@ export async function startServer(): Promise<StartedServer> {
           logger.error({ err }, "routine scheduler tick failed");
         });
 
+      // Board-noise cleanup: cancel routine-execution issues left `blocked` by a failed
+      // fire once the routine has fired a newer execution (superseded) and they carry no
+      // active blocker. Set ROUTINE_SUPERSEDED_CLEANUP=false to disable.
+      if (process.env.ROUTINE_SUPERSEDED_CLEANUP !== "false") {
+        void routines
+          .cancelSupersededRoutineExecutionIssues()
+          .then((result) => {
+            if (result.cancelled > 0) {
+              logger.info({ ...result }, "cancelled superseded routine-execution issues");
+            }
+          })
+          .catch((err) => {
+            logger.error({ err }, "superseded routine-execution cleanup failed");
+          });
+      }
+
       // Sprint-end session purge: clear agent sessions for companies whose
       // activity window has just closed so the next sprint starts fresh.
       void heartbeat
