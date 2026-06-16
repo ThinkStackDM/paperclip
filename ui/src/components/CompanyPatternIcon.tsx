@@ -1,15 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { cn } from "../lib/utils";
 
-const BAYER_4X4 = [
-  [0, 8, 2, 10],
-  [12, 4, 14, 6],
-  [3, 11, 1, 9],
-  [15, 7, 13, 5],
-] as const;
-
 interface CompanyPatternIconProps {
   companyName: string;
+  /**
+   * Short identifier shown as the avatar label — typically the company's
+   * issue prefix (e.g. "TSK", "DP", "TSMC"). Falls back to initials derived
+   * from the company name when omitted.
+   */
+  prefix?: string | null;
   logoUrl?: string | null;
   brandColor?: string | null;
   className?: string;
@@ -90,102 +89,85 @@ function hexToHue(hex: string): number {
   return ((h * 60) + 360) % 360;
 }
 
-function makeCompanyPatternDataUrl(seed: string, brandColor?: string | null, logicalSize = 22, cellSize = 2): string {
-  if (typeof document === "undefined") return "";
+const HEX6 = /^#?[0-9a-fA-F]{6}$/;
 
-  const canvas = document.createElement("canvas");
-  canvas.width = logicalSize * cellSize;
-  canvas.height = logicalSize * cellSize;
+/** Initials fallback when no prefix is supplied: up to two leading letters. */
+function initialsFromName(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "?";
+  if (words.length === 1) return (words[0] ?? "").slice(0, 2).toUpperCase() || "?";
+  return ((words[0]?.[0] ?? "") + (words[1]?.[0] ?? "")).toUpperCase() || "?";
+}
 
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return "";
-
+/**
+ * Deterministic, distinct tile colours for a company. A custom `brandColor`
+ * sets the hue; otherwise the hue is hashed from the seed so each company is
+ * visually separable. Saturation/lightness stay in a band that reads on the
+ * dark theme, and the label colour flips to dark on light (yellow/green) hues.
+ */
+function companyTileColors(seed: string, brandColor?: string | null) {
   const rand = mulberry32(hashString(seed));
+  const normalizedBrand = brandColor && HEX6.test(brandColor)
+    ? (brandColor.startsWith("#") ? brandColor : `#${brandColor}`)
+    : null;
+  const hue = normalizedBrand ? hexToHue(normalizedBrand) : Math.floor(rand() * 360);
+  const sat = 60 + Math.floor(rand() * 14); // 60–74
+  const topL = 53;
+  const botL = 39;
 
-  const hue = brandColor ? hexToHue(brandColor) : Math.floor(rand() * 360);
-  const [offR, offG, offB] = hslToRgb(
-    hue,
-    54 + Math.floor(rand() * 14),
-    36 + Math.floor(rand() * 12),
-  );
-  const [onR, onG, onB] = hslToRgb(
-    hue + (rand() > 0.5 ? 10 : -10),
-    86 + Math.floor(rand() * 10),
-    82 + Math.floor(rand() * 10),
-  );
+  const [tr, tg, tb] = hslToRgb(hue, sat, topL);
+  const [br, bg, bb] = hslToRgb(hue + 10, sat, botL);
+  const [mr, mg, mb] = hslToRgb(hue, sat, (topL + botL) / 2);
+  const luminance = (0.299 * mr + 0.587 * mg + 0.114 * mb) / 255;
 
-  const center = (logicalSize - 1) / 2;
-  const half = Math.max(center, 1);
-  const gradientAngle = rand() * Math.PI * 2;
-  const gradientDirX = Math.cos(gradientAngle);
-  const gradientDirY = Math.sin(gradientAngle);
-  const maxProjection = Math.abs(gradientDirX * half) + Math.abs(gradientDirY * half);
-  const diagonalFrequency = 0.34 + rand() * 0.12;
-  const antiDiagonalFrequency = 0.33 + rand() * 0.12;
-  const diagonalPhase = rand() * Math.PI * 2;
-  const antiDiagonalPhase = rand() * Math.PI * 2;
+  return {
+    top: `rgb(${tr}, ${tg}, ${tb})`,
+    bottom: `rgb(${br}, ${bg}, ${bb})`,
+    fg: luminance > 0.6 ? "#17130a" : "#ffffff",
+  };
+}
 
-  ctx.fillStyle = `rgb(${offR} ${offG} ${offB})`;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  ctx.fillStyle = `rgb(${onR} ${onG} ${onB})`;
-  const dotRadius = cellSize * 0.46;
-
-  for (let y = 0; y < logicalSize; y++) {
-    const dy = y - center;
-
-    for (let x = 0; x < logicalSize; x++) {
-      const dx = x - center;
-
-      // Side-to-side signal where visible gradient is produced by dither density.
-      const projection = dx * gradientDirX + dy * gradientDirY;
-      const gradient = (projection / maxProjection + 1) * 0.5;
-      const diagonal = Math.sin((dx + dy) * diagonalFrequency + diagonalPhase) * 0.5 + 0.5;
-      const antiDiagonal = Math.sin((dx - dy) * antiDiagonalFrequency + antiDiagonalPhase) * 0.5 + 0.5;
-      const hatch = diagonal * 0.5 + antiDiagonal * 0.5;
-      const signal = Math.max(0, Math.min(1, gradient + (hatch - 0.5) * 0.22));
-
-      // Canonical 16-level ordered dither: level 0..15 compared to Bayer 4x4 threshold index.
-      const level = Math.max(0, Math.min(15, Math.floor(signal * 16)));
-      const thresholdIndex = BAYER_4X4[y & 3]![x & 3]!;
-      if (level <= thresholdIndex) continue;
-
-      const cx = x * cellSize + cellSize / 2;
-      const cy = y * cellSize + cellSize / 2;
-      ctx.beginPath();
-      ctx.arc(cx, cy, dotRadius, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  return canvas.toDataURL("image/png");
+/** Label font size (in the 100×100 viewBox) tuned so initials always fit. */
+function labelFontSize(length: number): number {
+  if (length <= 1) return 56;
+  if (length === 2) return 45;
+  if (length === 3) return 34;
+  if (length === 4) return 26;
+  return 21;
 }
 
 export function CompanyPatternIcon({
   companyName,
+  prefix,
   logoUrl,
   brandColor,
   className,
   logoFit = "cover",
 }: CompanyPatternIconProps) {
-  const initial = companyName.trim().charAt(0).toUpperCase() || "?";
   const [imageError, setImageError] = useState(false);
   const logo = !imageError && typeof logoUrl === "string" && logoUrl.trim().length > 0 ? logoUrl : null;
   useEffect(() => {
     setImageError(false);
   }, [logoUrl]);
-  const patternDataUrl = useMemo(
-    () => makeCompanyPatternDataUrl(companyName.trim().toLowerCase(), brandColor),
-    [companyName, brandColor],
+
+  const label = useMemo(() => {
+    const fromPrefix = prefix?.trim();
+    const text = fromPrefix && fromPrefix.length > 0 ? fromPrefix : initialsFromName(companyName);
+    return text.toUpperCase().slice(0, 4);
+  }, [prefix, companyName]);
+
+  const gradientId = useMemo(
+    () => `co-grad-${hashString(`${companyName}:${prefix ?? ""}`)}`,
+    [companyName, prefix],
+  );
+
+  const colors = useMemo(
+    () => companyTileColors(`${companyName.trim().toLowerCase()}:${prefix ?? ""}`, brandColor),
+    [companyName, prefix, brandColor],
   );
 
   return (
-    <div
-      className={cn(
-        "relative flex items-center justify-center w-11 h-11 text-base font-semibold text-white overflow-hidden",
-        className,
-      )}
-    >
+    <div className={cn("relative flex items-center justify-center w-11 h-11 overflow-hidden", className)}>
       {logo ? (
         <img
           src={logo}
@@ -196,21 +178,35 @@ export function CompanyPatternIcon({
             logoFit === "contain" ? "object-contain" : "object-cover",
           )}
         />
-      ) : patternDataUrl ? (
-        <img
-          src={patternDataUrl}
-          alt=""
-          aria-hidden="true"
-          className="absolute inset-0 h-full w-full"
-          style={{ imageRendering: "pixelated" }}
-        />
       ) : (
-        <div className="absolute inset-0 bg-muted" />
-      )}
-      {!logo && (
-        <span className="relative z-10 drop-shadow-[0_1px_2px_rgba(0,0,0,0.65)]">
-          {initial}
-        </span>
+        <svg
+          viewBox="0 0 100 100"
+          className="absolute inset-0 h-full w-full"
+          preserveAspectRatio="xMidYMid slice"
+          role="img"
+          aria-label={companyName}
+        >
+          <defs>
+            <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stopColor={colors.top} />
+              <stop offset="1" stopColor={colors.bottom} />
+            </linearGradient>
+          </defs>
+          <rect width="100" height="100" fill={`url(#${gradientId})`} />
+          <text
+            x="50"
+            y="54"
+            textAnchor="middle"
+            dominantBaseline="central"
+            fill={colors.fg}
+            fontFamily="inherit"
+            fontWeight={700}
+            fontSize={labelFontSize(label.length)}
+            letterSpacing={label.length >= 3 ? -1.5 : 0}
+          >
+            {label}
+          </text>
+        </svg>
       )}
     </div>
   );

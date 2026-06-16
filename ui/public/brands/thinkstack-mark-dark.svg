@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="ThinkStack">
+  <!-- Official ThinkStack mark — dark variant: gradient field on a near-black
+       rounded tile, carved by a BLACK negative-space "T" (long diagonal
+       crossbar + right-hand stem). For dark surfaces / dark mode. -->
+  <defs>
+    <linearGradient id="ts-mark-d" gradientUnits="userSpaceOnUse" x1="2" y1="32" x2="62" y2="32">
+      <stop offset="0" stop-color="#e85d4a"/>
+      <stop offset="0.4" stop-color="#f5a623"/>
+      <stop offset="0.62" stop-color="#f7d038"/>
+      <stop offset="1" stop-color="#5cb85c"/>
+    </linearGradient>
+    <clipPath id="ts-clip-d"><rect x="1" y="1" width="62" height="62" rx="15"/></clipPath>
+  </defs>
+  <rect x="1" y="1" width="62" height="62" rx="15" fill="#0a0a0c"/>
+  <g clip-path="url(#ts-clip-d)">
+    <rect x="1" y="1" width="62" height="62" fill="url(#ts-mark-d)"/>
+    <path d="M40 1 L63 1 L63 26 Z" fill="#5cb85c"/>
+    <g stroke="#0a0a0c" stroke-width="8" stroke-linecap="round">
+      <line x1="39" y1="0" x2="64" y2="27"/>
+      <line x1="51" y1="13" x2="7" y2="61"/>
+    </g>
+  </g>
+</svg>

@@ -18,15 +18,19 @@ import { BlockedReasonChip } from "../components/BlockedReasonChip";
 import { EntityRow } from "../components/EntityRow";
 import { StatusIcon } from "../components/StatusIcon";
 import { PriorityIcon } from "../components/PriorityIcon";
-import { ThinkStackLogo } from "../components/ThinkStackLogo";
+import { ThinkStackWordmark } from "../components/ThinkStackLogo";
+import { CompanyPatternIcon } from "../components/CompanyPatternIcon";
 
 const PORTFOLIO_ISSUE_PAGE_SIZE = 500;
 const PORTFOLIO_ATTENTION_PAGE_SIZE = 200;
 const PORTFOLIO_REFETCH_INTERVAL_MS = 30_000;
 const ACTIVE_NOW_CAP = 30;
 
-/** ThinkStack brand hue ramp — used sparingly as the page's only color accent. */
-const TS_GRADIENT = "linear-gradient(90deg, #e85d4a, #f5a623, #f7d038, #5cb85c)";
+/**
+ * ThinkStack brand hue ramp — used sparingly as a brand accent. Sourced from
+ * the shared `--ts-gradient` token in index.css so the whole app stays in sync.
+ */
+const TS_GRADIENT = "var(--ts-gradient)";
 
 /**
  * Sprint windows come from the company API (`company.activityWindow` /
@@ -247,6 +251,13 @@ function CompanyCard({ data }: { data: CompanyPortfolioData }) {
       <div className="h-0.5" style={{ background: TS_GRADIENT, opacity: activeNow ? 1 : 0.3 }} />
       <div className="flex h-full flex-col gap-2.5 p-3">
         <div className="flex items-center gap-2">
+          <CompanyPatternIcon
+            companyName={company.name}
+            prefix={company.issuePrefix}
+            logoUrl={company.logoUrl}
+            brandColor={company.brandColor}
+            className="size-6 shrink-0 rounded-md"
+          />
           <Link to={`/${company.issuePrefix}/dashboard`} className="truncate text-sm font-semibold hover:underline">
             {company.name}
           </Link>
@@ -506,10 +517,11 @@ export function Portfolio() {
       <div className="mx-auto flex max-w-6xl flex-col gap-8">
         {/* Header */}
         <header className="flex items-center gap-3">
-          <ThinkStackLogo size={36} className="shrink-0" />
+          <ThinkStackWordmark iconSize={32} />
+          <span aria-hidden className="h-7 w-px shrink-0 bg-border" />
           <div>
-            <h1 className="text-xl font-bold leading-tight">Portfolio</h1>
-            <div aria-hidden className="mt-1 h-0.5 w-24 rounded-full" style={{ background: TS_GRADIENT }} />
+            <h1 className="text-lg font-bold leading-tight">Portfolio</h1>
+            <div aria-hidden className="mt-1 h-0.5 w-16 rounded-full" style={{ background: TS_GRADIENT }} />
           </div>
           <div className="ml-auto flex items-center gap-2">
             {anyLoading && <span className="text-xs text-muted-foreground">Refreshing…</span>}

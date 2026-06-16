@@ -58,7 +58,7 @@ const TONE_TOKENS: Record<SystemNoticeTone, ToneTokens> = {
     icon: Info,
     iconClass: "text-muted-foreground",
     label: "text-muted-foreground",
-    divider: "border-border/70",
+    divider: "border-border",
   },
   info: {
     container:

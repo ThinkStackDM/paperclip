@@ -224,8 +224,8 @@ function TaskTreeNode({
     <>
       <div
         className={cn(
-          "relative border-b border-border/60 px-3 py-2.5 last:border-b-0",
-          depth > 0 && "before:absolute before:left-3 before:top-0 before:h-full before:w-px before:bg-border/70",
+          "relative border-b border-border px-3 py-2.5 last:border-b-0",
+          depth > 0 && "before:absolute before:left-3 before:top-0 before:h-full before:w-px before:bg-border",
         )}
         style={depth > 0 ? { paddingLeft: `${depth * 24 + 12}px` } : undefined}
       >

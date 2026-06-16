@@ -49,6 +49,7 @@ function WorkspaceIcon({ company }: { company: Company }) {
   return (
     <CompanyPatternIcon
       companyName={company.name}
+      prefix={company.issuePrefix}
       logoUrl={company.logoUrl}
       brandColor={company.brandColor}
       className="size-5 shrink-0 rounded-md text-[11px]"
