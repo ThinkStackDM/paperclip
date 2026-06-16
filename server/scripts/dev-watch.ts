@@ -169,7 +169,7 @@ function shutdown(signal: NodeJS.Signals): void {
   if (shuttingDown) return;
   shuttingDown = true;
   try {
-    watcher.close();
+    watcher?.close();
   } catch {
     // ignore
   }
@@ -193,12 +193,20 @@ function shutdown(signal: NodeJS.Signals): void {
 process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 
-const watcher = watch(watchDir, { recursive: true }, (_event, filename) => {
-  const name = typeof filename === "string" ? filename : filename ? filename.toString() : null;
-  if (!shouldReact(name)) return;
-  scheduleReload(name ?? "src");
-});
-
-log(`gated watcher active — edits under ${path.relative(cwd, watchDir) || watchDir} reload only after a clean compile`);
-log(`gate: ${path.relative(serverRoot, gateScript)} · a broken edit keeps the running server up instead of crashing it`);
+// Start the server FIRST so a watcher-setup failure can never keep the fleet
+// down — at worst we run without gated auto-reload (a save just won't reload),
+// which is strictly safer than not booting at all.
 startChild();
+
+let watcher: ReturnType<typeof watch> | null = null;
+try {
+  watcher = watch(watchDir, { recursive: true }, (_event, filename) => {
+    const name = typeof filename === "string" ? filename : filename ? filename.toString() : null;
+    if (!shouldReact(name)) return;
+    scheduleReload(name ?? "src");
+  });
+  log(`gated watcher active — edits under ${path.relative(cwd, watchDir) || watchDir} reload only after a clean compile`);
+  log(`gate: ${path.relative(serverRoot, gateScript)} · a broken edit keeps the running server up instead of crashing it`);
+} catch (error) {
+  log(`⚠ watcher setup failed (${(error as Error).message}); server is UP but auto-reload is disabled until next restart`);
+}
