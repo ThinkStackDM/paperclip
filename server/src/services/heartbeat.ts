@@ -532,11 +532,15 @@ async function resolveRunScopedMentionedSkillKeys(input: {
         eq(issueComments.companyId, input.companyId),
       ),
     );
+  // Skill mentions carry the company_skills.id (a uuid). Free-text / name-based
+  // mentions like `skill://etsy-listing-ops` are not resolvable here, and feeding
+  // them into an `id IN (...)` filter on a uuid column throws a DrizzleQueryError
+  // that aborts the entire heartbeat at setup. Drop non-uuid mentions instead.
   const mentionedSkillIds = extractMentionedSkillIdsFromSources([
     issue.title,
     issue.description ?? "",
     ...comments.map((comment) => comment.body),
-  ]);
+  ]).filter(isUuidLike);
   if (mentionedSkillIds.length === 0) return [];
 
   const skillRows = await input.db
