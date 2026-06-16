@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "paperclip-ui",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-lc",
+        "cd /Users/glad0s/paperclip-wt-boardasks/ui && pnpm exec vite --port 5173 --strictPort"
+      ],
+      "port": 5173
+    }
+  ]
+}
