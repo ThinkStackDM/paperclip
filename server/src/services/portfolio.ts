@@ -1,5 +1,5 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { agents, companies, financeEvents } from "@paperclipai/db";
+import { agents, companies, financeEvents, routineTriggers } from "@paperclipai/db";
 import type { Db } from "@paperclipai/db";
 import { badRequest, forbidden } from "../errors.js";
 
@@ -8,6 +8,29 @@ const FAILURE_STATUSES = ["failed", "timed_out", "errored"] as const;
 
 export const FINANCE_EVENT_KINDS = ["revenue", "refund", "fee", "cost"] as const;
 export type FinanceEventKind = (typeof FINANCE_EVENT_KINDS)[number];
+
+// Canonical live MC portfolio intake (rev-8 portfolio-intake-v2). MVP: one shared inbound route
+// accepts portfolio submissions from every OpCo — there is no per-OpCo intake route today.
+const CANONICAL_MC_PORTFOLIO_INTAKE_PUBLIC_ID = "badfffb5272d4320ecd24887";
+
+// OpCo discovery register (THIAAAAAA-113 / TSMC-10093). Maps a portfolio slug to a company by
+// its issue prefix. In-code (no new table) per the MVP spec; the slugs are the established MC
+// directive portfolio identifiers. Operator-confirmed 2026-06-16.
+const PORTFOLIO_COMPANY_REGISTER: Record<string, string> = {
+  "thiaaa-capital": "TSC",
+  "thiaaa-kiss": "TSK",
+  "thiaaa-yt": "TSM",
+  "thiaaa-pod": "DP",
+  "thiaaa-recruitment": "TSR",
+  "thiaaa-tsb": "TSB",
+};
+
+export interface PortfolioCompanyRegisterEntry {
+  slug: string;
+  displayName: string;
+  triggerPublicId: string;
+  bearerHandle: string;
+}
 
 export interface PortfolioRunsQuery {
   actor: Express.Request["actor"];
@@ -385,6 +408,33 @@ export function portfolioService(db: Db) {
           source_ref: row.externalInvoiceId,
           agent_id: row.agentId,
         },
+      };
+    },
+
+    // OpCo intake-routing discovery (THIAAAAAA-113 / TSMC-10093). Read-only; resolves a portfolio
+    // slug to its company display name + the canonical MC intake route. Returns null (=> 404) for
+    // an unknown slug or a company that no longer exists. Never returns the raw bearer secret.
+    async resolvePortfolioCompanyRegister(slug: string): Promise<PortfolioCompanyRegisterEntry | null> {
+      const issuePrefix = PORTFOLIO_COMPANY_REGISTER[slug];
+      if (!issuePrefix) return null;
+      const company = await db
+        .select({ name: companies.name })
+        .from(companies)
+        .where(eq(companies.issuePrefix, issuePrefix))
+        .then((rows) => rows[0] ?? null);
+      if (!company) return null;
+      // Confirm the canonical intake trigger is still live; fall back to the known id if the
+      // lookup misses (so discovery degrades gracefully rather than 500-ing).
+      const trigger = await db
+        .select({ publicId: routineTriggers.publicId })
+        .from(routineTriggers)
+        .where(eq(routineTriggers.publicId, CANONICAL_MC_PORTFOLIO_INTAKE_PUBLIC_ID))
+        .then((rows) => rows[0] ?? null);
+      return {
+        slug,
+        displayName: company.name,
+        triggerPublicId: trigger?.publicId ?? CANONICAL_MC_PORTFOLIO_INTAKE_PUBLIC_ID,
+        bearerHandle: `mc-intake-bearer:${slug}`,
       };
     },
   };

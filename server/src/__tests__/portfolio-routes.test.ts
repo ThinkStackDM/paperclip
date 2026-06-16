@@ -746,4 +746,49 @@ describeEmbeddedPostgres("portfolio routes", () => {
       expect(res.body.error).toBe("Agent can only write finance events for its own company");
     });
   });
+
+  describe("GET /portfolio/companies/:slug (OpCo intake discovery)", () => {
+    it("returns intake routing for a known slug to any authenticated agent", async () => {
+      await db.insert(companies).values({
+        id: randomUUID(),
+        name: "ThinkStack Recruitment",
+        issuePrefix: "TSR",
+        requireBoardApprovalForNewAgents: false,
+      });
+      const app = makeActor(
+        { type: "agent", agentId: randomUUID(), companyId: randomUUID() } as Express.Request["actor"],
+        db,
+      );
+
+      const res = await request(app).get("/api/portfolio/companies/thiaaa-recruitment");
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        slug: "thiaaa-recruitment",
+        displayName: "ThinkStack Recruitment",
+        intake: {
+          triggerPublicId: "badfffb5272d4320ecd24887",
+          bearerHandle: "mc-intake-bearer:thiaaa-recruitment",
+        },
+      });
+      expect(res.body.intake.url).toContain(
+        "/api/routine-triggers/public/badfffb5272d4320ecd24887/fire",
+      );
+    });
+
+    it("returns 404 for an unknown slug", async () => {
+      const app = makeActor(
+        { type: "agent", agentId: randomUUID(), companyId: randomUUID() } as Express.Request["actor"],
+        db,
+      );
+      const res = await request(app).get("/api/portfolio/companies/nonexistent");
+      expect(res.status).toBe(404);
+    });
+
+    it("returns 401 for an unauthenticated request", async () => {
+      const app = makeActor({ type: "none" } as Express.Request["actor"], db);
+      const res = await request(app).get("/api/portfolio/companies/thiaaa-recruitment");
+      expect(res.status).toBe(401);
+    });
+  });
 });

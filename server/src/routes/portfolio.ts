@@ -218,5 +218,29 @@ export function portfolioRoutes(db: Db) {
     });
   });
 
+  // OpCo intake-routing discovery (THIAAAAAA-113 / TSMC-10093). Any authenticated caller
+  // (board/user session or agent JWT) may look up an OpCo's MC intake route by portfolio slug.
+  // 404 for an unknown slug; the raw bearer is never returned (only a stable handle).
+  router.get("/portfolio/companies/:slug", async (req, res) => {
+    assertAuthenticated(req);
+    const slug = requireString(req.params.slug, "slug");
+    const entry = await svc.resolvePortfolioCompanyRegister(slug);
+    if (!entry) {
+      res.status(404).json({ error: "Company slug not found in portfolio register" });
+      return;
+    }
+    const base = (process.env.PAPERCLIP_PUBLIC_URL || `${req.protocol}://${req.get("host") ?? ""}`)
+      .replace(/\/+$/, "");
+    res.json({
+      slug: entry.slug,
+      displayName: entry.displayName,
+      intake: {
+        url: `${base}/api/routine-triggers/public/${entry.triggerPublicId}/fire`,
+        triggerPublicId: entry.triggerPublicId,
+        bearerHandle: entry.bearerHandle,
+      },
+    });
+  });
+
   return router;
 }
