@@ -678,12 +678,12 @@ export function routineService(
   // so off-window the routine fails "Agent is not invokable in its current state" (e.g.
   // TSMC-10109). Routines belong on the always-on codex sister (or a shell handler). TSMC
   // (always-on, no activity_window) is exempt. Mode via ROUTINE_GUARDRAIL_WINDOWED_CLAUDE:
-  //   "warn" (default) -> log + allow;  "enforce"/"block" -> reject;  "off" -> skip.
+  //   "enforce"/"block" (default) -> reject;  "warn" -> log + allow;  "off" -> skip.
   async function assertRoutineAssigneeLaneAllowed(
     companyId: string,
     agent: { id: string; adapterType: string | null; role: string | null },
   ) {
-    const mode = (process.env.ROUTINE_GUARDRAIL_WINDOWED_CLAUDE ?? "warn").toLowerCase();
+    const mode = (process.env.ROUTINE_GUARDRAIL_WINDOWED_CLAUDE ?? "enforce").toLowerCase();
     if (mode === "off") return;
     const adapter = (agent.adapterType ?? "").toLowerCase();
     const role = (agent.role ?? "").toLowerCase();
