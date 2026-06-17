@@ -7173,6 +7173,89 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     return { terminated: terminated.length, runIds: terminated };
   }
 
+  /**
+   * Stale-queued-run reaper (recovery layer 4, added 2026-06-17). reapOrphanedRuns
+   * fails dead-pid RUNNING runs and terminateHungRuns kills alive-but-stuck RUNNING runs,
+   * but neither touches QUEUED runs that were never claimed (e.g. orphaned during a server
+   * outage). Those sit forever and clog the agent's pipeline so it looks idle-but-wedged
+   * (the 2026-06-17 Fionn-Codex / FoundingEngineer-Codex case). This cancels a queued run
+   * that has sat past `staleMs` ONLY when there is no legitimate reason it has not drained:
+   *  - the agent is window-exempt (a non-exempt agent in a closed window is CORRECTLY
+   *    deferred by the run gate and resumes at next window open — never "stuck"),
+   *  - the agent has no RUNNING run (else the queue is draining normally behind it),
+   *  - the run is not gated to a future retry time, and
+   *  - its issue is not in_progress (cancelling an in_progress continuation just
+   *    regenerates it — the queued-continuation loop caveat).
+   * cancelRunInternal frees the slot so the scheduler re-dispatches fresh work. Disabled
+   * unless HEARTBEAT_STALE_QUEUED_RUN_MS > 0 (ship-gated, default off).
+   */
+  async function reapStaleQueuedRuns(opts: { staleMs: number; now?: Date }) {
+    const staleMs = Math.max(0, opts.staleMs ?? 0);
+    if (staleMs <= 0) return { reaped: 0, runIds: [] as string[] };
+    const now = opts.now ?? new Date();
+    const cutoff = new Date(now.getTime() - staleMs);
+
+    const candidates = await db
+      .select({
+        run: heartbeatRuns,
+        adapterType: agents.adapterType,
+        runtimeConfig: agents.runtimeConfig,
+        issueId: sql<string | null>`${heartbeatRuns.contextSnapshot} ->> 'issueId'`,
+        retryNotBefore: sql<string | null>`${heartbeatRuns.resultJson} ->> 'retryNotBefore'`,
+      })
+      .from(heartbeatRuns)
+      .innerJoin(agents, eq(heartbeatRuns.agentId, agents.id))
+      .where(and(eq(heartbeatRuns.status, "queued"), lt(heartbeatRuns.createdAt, cutoff)));
+
+    const reaped: string[] = [];
+    for (const { run, adapterType, runtimeConfig, issueId, retryNotBefore } of candidates) {
+      // Only window-exempt agents: a non-exempt agent's queue is correctly deferred while
+      // its activity window is closed (it resumes at next open), so it is not stuck.
+      if (!isActivityWindowExemptAgent({ adapterType, runtimeConfig: parseObject(runtimeConfig) })) continue;
+      // If the agent has a RUNNING run, its queue is draining normally behind it.
+      const running = await db
+        .select({ id: heartbeatRuns.id })
+        .from(heartbeatRuns)
+        .where(and(eq(heartbeatRuns.agentId, run.agentId), eq(heartbeatRuns.status, "running")))
+        .limit(1);
+      if (running.length > 0) continue;
+      // A run waiting on a future retry time is correctly deferred, not stuck.
+      if (retryNotBefore && new Date(retryNotBefore).getTime() > now.getTime()) continue;
+      // Loop caveat: never cancel a queued continuation of an in_progress issue (regenerates).
+      if (issueId) {
+        const issue = await db
+          .select({ status: issues.status })
+          .from(issues)
+          .where(eq(issues.id, issueId))
+          .limit(1);
+        if (issue[0]?.status === "in_progress") continue;
+      }
+      const ageMin = Math.round((now.getTime() - new Date(run.createdAt).getTime()) / 60000);
+      try {
+        await cancelRunInternal(run.id, `Reaped stale queued run: queued ${ageMin}m with no claim while the agent was idle`);
+        reaped.push(run.id);
+        await logActivity(db, {
+          companyId: run.companyId,
+          actorType: "system",
+          actorId: "stale_queued_run_reaper",
+          agentId: run.agentId,
+          runId: run.id,
+          action: "heartbeat.stale_queued_run_reaped",
+          entityType: "heartbeat_run",
+          entityId: run.id,
+          details: { ageMin, issueId },
+        });
+      } catch (err) {
+        logger.error({ err, runId: run.id, agentId: run.agentId }, "stale-queued-run reaper failed to cancel");
+      }
+    }
+
+    if (reaped.length > 0) {
+      logger.warn({ reapedCount: reaped.length, runIds: reaped }, "stale-queued-run reaper cleared wedged queue");
+    }
+    return { reaped: reaped.length, runIds: reaped };
+  }
+
   async function resumeQueuedRuns() {
     const queuedRuns = await db
       .select({ agentId: heartbeatRuns.agentId })
@@ -10740,6 +10823,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     reapOrphanedRuns,
     terminateHungRuns,
     terminateRunsForClosedWindows,
+    reapStaleQueuedRuns,
 
     promoteDueScheduledRetries,
     retryScheduledRetryNow,

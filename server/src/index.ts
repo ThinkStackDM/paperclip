@@ -893,6 +893,22 @@ export async function startServer(): Promise<StartedServer> {
           });
       }
 
+      // Stale-queued-run reaper: cancel queued runs that were never claimed (e.g. orphaned
+      // mid-outage) and now wedge an otherwise-idle, window-exempt agent's pipeline. The
+      // orphan reaper / hung-run watchdog only cover RUNNING runs. Default off.
+      if (config.heartbeatStaleQueuedRunMs > 0) {
+        void heartbeat
+          .reapStaleQueuedRuns({ staleMs: config.heartbeatStaleQueuedRunMs })
+          .then((result) => {
+            if (result.reaped > 0) {
+              logger.warn({ ...result }, "stale-queued-run reaper cleared wedged queue");
+            }
+          })
+          .catch((err) => {
+            logger.error({ err }, "stale-queued-run reaper failed");
+          });
+      }
+
       // Periodically reap orphaned runs (5-min staleness threshold) and make sure
       // persisted queued work is still being driven forward.
       void heartbeat
