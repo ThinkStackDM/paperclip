@@ -1,32 +1,137 @@
 {
   "role": "paperclip",
-  "_comment": "Agentic 'Paperclip function' lane (paperclip_lane.py). Unlike the CLI lanes, each task is a REAL fixture issue assigned to a per-model bench agent; the model is scored on whether it drives the case to a VALID DISPOSITION inside the live harness, not on answer prose. The lane emits a JSON outcome ({validDisposition, dispositionSet, postedComment, concreteAction, finalStatus, blockerCount, livenessState}) as `output`, so the existing deterministic json_path_equals scorer grades it. These cases are trivial for any capable model and only require executing the loop (read -> comment -> PATCH status); a non-reasoning model that replies without acting scores ~0 — which is exactly the signal the answer-quality suites miss.",
+  "_comment": "Agentic 'Paperclip function' lane (paperclip_lane.py). A PROGRESSIVE ladder — each stage is harder and takes more steps than the last, and together they cover the full Paperclip agent surface so a model can't pass by only knowing 'mark done'. Scored by the existing deterministic json_path_equals scorer against the rich outcome the lane emits (finalStatus + boolean facts: postedComment, commentContains, hasChild, hasTwoPlusChildren, hasBlocker, hasConfirmationInteraction, hasPlanDocument, hasApproval, routedToOwner, assigneeChangedAway, validDisposition, concreteAction). COVERAGE MAP: 1 basics(read+comment+done) · 2 output-correctness · 3 context-read(token echo from a comment) · 4 in_review disposition · 5 request_confirmation interaction (review point) · 6 blocked WITH first-class blocker + child · 7 multi-subtask delegation · 8 plan-document + confirmation · 9 disposition-discipline routing (no dangling hand-off) · 10 compound gauntlet (5 actions) · 11 request_board_approval · 12 idempotent restraint (do-not-churn a blocked issue). Run vs DEDICATED bench agents only (config.paperclip.agents).",
   "tasks": [
     {
-      "id": "self-disposition-done",
-      "title": "Self-disposition: comment + mark done",
-      "prompt": "Agentic benchmark fixture — disposition discipline.\n\nThis is a trivial, fully self-contained task. There is NO external blocker.\n\n1. Read this issue's context (GET /issues/<this-issue>/heartbeat-context).\n2. Post ONE short comment on this issue containing the result of `17 * 23`.\n3. Mark this issue `done` (PATCH the issue status to done).\n\nA run that ends without setting a real disposition (done / cancelled / in_review / blocked-with-a-named-blocker) is a FAILURE. Do not exit with 'no response requested'.",
-      "rubric": {
-        "deterministic": [
-          { "type": "json_path_equals", "path": "validDisposition", "value": true, "weight": 5 },
-          { "type": "json_path_equals", "path": "dispositionSet", "value": true, "weight": 2 },
-          { "type": "json_path_equals", "path": "concreteAction", "value": true, "weight": 2 },
-          { "type": "json_path_equals", "path": "postedComment", "value": true, "weight": 1 }
-        ]
-      }
+      "id": "01-read-comment-done",
+      "title": "Stage 1 — read, comment, done",
+      "prompt": "Stage 1 (basics). Read this issue's context (GET /issues/<this>/heartbeat-context). Post ONE short comment confirming you read it. Then mark the issue `done`. Never exit a run on an assigned task without setting a disposition.",
+      "rubric": { "deterministic": [
+        { "type": "json_path_equals", "path": "finalStatus", "value": "done", "weight": 3 },
+        { "type": "json_path_equals", "path": "postedComment", "value": true, "weight": 2 },
+        { "type": "json_path_equals", "path": "concreteAction", "value": true, "weight": 1 }
+      ] }
     },
     {
-      "id": "read-summarize-disposition",
-      "title": "Read context, summarize, disposition",
-      "prompt": "Agentic benchmark fixture — read + act + disposition.\n\n1. Fetch this issue's heartbeat-context.\n2. Post ONE comment that states this issue's own identifier and the current UTC date (from `date -u`).\n3. Then set a real disposition: mark it `done`.\n\nEnding the run with the issue still in todo/in_progress and no comment is a failure — that is the exact 'missing disposition' bounce we are testing for.",
-      "rubric": {
-        "deterministic": [
-          { "type": "json_path_equals", "path": "validDisposition", "value": true, "weight": 5 },
-          { "type": "json_path_equals", "path": "dispositionSet", "value": true, "weight": 2 },
-          { "type": "json_path_equals", "path": "concreteAction", "value": true, "weight": 2 },
-          { "type": "json_path_equals", "path": "postedComment", "value": true, "weight": 1 }
-        ]
-      }
+      "id": "02-compute-comment-done",
+      "title": "Stage 2 — compute, verify, done",
+      "prompt": "Stage 2 (output correctness). Compute 17 * 23. Post ONE comment containing the exact numeric result. Then mark the issue `done`.",
+      "paperclip": { "expect": { "commentContains": "391" } },
+      "rubric": { "deterministic": [
+        { "type": "json_path_equals", "path": "finalStatus", "value": "done", "weight": 3 },
+        { "type": "json_path_equals", "path": "commentContains", "value": true, "weight": 3 },
+        { "type": "json_path_equals", "path": "postedComment", "value": true, "weight": 1 }
+      ] }
+    },
+    {
+      "id": "03-read-extract-token",
+      "title": "Stage 3 — read a comment, echo the token, done",
+      "prompt": "Stage 3 (context read). A verification token has been posted as a COMMENT on this issue. Fetch this issue's comments (GET /issues/<this>/comments), find the token, echo the exact token in your own completion comment, then mark the issue `done`. Echoing the token proves you actually fetched the thread.",
+      "paperclip": {
+        "setup": { "seedComment": "Verification token for the agent: BENCH-X7Q2-VERIFY — echo this exact token in your completion comment." },
+        "expect": { "commentContains": "BENCH-X7Q2-VERIFY" }
+      },
+      "rubric": { "deterministic": [
+        { "type": "json_path_equals", "path": "commentContains", "value": true, "weight": 4 },
+        { "type": "json_path_equals", "path": "finalStatus", "value": "done", "weight": 2 },
+        { "type": "json_path_equals", "path": "postedComment", "value": true, "weight": 1 }
+      ] }
+    },
+    {
+      "id": "04-in-review-handoff",
+      "title": "Stage 4 — in_review disposition (not done)",
+      "prompt": "Stage 4 (review disposition). Do a brief first-pass review of the change described, then DO NOT mark it done. Set the issue to `in_review` and post a comment naming the review path (who/what reviews next). The correct disposition here is `in_review`, not `done`.",
+      "rubric": { "deterministic": [
+        { "type": "json_path_equals", "path": "finalStatus", "value": "in_review", "weight": 4 },
+        { "type": "json_path_equals", "path": "postedComment", "value": true, "weight": 2 }
+      ] }
+    },
+    {
+      "id": "05-request-confirmation",
+      "title": "Stage 5 — open a request_confirmation, in_review",
+      "prompt": "Stage 5 (confirmation interaction / review point). Before proceeding you need board sign-off. Create a `request_confirmation` issue-thread interaction on this issue (POST /issues/<this>/interactions with kind request_confirmation) asking the board to confirm the approach, then set the issue to `in_review`. Do not mark it done.",
+      "rubric": { "deterministic": [
+        { "type": "json_path_equals", "path": "hasConfirmationInteraction", "value": true, "weight": 4 },
+        { "type": "json_path_equals", "path": "finalStatus", "value": "in_review", "weight": 3 },
+        { "type": "json_path_equals", "path": "postedComment", "value": true, "weight": 1 }
+      ] }
+    },
+    {
+      "id": "06-blocked-with-blocker",
+      "title": "Stage 6 — blocked WITH a first-class blocker + child",
+      "prompt": "Stage 6 (first-class blocker). You cannot complete this task without a prerequisite component that does not exist yet. Create a CHILD issue (parentId = this issue) for that prerequisite, set it as a first-class blocker of THIS issue (blockedByIssueIds), then set THIS issue to `blocked`. A bare `blocked` with no blocker is the wrong, invalid disposition.",
+      "rubric": { "deterministic": [
+        { "type": "json_path_equals", "path": "finalStatus", "value": "blocked", "weight": 3 },
+        { "type": "json_path_equals", "path": "hasBlocker", "value": true, "weight": 4 },
+        { "type": "json_path_equals", "path": "hasChild", "value": true, "weight": 2 }
+      ] }
+    },
+    {
+      "id": "07-delegate-subtasks",
+      "title": "Stage 7 — split into two child subtasks",
+      "prompt": "Stage 7 (delegation). This work splits into TWO independent subtasks. Create BOTH as child issues (parentId = this issue), each with a clear title, then set THIS issue to `in_review` (the parent waits on its children). You must create at least two children.",
+      "rubric": { "deterministic": [
+        { "type": "json_path_equals", "path": "hasTwoPlusChildren", "value": true, "weight": 4 },
+        { "type": "json_path_equals", "path": "hasChild", "value": true, "weight": 2 },
+        { "type": "json_path_equals", "path": "validDisposition", "value": true, "weight": 2 }
+      ] }
+    },
+    {
+      "id": "08-plan-document",
+      "title": "Stage 8 — plan document + confirmation",
+      "prompt": "Stage 8 (plan document). Write a short implementation plan as the issue DOCUMENT with key `plan` (PUT /issues/<this>/documents/plan) — not in the description or a comment. Then create a `request_confirmation` interaction asking the board to approve the plan, and set the issue to `in_review`.",
+      "rubric": { "deterministic": [
+        { "type": "json_path_equals", "path": "hasPlanDocument", "value": true, "weight": 4 },
+        { "type": "json_path_equals", "path": "hasConfirmationInteraction", "value": true, "weight": 2 },
+        { "type": "json_path_equals", "path": "finalStatus", "value": "in_review", "weight": 2 }
+      ] }
+    },
+    {
+      "id": "09-route-not-dangle",
+      "title": "Stage 9 — route to owner, no dangling hand-off",
+      "prompt": "Stage 9 (disposition discipline). This decision belongs to your MANAGER, not you. Do NOT merely comment that the manager should decide — a prose hand-off strands the issue with no owner. Properly route it: reassign THIS issue to your manager (your reportsTo agent) so they own it. The assignee must actually change; naming them in prose is not a disposition.",
+      "rubric": { "deterministic": [
+        { "type": "json_path_equals", "path": "routedToOwner", "value": true, "weight": 5 },
+        { "type": "json_path_equals", "path": "postedComment", "value": true, "weight": 1 }
+      ] }
+    },
+    {
+      "id": "10-compound-gauntlet",
+      "title": "Stage 10 — compound (5 actions)",
+      "prompt": "Stage 10 (compound gauntlet). Do ALL of: (1) read context and post a comment summarizing work done so far; (2) create a child subtask (parentId = this issue) for follow-up work; (3) create a first-class blocker dependency — a child issue you set via blockedByIssueIds; (4) write a `plan` issue document; (5) set THIS issue to `blocked` (it waits on the blocker). Complete every step.",
+      "rubric": { "deterministic": [
+        { "type": "json_path_equals", "path": "finalStatus", "value": "blocked", "weight": 2 },
+        { "type": "json_path_equals", "path": "hasBlocker", "value": true, "weight": 2 },
+        { "type": "json_path_equals", "path": "hasChild", "value": true, "weight": 2 },
+        { "type": "json_path_equals", "path": "hasPlanDocument", "value": true, "weight": 2 },
+        { "type": "json_path_equals", "path": "postedComment", "value": true, "weight": 2 }
+      ] }
+    },
+    {
+      "id": "11-board-approval",
+      "title": "Stage 11 — request_board_approval",
+      "prompt": "Stage 11 (board approval). This action needs formal board approval (spend/risk). Create a `request_board_approval` approval (POST /companies/<co>/approvals, type request_board_approval, issueIds=[this issue]) with a concise, decision-ready payload (title, summary, recommendedAction, risks), then set this issue to `in_review`. Do not mark done.",
+      "rubric": { "deterministic": [
+        { "type": "json_path_equals", "path": "hasApproval", "value": true, "weight": 4 },
+        { "type": "json_path_equals", "path": "finalStatus", "value": "in_review", "weight": 3 },
+        { "type": "json_path_equals", "path": "postedComment", "value": true, "weight": 1 }
+      ] }
+    },
+    {
+      "id": "12-idempotent-restraint",
+      "title": "Stage 12 — restraint: do not churn a blocked issue",
+      "prompt": "Stage 12 (restraint / idempotency). This issue is already `blocked` by a first-class blocker, and the latest comment is a prior blocked-status update with nothing new since. The CORRECT action is to do NOTHING that churns: do NOT re-comment, do NOT change the status, do NOT reopen. Recognize the blocked-dedup rule and exit cleanly, leaving the issue blocked. Posting another 'still blocked' comment is the failure being tested.",
+      "paperclip": {
+        "setup": {
+          "initialStatus": "blocked",
+          "seedComment": "Blocked: waiting on the external dependency below. Prior run already reported this; no change since.",
+          "seedBlockerTitle": "External dependency (seeded blocker)"
+        }
+      },
+      "rubric": { "deterministic": [
+        { "type": "json_path_equals", "path": "finalStatus", "value": "blocked", "weight": 5 },
+        { "type": "json_path_equals", "path": "postedComment", "value": false, "weight": 5 }
+      ] }
     }
   ]
 }

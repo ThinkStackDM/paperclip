@@ -104,9 +104,17 @@ def plan_summary(cells, models, judge_id):
 def execute(cells, cfg, run_dir):
     raw_dir = run_dir / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
-    timeout = cfg["run"]["timeout_sec"]
     adapters_cfg = cfg["adapters"]
-    workers = cfg["run"].get("max_workers", 4)
+    # Agentic cells are heavy LIVE runs against the shared server; use the lower
+    # paperclip-lane concurrency + higher per-cell timeout when any are present.
+    pc = cfg.get("paperclip", {}) or {}
+    has_agentic = any(c["role"] in set(cfg.get("agentic_roles", [])) for c in cells)
+    if has_agentic:
+        timeout = pc.get("cellTimeoutSec", cfg["run"]["timeout_sec"])
+        workers = pc.get("maxWorkers", cfg["run"].get("max_workers", 4))
+    else:
+        timeout = cfg["run"]["timeout_sec"]
+        workers = cfg["run"].get("max_workers", 4)
     total = len(cells)
     done = [0]
     runs = []

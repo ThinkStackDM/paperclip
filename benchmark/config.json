@@ -38,6 +38,9 @@
     "_comment": "Agentic 'Paperclip function' lane (paperclip_lane.py). OPT-IN: never part of a default `all` sweep — run with `--roles paperclip --models grok-4.3,grok-4-fast,grok-4.1-fast`. Requires PAPERCLIP_API_URL + PAPERCLIP_API_KEY (board token) in env. Maps each benchmark model id -> a DEDICATED bench AGENT that runs that model; the lane creates a fixture issue assigned to that agent, triggers a fresh-session run, and scores whether it reaches a VALID disposition. SAFE-BY-DEFAULT: `agents` is empty so a stray run is a no-op (the lane skips models with no configured agent). DO NOT point this at live fleet agents — that commandeers real lanes. Provision dedicated throwaway bench Hermes agents (one per grok model) in a sandbox/bench company, then fill `agents` + `benchCompanyId`. Candidate models to bench: grok-4.3 (reasoning, the working baseline), grok-4-fast / grok-4.1-fast (the deployed non-reasoning variants under suspicion), grok-4.20. For reference, the live TSC (211e0f96) agents on these models are MIDAS-Hermes=8e90bc2f (grok-4.3), Compiler-Hermes=94d53f33 (grok-4-fast-non-reasoning), Engineer-Hermes=a201c6a0 (grok-4-1-fast-non-reasoning) — use these ONLY to model dedicated bench agents after them, not as bench subjects.",
     "benchCompanyId": "e6361895-a6a4-438d-bb76-b17a0ad026cb",
     "benchProjectId": "3c04d0d6-bc8e-4bdc-bc2a-2da45d7a358f",
+    "maxWorkers": 2,
+    "cellTimeoutSec": 600,
+    "_runtime_comment": "Agentic cells are heavy multi-step LIVE runs against the shared server (same box as the live fleet + DB). Keep maxWorkers low (2) so the sweep doesn't hammer the fleet, and cellTimeoutSec high (600) because complex stages (child+blocker+plan+approval) legitimately take minutes. The lane retries transient timeouts so a slow response doesn't fail a cell.",
     "agents": {
       "grok-4.3": "862f5cf1-f0fc-4c4f-bcc4-a5a582f5effc",
       "grok-4-fast": "85c54411-4c7f-4904-aa4a-e8037a8f22ce",
