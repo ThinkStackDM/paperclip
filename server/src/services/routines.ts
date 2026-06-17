@@ -3,6 +3,7 @@ import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte, ne, not, or, s
 import type { Db } from "@paperclipai/db";
 import {
   agents,
+  companies,
   companySecretBindings,
   companySecretVersions,
   companySecrets,
@@ -655,7 +656,13 @@ export function routineService(
   async function assertAssignableAgent(companyId: string, agentId: string | null | undefined) {
     if (!agentId) return;
     const agent = await db
-      .select({ id: agents.id, companyId: agents.companyId, status: agents.status })
+      .select({
+        id: agents.id,
+        companyId: agents.companyId,
+        status: agents.status,
+        adapterType: agents.adapterType,
+        role: agents.role,
+      })
       .from(agents)
       .where(eq(agents.id, agentId))
       .then((rows) => rows[0] ?? null);
@@ -663,6 +670,39 @@ export function routineService(
     if (agent.companyId !== companyId) throw unprocessable("Assignee must belong to same company");
     if (agent.status === "pending_approval") throw conflict("Cannot assign routines to pending approval agents");
     if (agent.status === "terminated") throw conflict("Cannot assign routines to terminated agents");
+    await assertRoutineAssigneeLaneAllowed(companyId, agent);
+  }
+
+  // Lane guardrail (2026-06-17): a routine must not be pinned to a Claude CEO/CTO in a
+  // *windowed* company. claude-window-flip parks that agent outside its ~6h sprint window,
+  // so off-window the routine fails "Agent is not invokable in its current state" (e.g.
+  // TSMC-10109). Routines belong on the always-on codex sister (or a shell handler). TSMC
+  // (always-on, no activity_window) is exempt. Mode via ROUTINE_GUARDRAIL_WINDOWED_CLAUDE:
+  //   "warn" (default) -> log + allow;  "enforce"/"block" -> reject;  "off" -> skip.
+  async function assertRoutineAssigneeLaneAllowed(
+    companyId: string,
+    agent: { id: string; adapterType: string | null; role: string | null },
+  ) {
+    const mode = (process.env.ROUTINE_GUARDRAIL_WINDOWED_CLAUDE ?? "warn").toLowerCase();
+    if (mode === "off") return;
+    const adapter = (agent.adapterType ?? "").toLowerCase();
+    const role = (agent.role ?? "").toLowerCase();
+    if (adapter !== "claude_local" || (role !== "ceo" && role !== "cto")) return;
+    const company = await db
+      .select({ activityWindow: companies.activityWindow })
+      .from(companies)
+      .where(eq(companies.id, companyId))
+      .then((rows) => rows[0] ?? null);
+    // A null activity_window means always-on (e.g. TSMC) -> never windowed-out -> allowed.
+    if (!company || company.activityWindow == null) return;
+    const message =
+      `Routine assignee ${agent.id} is a windowed Claude ${role.toUpperCase()}: claude-window-flip ` +
+      `parks it outside the sprint window, so routines on it fail off-window. Assign the routine ` +
+      `to the always-on codex sister or a shell handler instead.`;
+    if (mode === "enforce" || mode === "block") {
+      throw unprocessable(message);
+    }
+    logger.warn(`routine-guardrail(windowed-claude): company=${companyId} agent=${agent.id} role=${role} — ${message}`);
   }
 
   async function assertRestorableAssignee(

@@ -6,9 +6,14 @@ ad-hoc tasks to DORMANT companies hit the cheap codex lane instead of tying up C
 for the company that's actually sprinting.
 
 Per company (non-TSMC): claude window = [startHour-2, endHour+2] (mod 24).
-  in window  -> resume claude CEO/CTO,  pause  codex sister
-  out window -> pause  claude CEO/CTO,  resume codex sister
-TSMC (always-on, no window) -> claude CEO/CTO always active, sisters paused.
+  in window  -> resume claude CEO/CTO   (codex sister untouched: always-on ops lane)
+  out window -> pause  claude CEO/CTO   (codex sister untouched: always-on ops lane)
+TSMC (always-on, no window) -> claude CEO/CTO always active.
+
+The codex sister is the 24/7 always-on OPS lane (routines live here; Hermes-backed
+session-limit failover owns its pause/resume). window-flip governs ONLY the Claude
+sprint lane and never pauses/resumes codex — touching it would fight session-limit-watch
+(it would resume a codex agent the watcher paused for a real limit, causing a flap).
 
 Agents missing a codex sister are left on Claude (logged). Both lanes must be
 activity-window-exempt (set once) so they run during the 2h dormant flanks.
@@ -103,12 +108,14 @@ def main():
                 print(f"  {role}: {claude['name']} (claude) — NO codex sister, leaving on Claude")
                 want(claude, "active")
                 continue
+            # Codex sister is the always-on ops lane — NOT pause/resumed here (owned by
+            # session-limit-watch failover). window-flip only moves the Claude sprint lane.
             if in_win:
-                print(f"  {role}: claude {claude['name']}[{claude['status']}] ACTIVE | sister {sister['name']}[{sister['status']}] PAUSE")
-                want(claude, "active"); want(sister, "paused")
+                print(f"  {role}: claude {claude['name']}[{claude['status']}] ACTIVE | codex {sister['name']}[{sister['status']}] always-on (untouched)")
+                want(claude, "active")
             else:
-                print(f"  {role}: claude {claude['name']}[{claude['status']}] PAUSE | sister {sister['name']}[{sister['status']}] ACTIVE")
-                want(claude, "paused"); want(sister, "active")
+                print(f"  {role}: claude {claude['name']}[{claude['status']}] PAUSE | codex {sister['name']}[{sister['status']}] always-on (untouched)")
+                want(claude, "paused")
 
     print(f"\n=== {len(actions)} action(s) {'to apply' if APPLY else 'planned (dry-run)'} ===")
     for act, agent in actions:
