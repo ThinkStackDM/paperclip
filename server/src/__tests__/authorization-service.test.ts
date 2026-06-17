@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { eq } from "drizzle-orm";
 import {
   agents,
   companies,
@@ -94,7 +95,7 @@ async function grantAgentPermission(
   db: ReturnType<typeof createDb>,
   companyId: string,
   agentId: string,
-  permissionKey: "tasks:assign" | "tasks:assign_scope",
+  permissionKey: "tasks:assign" | "tasks:assign_scope" | "tasks:gate_keeper_write",
   scope: Record<string, unknown> | null = null,
 ) {
   await db.insert(companyMemberships).values({
@@ -910,6 +911,54 @@ describeEmbeddedPostgres("authorization service", () => {
     expect(decision).toMatchObject({
       allowed: true,
       grant: { permissionKey: "tasks:assign" },
+    });
+  });
+
+  it("matches gate-keeper grants by labels and revokes immediately when the grant or label is removed", async () => {
+    const company = await createCompany(db, "GateKeeperLabels");
+    const ownerAgent = await createAgent(db, company.id);
+    const gateKeeperAgent = await createAgent(db, company.id);
+    const issue = await createIssue(db, company.id, { assigneeAgentId: ownerAgent.id });
+    const svc = authorizationService(db);
+
+    await grantAgentPermission(db, company.id, gateKeeperAgent.id, "tasks:gate_keeper_write", {
+      labels: ["auditor:in-scope"],
+    });
+
+    const allowed = await svc.decide({
+      actor: { type: "agent", agentId: gateKeeperAgent.id, companyId: company.id, source: "agent_key" },
+      action: "tasks:gate_keeper_write",
+      resource: { type: "issue", companyId: company.id, issueId: issue.id, assigneeAgentId: ownerAgent.id },
+      scope: { labels: ["auditor:in-scope"] },
+    });
+    expect(allowed).toMatchObject({
+      allowed: true,
+      reason: "allow_explicit_grant",
+      grant: { permissionKey: "tasks:gate_keeper_write" },
+    });
+
+    const labelRemoved = await svc.decide({
+      actor: { type: "agent", agentId: gateKeeperAgent.id, companyId: company.id, source: "agent_key" },
+      action: "tasks:gate_keeper_write",
+      resource: { type: "issue", companyId: company.id, issueId: issue.id, assigneeAgentId: ownerAgent.id },
+      scope: { labels: [] },
+    });
+    expect(labelRemoved).toMatchObject({
+      allowed: false,
+      reason: "deny_missing_grant",
+    });
+
+    await db.delete(principalPermissionGrants).where(eq(principalPermissionGrants.principalId, gateKeeperAgent.id));
+
+    const grantRemoved = await svc.decide({
+      actor: { type: "agent", agentId: gateKeeperAgent.id, companyId: company.id, source: "agent_key" },
+      action: "tasks:gate_keeper_write",
+      resource: { type: "issue", companyId: company.id, issueId: issue.id, assigneeAgentId: ownerAgent.id },
+      scope: { labels: ["auditor:in-scope"] },
+    });
+    expect(grantRemoved).toMatchObject({
+      allowed: false,
+      reason: "deny_missing_grant",
     });
   });
 });

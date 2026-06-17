@@ -4500,6 +4500,71 @@ describeEmbeddedPostgres("issueService.clearExecutionRunIfTerminal", () => {
       executionRunId: successorRunId,
     });
   });
+
+  it("review checkout preserves the existing assignee while recording the reviewer run lock", async () => {
+    const companyId = randomUUID();
+    const ownerAgentId = randomUUID();
+    const reviewerAgentId = randomUUID();
+    const issueId = randomUUID();
+    const reviewRunId = randomUUID();
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+    await db.insert(agents).values([
+      {
+        id: ownerAgentId,
+        companyId,
+        name: "Owner",
+        role: "engineer",
+        status: "active",
+        adapterType: "codex_local",
+        adapterConfig: {},
+        runtimeConfig: {},
+        permissions: {},
+      },
+      {
+        id: reviewerAgentId,
+        companyId,
+        name: "Reviewer",
+        role: "engineer",
+        status: "active",
+        adapterType: "codex_local",
+        adapterConfig: {},
+        runtimeConfig: {},
+        permissions: {},
+      },
+    ]);
+    await db.insert(heartbeatRuns).values({
+      id: reviewRunId,
+      companyId,
+      agentId: reviewerAgentId,
+      status: "running",
+      invocationSource: "manual",
+      startedAt: new Date("2026-06-17T03:00:00.000Z"),
+    });
+    await db.insert(issues).values({
+      id: issueId,
+      companyId,
+      title: "Review checkout issue",
+      status: "todo",
+      priority: "medium",
+      assigneeAgentId: ownerAgentId,
+    });
+
+    const updated = await svc.checkout(issueId, reviewerAgentId, ["todo"], reviewRunId, { checkoutType: "review" });
+
+    expect(updated).toMatchObject({
+      id: issueId,
+      assigneeAgentId: ownerAgentId,
+      status: "todo",
+      checkoutRunId: reviewRunId,
+      executionRunId: reviewRunId,
+    });
+  });
 });
 
 describeEmbeddedPostgres("accepted plan decomposition", () => {

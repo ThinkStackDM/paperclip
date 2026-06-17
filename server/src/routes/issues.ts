@@ -189,6 +189,65 @@ type SuccessfulRunHandoffActivityRow = {
   details: Record<string, unknown> | null;
   createdAt: Date;
 };
+type GateKeeperOverrideInput =
+  | { kind: "comment" }
+  | { kind: "document"; documentKey: string };
+
+const GATE_KEEPER_ALLOWED_DOCUMENT_KEYS = new Set([
+  "acceptance-criteria",
+  "rollback-plan",
+  "review-evidence",
+]);
+
+function issueLabelNames(issue: { labels?: Array<{ name?: string | null }> | null }) {
+  return (issue.labels ?? [])
+    .map((label) => typeof label?.name === "string" ? label.name.trim() : "")
+    .filter((label): label is string => label.length > 0);
+}
+
+function isGateKeeperScopedLabel(label: string) {
+  return label === "auditor:in-scope" || label.startsWith("gate-keeper:");
+}
+
+function gateKeeperScopedIssueLabels(issue: { labels?: Array<{ name?: string | null }> | null }) {
+  return issueLabelNames(issue).filter(isGateKeeperScopedLabel);
+}
+
+async function hasTypedGateKeeperReviewPath(input: {
+  access: {
+    decide: (
+      input: {
+        actor: { type: "agent"; agentId: string; companyId: string };
+        action: "tasks:gate_keeper_write";
+        resource: { type: "issue"; companyId: string; issueId: string; assigneeAgentId: string | null };
+        scope: { labels: string[] };
+      },
+    ) => Promise<{ allowed: boolean }>;
+  };
+  issue: {
+    id: string;
+    companyId: string;
+    assigneeAgentId?: string | null;
+    labels?: Array<{ name?: string | null }> | null;
+  };
+  nextAssigneeAgentId: string | null | undefined;
+}) {
+  if (typeof input.nextAssigneeAgentId !== "string" || input.nextAssigneeAgentId.trim().length === 0) return false;
+  const labels = gateKeeperScopedIssueLabels(input.issue);
+  if (labels.length === 0) return false;
+  const decision = await input.access.decide({
+    actor: { type: "agent", agentId: input.nextAssigneeAgentId, companyId: input.issue.companyId },
+    action: "tasks:gate_keeper_write",
+    resource: {
+      type: "issue",
+      companyId: input.issue.companyId,
+      issueId: input.issue.id,
+      assigneeAgentId: input.issue.assigneeAgentId ?? null,
+    },
+    scope: { labels },
+  });
+  return decision.allowed;
+}
 
 function applyCreateIssueStatusDefault(req: Request, res: Response, next: () => void) {
   if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
@@ -1598,9 +1657,11 @@ export function issueRoutes(
       id: string;
       companyId: string;
       status: string;
+      assigneeAgentId?: string | null;
       assigneeUserId?: string | null;
       executionState?: unknown;
       monitorNextCheckAt?: Date | null;
+      labels?: Array<{ name?: string | null }> | null;
     };
     updateFields: Record<string, unknown>;
     actorType: string;
@@ -1614,6 +1675,11 @@ export function issueRoutes(
       ? input.existing.assigneeUserId
       : input.updateFields.assigneeUserId;
     if (typeof nextAssigneeUserId === "string" && nextAssigneeUserId.trim().length > 0) return;
+    const nextAssigneeAgentId: string | null =
+      input.updateFields.assigneeAgentId === undefined
+      ? input.existing.assigneeAgentId ?? null
+      : (input.updateFields.assigneeAgentId as string | null);
+    if (await hasTypedGateKeeperReviewPath({ access, issue: input.existing, nextAssigneeAgentId })) return;
 
     const nextExecutionState = input.updateFields.executionState === undefined
       ? input.existing.executionState
@@ -1640,6 +1706,7 @@ export function issueRoutes(
         "pending_issue_thread_interaction",
         "linked_pending_approval",
         "human_assignee_user_id",
+        "typed_gate_keeper",
         "typed_execution_state_current_participant",
         "scheduled_issue_monitor",
       ],
@@ -1842,18 +1909,58 @@ export function issueRoutes(
     return decision.allowed;
   }
 
+  async function hasGateKeeperWriteOverride(
+    issue: {
+      id: string;
+      companyId: string;
+      assigneeAgentId: string | null;
+      labels?: Array<{ name?: string | null }> | null;
+    },
+    input: {
+      actorAgentId: string;
+      override: GateKeeperOverrideInput;
+    },
+  ) {
+    if (input.override.kind === "document" && !GATE_KEEPER_ALLOWED_DOCUMENT_KEYS.has(input.override.documentKey)) {
+      return null;
+    }
+    const labels = gateKeeperScopedIssueLabels(issue);
+    if (labels.length === 0) return null;
+    const decision = await access.decide({
+      actor: { type: "agent", agentId: input.actorAgentId, companyId: issue.companyId },
+      action: "tasks:gate_keeper_write",
+      resource: {
+        type: "issue",
+        companyId: issue.companyId,
+        issueId: issue.id,
+        assigneeAgentId: issue.assigneeAgentId,
+      },
+      scope: { labels },
+    });
+    if (!decision.allowed) return null;
+    return {
+      actorAgentId: input.actorAgentId,
+      labels,
+      action: input.override.kind === "comment" ? "comment" : "document_put",
+      documentKey: input.override.kind === "document" ? input.override.documentKey : null,
+    };
+  }
+
   async function assertAgentIssueMutationAllowed(
     req: Request,
     res: Response,
     issue: {
       id: string;
       companyId: string;
+      identifier?: string | null;
       projectId: string | null;
       parentId: string | null;
       status: string;
       assigneeAgentId: string | null;
       assigneeUserId: string | null;
+      labels?: Array<{ name?: string | null }> | null;
     },
+    options?: { gateKeeperOverride?: GateKeeperOverrideInput },
   ) {
     if (req.actor.type !== "agent") return true;
     const actorAgentId = req.actor.agentId;
@@ -1871,6 +1978,35 @@ export function issueRoutes(
     }
     if (issue.assigneeAgentId !== actorAgentId) {
       if (await hasActiveCheckoutManagementOverride(actorAgentId, issue.companyId, issue.assigneeAgentId)) {
+        return true;
+      }
+      const gateKeeperOverride = options?.gateKeeperOverride
+        ? await hasGateKeeperWriteOverride(issue, {
+          actorAgentId,
+          override: options.gateKeeperOverride,
+        })
+        : null;
+      if (gateKeeperOverride) {
+        const actor = getActorInfo(req);
+        await logActivity(db, {
+          companyId: issue.companyId,
+          actorType: actor.actorType,
+          actorId: actor.actorId,
+          agentId: actor.agentId,
+          runId: actor.runId,
+          action: "gate_keeper_write",
+          entityType: "issue",
+          entityId: issue.id,
+          details: {
+            event: "gate_keeper_write",
+            actorAgentId: gateKeeperOverride.actorAgentId,
+            issueId: issue.id,
+            identifier: issue.identifier ?? null,
+            action: gateKeeperOverride.action,
+            documentKey: gateKeeperOverride.documentKey,
+            labels: gateKeeperOverride.labels,
+          },
+        });
         return true;
       }
       if (issue.status === "in_progress") {
@@ -3392,13 +3528,15 @@ export function issueRoutes(
       return;
     }
     assertCompanyAccess(req, issue.companyId);
-    if (!(await assertAgentIssueMutationAllowed(req, res, issue))) return;
-    if (!(await assertDeliverableMutationAllowedByRunContext(req, res, issue))) return;
     const keyParsed = issueDocumentKeySchema.safeParse(String(req.params.key ?? "").trim().toLowerCase());
     if (!keyParsed.success) {
       res.status(400).json({ error: "Invalid document key", details: keyParsed.error.issues });
       return;
     }
+    if (!(await assertAgentIssueMutationAllowed(req, res, issue, {
+      gateKeeperOverride: { kind: "document", documentKey: keyParsed.data },
+    }))) return;
+    if (!(await assertDeliverableMutationAllowedByRunContext(req, res, issue))) return;
 
     const actor = getActorInfo(req);
     const sourceTrust = await sourceTrustForActorWrite(issue, actor);
@@ -5078,9 +5216,15 @@ export function issueRoutes(
       typeof nextAssigneeUserId === "string" &&
       !!existing.createdByUserId &&
       nextAssigneeUserId === existing.createdByUserId;
+    const typedGateKeeperReviewAssignment =
+      req.actor.type === "agent" &&
+      (updateFields.status === "in_review" || (updateFields.status === undefined && existing.status === "in_review")) &&
+      typeof nextAssigneeAgentId === "string" &&
+      nextAssigneeUserId == null &&
+      await hasTypedGateKeeperReviewPath({ access, issue: existing, nextAssigneeAgentId });
 
     if (assigneeWillChange && !transition.workflowControlledAssignment) {
-      if (!isAgentReturningIssueToCreator) {
+      if (!isAgentReturningIssueToCreator && !typedGateKeeperReviewAssignment) {
         await assertCanAssignTasks(req, existing.companyId, {
           issueId: existing.id,
           projectId: await resolveAssignmentProjectId({
@@ -5869,7 +6013,23 @@ export function issueRoutes(
       return;
     }
 
-    if (issue.assigneeAgentId !== req.body.agentId) {
+    const checkoutType = req.body.checkoutType === "review" ? "review" : "execution";
+    if (checkoutType === "review") {
+      if (req.actor.type !== "agent" || !req.actor.agentId) {
+        res.status(403).json({ error: "Agent authentication required for review checkout" });
+        return;
+      }
+      const reviewCheckout = await hasGateKeeperWriteOverride(issue, {
+        actorAgentId: req.actor.agentId,
+        override: { kind: "comment" },
+      });
+      if (!reviewCheckout) {
+        res.status(403).json({
+          error: "Review checkout requires a matching tasks:gate_keeper_write grant on an in-scope issue",
+        });
+        return;
+      }
+    } else if (issue.assigneeAgentId !== req.body.agentId) {
       await assertCanAssignTasks(req, issue.companyId, {
         issueId: issue.id,
         projectId: issue.projectId ?? null,
@@ -5887,7 +6047,7 @@ export function issueRoutes(
 
     const checkoutRunId = requireAgentRunId(req, res);
     if (req.actor.type === "agent" && !checkoutRunId) return;
-    const updated = await svc.checkout(id, req.body.agentId, req.body.expectedStatuses, checkoutRunId);
+    const updated = await svc.checkout(id, req.body.agentId, req.body.expectedStatuses, checkoutRunId, { checkoutType });
     const actor = getActorInfo(req);
 
     await logActivity(db, {
@@ -5899,7 +6059,7 @@ export function issueRoutes(
       action: "issue.checked_out",
       entityType: "issue",
       entityId: issue.id,
-      details: { agentId: req.body.agentId },
+      details: { agentId: req.body.agentId, checkoutType },
     });
 
     if (
@@ -5915,7 +6075,7 @@ export function issueRoutes(
           source: "assignment",
           triggerDetail: "system",
           reason: "issue_checked_out",
-          payload: { issueId: issue.id, mutation: "checkout" },
+          payload: { issueId: issue.id, mutation: "checkout", checkoutType },
           requestedByActorType: actor.actorType,
           requestedByActorId: actor.actorId,
           contextSnapshot: { issueId: issue.id, source: "issue.checkout" },
@@ -5923,7 +6083,7 @@ export function issueRoutes(
         .catch((err) => logger.warn({ err, issueId: issue.id }, "failed to wake assignee on issue checkout"));
     }
 
-    res.json(updated);
+    res.json({ ...updated, checkoutType });
   });
 
   router.post("/issues/:id/release", async (req, res) => {
@@ -6624,7 +6784,9 @@ export function issueRoutes(
       return;
     }
     assertCompanyAccess(req, issue.companyId);
-    if (!(await assertAgentIssueMutationAllowed(req, res, issue))) return;
+    if (!(await assertAgentIssueMutationAllowed(req, res, issue, {
+      gateKeeperOverride: { kind: "comment" },
+    }))) return;
     if (!assertStructuredCommentFieldsAllowed(req, res, {
       presentation: req.body.presentation,
       metadata: req.body.metadata,
