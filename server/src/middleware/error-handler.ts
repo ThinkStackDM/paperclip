@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import { ZodError } from "zod";
-import { HttpError } from "../errors.js";
+import { HttpError, isTransientDbError } from "../errors.js";
 import { trackErrorHandlerCrash } from "@paperclipai/shared/telemetry";
 import { getTelemetryClient } from "../telemetry.js";
 import { COMPANY_IMPORT_API_PATH } from "../routes/company-import-paths.js";
@@ -59,6 +59,16 @@ export function errorHandler(
 
   if (err instanceof ZodError) {
     res.status(400).json({ error: "Validation error", details: err.errors });
+    return;
+  }
+
+  // Transient DB-connection failures (embedded Postgres bouncing during a server
+  // reload/restart — the DB-SPOF) are NOT crashes: in-flight queries die with
+  // CONNECTION_CLOSED / "the database system is shutting down". Return a retryable 503
+  // instead of a 500 so polling clients (the UI's /live-runs etc.) ride through the blip,
+  // and skip the 500-level crash telemetry/context (it's expected, not a bug).
+  if (isTransientDbError(err)) {
+    res.status(503).json({ error: "Database temporarily unavailable, please retry" });
     return;
   }
 
