@@ -105,6 +105,10 @@ Before ending any heartbeat, apply this final-disposition checklist:
 - Delegated follow-up: create the follow-up issue directly, link it with `parentId`/`goalId`, and use blockers when the current issue must wait for that work.
 - Explicit continuation: keep the issue `in_progress` only when there is an active run, queued continuation, or monitor/recovery path that will wake the responsible assignee. Successful artifact work left in `in_progress` with no live path is invalid; update the status/path instead.
 
+**No dangling hand-offs (REQUIRED — the most common stranding bug).** Naming a next actor in prose — "ready for the engineer lane", "CEO to move this", "FoundingEngineer should audit next" — is **NOT** a disposition. A comment never reassigns, notifies, or creates work; the issue just sits with a next step nobody owns (and it trips the missing-disposition recovery). Before you exit you MUST convert that intent into a real, owned state:
+- **If you can perform the hand-off** → execute it: `PATCH assigneeAgentId` to the named agent (with the right status), or create a child issue assigned to them via `parentId`. Do not stop at "this should go to X."
+- **If you cannot** (you lack the permission/capability to move it) → still route it, never just narrate: reassign to — or create a child issue assigned to — the owner who *can* act, OR set `blocked` with that owner named as the unblock owner (`blockedByIssueIds` when another issue is the blocker), **and notify them**: @mention the owner, and for cross-company hand-offs notify Mission Control (GLaD0S) via the portfolio channel. An unrouted "someone should do X" is an invalid disposition.
+
 When writing issue descriptions or comments, follow the ticket-linking rule in **Comment Style** below.
 
 ```json
