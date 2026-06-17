@@ -1821,6 +1821,95 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     expect(synced?.completedAt).toBeTruthy();
   });
 
+  it("records a cancelled execution issue as a cancelled run, not a failure", async () => {
+    const { companyId, issueSvc, routine, svc } = await seedFixture();
+    const issue = await issueSvc.create(companyId, {
+      projectId: routine.projectId,
+      title: routine.title,
+      description: routine.description,
+      status: "cancelled",
+      priority: routine.priority,
+      assigneeAgentId: routine.assigneeAgentId,
+      originKind: "routine_execution",
+      originId: routine.id,
+      originRunId: randomUUID(),
+    });
+
+    await db.insert(routineRuns).values({
+      id: issue.originRunId!,
+      companyId,
+      routineId: routine.id,
+      triggerId: null,
+      source: "webhook",
+      status: "issue_created",
+      failureReason: null,
+      triggeredAt: new Date("2026-03-20T12:00:00.000Z"),
+      linkedIssueId: issue.id,
+      completedAt: null,
+    });
+
+    const synced = await svc.syncRunStatusForIssue(issue.id);
+
+    // A superseded/coalesced duplicate is benign churn — it must not pollute the
+    // failed-run surfaces with status="failed" + "moved to cancelled".
+    expect(synced).toMatchObject({
+      id: issue.originRunId,
+      status: "cancelled",
+      failureReason: null,
+    });
+    expect(synced?.status).not.toBe("failed");
+    expect(synced?.completedAt).toBeTruthy();
+  });
+
+  it("leaves an already-synced terminal run untouched (no updatedAt churn)", async () => {
+    const { companyId, issueSvc, routine, svc } = await seedFixture();
+    const issue = await issueSvc.create(companyId, {
+      projectId: routine.projectId,
+      title: routine.title,
+      description: routine.description,
+      status: "cancelled",
+      priority: routine.priority,
+      assigneeAgentId: routine.assigneeAgentId,
+      originKind: "routine_execution",
+      originId: routine.id,
+      originRunId: randomUUID(),
+    });
+
+    const completedAt = new Date("2026-03-20T12:05:00.000Z");
+    await db.insert(routineRuns).values({
+      id: issue.originRunId!,
+      companyId,
+      routineId: routine.id,
+      triggerId: null,
+      source: "webhook",
+      status: "cancelled",
+      failureReason: null,
+      triggeredAt: new Date("2026-03-20T12:00:00.000Z"),
+      linkedIssueId: issue.id,
+      completedAt,
+    });
+
+    const before = await db
+      .select({ updatedAt: routineRuns.updatedAt, completedAt: routineRuns.completedAt })
+      .from(routineRuns)
+      .where(eq(routineRuns.id, issue.originRunId!))
+      .then((rows) => rows[0]);
+
+    const synced = await svc.syncRunStatusForIssue(issue.id);
+
+    const after = await db
+      .select({ updatedAt: routineRuns.updatedAt, completedAt: routineRuns.completedAt })
+      .from(routineRuns)
+      .where(eq(routineRuns.id, issue.originRunId!))
+      .then((rows) => rows[0]);
+
+    expect(synced?.status).toBe("cancelled");
+    // Idempotent: a matching terminal run is not rewritten, so updatedAt and the
+    // original completedAt are preserved.
+    expect(after?.updatedAt?.getTime()).toBe(before?.updatedAt?.getTime());
+    expect(after?.completedAt?.getTime()).toBe(completedAt.getTime());
+  });
+
   // THIAAAAAA-203 / THIAAAAAA-2176: a webhook trigger's company_secret_bindings
   // join row can vanish while the secret itself stays live, which 422-rejects
   // OpCo callbacks. The fire handler must self-heal by recreating the binding

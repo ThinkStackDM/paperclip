@@ -189,6 +189,7 @@ function nextResultText(status: string, issueId?: string | null) {
   if (status === "coalesced") return "Coalesced into an existing open execution issue";
   if (status === "skipped") return "Skipped because an open execution issue already exists";
   if (status === "completed") return "Execution issue completed";
+  if (status === "cancelled") return "Execution issue cancelled";
   if (status === "failed") return "Execution failed";
   return status;
 }
@@ -2739,35 +2740,55 @@ export function routineService(
         .where(eq(issues.id, issueId))
         .then((rows) => rows[0] ?? null);
       if (!issue || issue.originKind !== "routine_execution" || !issue.originRunId) return null;
-      if (OPEN_ISSUE_STATUSES.includes(issue.status)) {
-        return finalizeRun(issue.originRunId, {
-          status: "issue_created",
-          failureReason: null,
-          completedAt: null,
-        });
-      }
+
+      // Map the execution issue's status onto the routine run's lifecycle.
+      // A cancelled execution issue is NOT a run failure: it is almost always a
+      // superseded duplicate folded in by inbound coalescing (the auto-cancel
+      // cleanup). Recording it as "cancelled" rather than "failed" keeps that
+      // benign churn out of the failed-run surfaces and drops the misleading
+      // "Execution issue moved to cancelled" failure reason.
+      // OPEN_ISSUE_STATUSES already includes "blocked", so a still-open issue of
+      // any open status maps back to the active "issue_created" run state.
+      let desiredStatus: string;
+      let terminal: boolean;
       if (issue.status === "done") {
-        return finalizeRun(issue.originRunId, {
-          status: "completed",
-          failureReason: null,
-          completedAt: new Date(),
-        });
+        desiredStatus = "completed";
+        terminal = true;
+      } else if (issue.status === "cancelled") {
+        desiredStatus = "cancelled";
+        terminal = true;
+      } else if (OPEN_ISSUE_STATUSES.includes(issue.status)) {
+        desiredStatus = "issue_created";
+        terminal = false;
+      } else {
+        return null;
       }
-      if (issue.status === "blocked") {
-        return finalizeRun(issue.originRunId, {
-          status: "issue_created",
-          failureReason: null,
-          completedAt: null,
-        });
+
+      const current = await db
+        .select({
+          id: routineRuns.id,
+          status: routineRuns.status,
+          failureReason: routineRuns.failureReason,
+          completedAt: routineRuns.completedAt,
+        })
+        .from(routineRuns)
+        .where(eq(routineRuns.id, issue.originRunId))
+        .then((rows) => rows[0] ?? null);
+      if (!current) return null;
+
+      // Idempotent: skip the write (and its updatedAt churn) when the run already
+      // reflects the issue's state. Still re-writes when failure metadata is stale
+      // so a reopened/closed issue clears its old failureReason.
+      const completedAtSatisfied = terminal ? current.completedAt !== null : current.completedAt === null;
+      if (current.status === desiredStatus && current.failureReason === null && completedAtSatisfied) {
+        return current;
       }
-      if (issue.status === "cancelled") {
-        return finalizeRun(issue.originRunId, {
-          status: "failed",
-          failureReason: `Execution issue moved to ${issue.status}`,
-          completedAt: new Date(),
-        });
-      }
-      return null;
+
+      return finalizeRun(issue.originRunId, {
+        status: desiredStatus,
+        failureReason: null,
+        completedAt: terminal ? current.completedAt ?? new Date() : null,
+      });
     },
   };
 }
