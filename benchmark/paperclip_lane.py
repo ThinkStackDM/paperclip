@@ -98,13 +98,17 @@ def run_case(task, model, cfg, timeout):
     t0 = time.time()
     issue = None
     try:
-        issue = _req("POST", f"/api/companies/{company}/issues", {
+        issue_body = {
             "title": f"[agentic-bench] {title}",
             "description": description,
             "status": "todo",
             "priority": "medium",
             "assigneeAgentId": agent_id,
-        })
+        }
+        project_id = pc.get("benchProjectId")
+        if project_id:
+            issue_body["projectId"] = project_id
+        issue = _req("POST", f"/api/companies/{company}/issues", issue_body)
         issue_id = issue["id"]
 
         run = _req("POST", f"/api/agents/{agent_id}/heartbeat/invoke", {

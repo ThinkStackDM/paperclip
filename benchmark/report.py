@@ -46,7 +46,11 @@ def aggregate(runs, cfg):
     labels = {mid: (roster.get(mid, {}).get("label") or mid) for mid in models}
     roster_rows = {mid: roster.get(mid, {"id": mid, "label": mid, "adapter": None,
                                           "model_arg": None, "lane": None}) for mid in models}
-    roles = cfg["roles"]
+    roles = list(cfg["roles"])
+    # Agentic roles (paperclip lane) are scored the same way but rendered in their
+    # own section — they measure live case-completion, not base-model answer quality.
+    agentic_roles = [r for r in cfg.get("agentic_roles", []) if any(run["role"] == r for run in runs)]
+    roles_all = roles + [r for r in agentic_roles if r not in roles]
 
     # cell[(role, model)] = list of runs
     cells = defaultdict(list)
@@ -54,7 +58,7 @@ def aggregate(runs, cfg):
         cells[(r["role"], r["model_id"])].append(r)
 
     per_role = {}
-    for role in roles:
+    for role in roles_all:
         model_stats = {}
         for mid in models:
             rs = cells.get((role, mid), [])
@@ -91,6 +95,7 @@ def aggregate(runs, cfg):
                     "lane": roster_rows[mid].get("lane")} for mid in models],
         "judge": cfg["judge"].get("id"),
         "roles": per_role,
+        "agenticRoles": agentic_roles,
         "overall": overall,
         "config": {"scoring": cfg["scoring"], "recommendation": cfg["recommendation"]},
     }
@@ -236,9 +241,16 @@ def to_markdown(report, run_id, meta):
                  f"{_fmt(s.get('meanQualityPer1kOutput'))} | {_fmt(s['meanQualityPer1k'])} |")
     L.append(f"\n**Best overall quality:** {ov.get('bestOverallQualityLabel') or '—'}\n")
 
-    # per role
-    L.append("## Per-role results & recommendations\n")
-    for role in report["roles"]:
+    # per role — CLI answer-quality lanes only; agentic roles render in their own section below
+    agentic = list(report.get("agenticRoles", []))
+    cli_roles = [
+        r for r in report["roles"]
+        if r not in agentic
+        and any(report["roles"][r]["models"][m["id"]]["tasks"] > 0 for m in report["models"])
+    ]
+    if cli_roles:
+        L.append("## Per-role results & recommendations\n")
+    for role in cli_roles:
         rd = report["roles"][role]
         L.append(f"### `{role}`\n")
         L.append("| Model | Quality | q/1k-out | in | out | Success |")
@@ -264,29 +276,50 @@ def to_markdown(report, run_id, meta):
                      f"4.3 q={_fmt(h['grok43']['quality'])} / "
                      f"4.20 q={_fmt(h['grok420']['quality'])}._\n")
 
-    # grok verdict
-    L.append("## grok-4.3 vs grok-4.20 — the verdict\n")
-    wins43 = wins420 = ties = 0
-    for role in report["roles"]:
-        h = report["roles"][role]["grokHeadToHead"]
-        if not h.get("resolved"):
-            continue
-        w = h["qualityWinner"]
-        if abs(h["qualityDelta"]) < 1e-9:
-            ties += 1
-        elif w == "grok-4.20":
-            wins420 += 1
-        else:
-            wins43 += 1
-    L.append(f"- Role-level quality wins: **grok-4.20 = {wins420}**, "
-             f"**grok-4.3 = {wins43}**, ties = {ties}")
-    o43 = ov["perModel"].get("grok-4.3", {})
-    o420 = ov["perModel"].get("grok-4.20", {})
-    L.append(f"- Overall mean quality: grok-4.3 {_fmt(o43.get('meanQuality'))} · "
-             f"grok-4.20 {_fmt(o420.get('meanQuality'))}")
-    L.append(f"- Overall mean q/1k-out: grok-4.3 {_fmt(o43.get('meanQualityPer1kOutput'))} · "
-             f"grok-4.20 {_fmt(o420.get('meanQualityPer1kOutput'))}")
-    L.append("- _(4.20 is the reasoning variant — it spends more output/thoughts tokens, so a "
-             "quality win only justifies tiering onto it if it beats 4.3's efficiency cost.)_\n")
+    # agentic case-completion (Paperclip-function lane)
+    if agentic:
+        L.append("## Agentic case-completion (Paperclip function)\n")
+        L.append("> Each model runs as a REAL Paperclip agent against fixture issues. Quality = "
+                 "did it drive the case to a VALID disposition (done / in_review / "
+                 "blocked-with-a-named-blocker) with concrete action + a comment — the live-harness "
+                 "behaviour the answer-quality lanes cannot measure (those score single-shot prose "
+                 "with the harness stripped, where non-reasoning models look identical). Tokens/"
+                 "efficiency are omitted; completion is the signal.\n")
+        for role in agentic:
+            rd = report["roles"][role]
+            L.append(f"### `{role}`\n")
+            L.append("| Model | Completion quality | Success | cases |")
+            L.append("|---|---|---|---|")
+            for m in report["models"]:
+                s = rd["models"][m["id"]]
+                L.append(f"| {m['label']} | {_fmt(s['meanQuality'])} | "
+                         f"{_fmt(s['successRate'], pct=True)} | {s['tasks']} |")
+            L.append("")
+
+    # grok verdict — CLI base-model comparison; skip for agentic-only runs (no CLI data)
+    if cli_roles:
+        L.append("## grok-4.3 vs grok-4.20 — the verdict\n")
+        wins43 = wins420 = ties = 0
+        for role in cli_roles:
+            h = report["roles"][role]["grokHeadToHead"]
+            if not h.get("resolved"):
+                continue
+            w = h["qualityWinner"]
+            if abs(h["qualityDelta"]) < 1e-9:
+                ties += 1
+            elif w == "grok-4.20":
+                wins420 += 1
+            else:
+                wins43 += 1
+        L.append(f"- Role-level quality wins: **grok-4.20 = {wins420}**, "
+                 f"**grok-4.3 = {wins43}**, ties = {ties}")
+        o43 = ov["perModel"].get("grok-4.3", {})
+        o420 = ov["perModel"].get("grok-4.20", {})
+        L.append(f"- Overall mean quality: grok-4.3 {_fmt(o43.get('meanQuality'))} · "
+                 f"grok-4.20 {_fmt(o420.get('meanQuality'))}")
+        L.append(f"- Overall mean q/1k-out: grok-4.3 {_fmt(o43.get('meanQualityPer1kOutput'))} · "
+                 f"grok-4.20 {_fmt(o420.get('meanQualityPer1kOutput'))}")
+        L.append("- _(4.20 is the reasoning variant — it spends more output/thoughts tokens, so a "
+                 "quality win only justifies tiering onto it if it beats 4.3's efficiency cost.)_\n")
 
     return "\n".join(L) + "\n"
