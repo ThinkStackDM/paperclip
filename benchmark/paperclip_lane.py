@@ -28,11 +28,28 @@ Env: PAPERCLIP_API_URL + PAPERCLIP_API_KEY (board token).
 
 import json
 import os
+import threading
 import time
 import urllib.error
 import urllib.request
 
 import benchlib
+
+# Each model maps to ONE shared bench agent, but an agent can only run one
+# heartbeat at a time. Without this, two same-model cells running concurrently
+# collide — the second sits `queued` (agent busy) or its run is `cancelled`,
+# corrupting the score. Serialize per agent: same-agent cells run one at a time,
+# different-agent (different-model) cells still run in parallel.
+_AGENT_LOCKS = {}
+_LOCKS_GUARD = threading.Lock()
+
+
+def _agent_lock(agent_id):
+    with _LOCKS_GUARD:
+        lock = _AGENT_LOCKS.get(agent_id)
+        if lock is None:
+            lock = _AGENT_LOCKS[agent_id] = threading.Lock()
+        return lock
 
 TERMINAL_RUN_STATUSES = {"succeeded", "failed", "cancelled", "timed_out"}
 # A `blocked` disposition is VALID only when backed by a first-class blocker.
@@ -191,18 +208,23 @@ def run_case(task, model, cfg, timeout):
                 seeded_child_id = child["id"]
                 _opt("PATCH", f"/api/issues/{issue_id}", {"blockedByIssueIds": [seeded_child_id]})
 
-        trigger_ts = time.time()
-        run = _req("POST", f"/api/agents/{agent_id}/heartbeat/invoke", {
-            "forceFreshSession": True,
-            "reason": "agentic_bench",
-            "payload": {"issueId": issue_id, "taskId": issue_id},
-        })
-        run_id = run.get("id")
-        run_status = run.get("status")
-        deadline = time.time() + timeout
-        while run_id and run_status not in TERMINAL_RUN_STATUSES and time.time() < deadline:
-            time.sleep(POLL_INTERVAL_SEC)
-            run_status = (_req("GET", f"/api/heartbeat-runs/{run_id}") or {}).get("status")
+        # Exclusive per-agent: only one heartbeat per agent at a time (the agent
+        # is single-threaded). Same-model cells serialize here; other models run
+        # in parallel. Without this, a concurrent same-agent invoke leaves this
+        # run `queued`/`cancelled` and the cell scores 0 on an infra artifact.
+        with _agent_lock(agent_id):
+            trigger_ts = time.time()
+            run = _req("POST", f"/api/agents/{agent_id}/heartbeat/invoke", {
+                "forceFreshSession": True,
+                "reason": "agentic_bench",
+                "payload": {"issueId": issue_id, "taskId": issue_id},
+            })
+            run_id = run.get("id")
+            run_status = run.get("status")
+            deadline = time.time() + timeout
+            while run_id and run_status not in TERMINAL_RUN_STATUSES and time.time() < deadline:
+                time.sleep(POLL_INTERVAL_SEC)
+                run_status = (_req("GET", f"/api/heartbeat-runs/{run_id}") or {}).get("status")
 
         run_final = _req("GET", f"/api/heartbeat-runs/{run_id}") if run_id else {}
         liveness = run_final.get("livenessState")
