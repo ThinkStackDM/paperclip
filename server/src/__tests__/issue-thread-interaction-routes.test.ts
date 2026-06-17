@@ -791,6 +791,71 @@ describe.sequential("issue thread interaction routes", () => {
     expect(mockHeartbeatService.wakeup).not.toHaveBeenCalled();
   });
 
+  it("posts a board-action-resolved notice when a request confirmation is rejected", async () => {
+    mockInteractionService.rejectInteraction.mockResolvedValueOnce({
+      id: "interaction-resolved",
+      companyId: "company-1",
+      issueId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      kind: "request_confirmation",
+      status: "rejected",
+      continuationPolicy: "wake_assignee",
+      idempotencyKey: null,
+      sourceCommentId: null,
+      sourceRunId: "run-9",
+      title: "Authorize no-capital eval",
+      payload: { version: 1, prompt: "Resume?" },
+      result: { version: 1, outcome: "rejected", reason: "False positive; resume normal ops" },
+      createdAt: "2026-04-20T12:00:00.000Z",
+      updatedAt: "2026-04-20T12:05:00.000Z",
+      resolvedAt: "2026-04-20T12:05:00.000Z",
+    });
+    const app = await createApp();
+
+    const res = await request(app)
+      .post("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/interactions/interaction-resolved/reject")
+      .send({ reason: "False positive; resume normal ops" });
+
+    expect(res.status).toBe(200);
+    // The dangling "Board action required" notice must be closed so a later
+    // heartbeat does not re-assert a pending approval.
+    const resolvedCalls = mockIssueService.addComment.mock.calls.filter(
+      (call: unknown[]) => typeof call[1] === "string" && (call[1] as string).includes("Board action resolved"),
+    );
+    expect(resolvedCalls).toHaveLength(1);
+    expect(resolvedCalls[0][0]).toBe("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    expect(resolvedCalls[0][1]).toContain("rejected");
+    expect(resolvedCalls[0][1]).toContain("False positive; resume normal ops");
+  });
+
+  it("wakes the assignee when a board confirmation resolves as expired (superseded)", async () => {
+    mockInteractionService.rejectInteraction.mockResolvedValueOnce({
+      id: "interaction-superseded",
+      companyId: "company-1",
+      issueId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      kind: "request_confirmation",
+      status: "expired",
+      continuationPolicy: "wake_assignee",
+      idempotencyKey: null,
+      sourceCommentId: null,
+      sourceRunId: "run-11",
+      title: "Confirm posture",
+      payload: { version: 1, prompt: "Confirm?" },
+      result: { version: 1, outcome: "expired" },
+      createdAt: "2026-04-20T12:00:00.000Z",
+      updatedAt: "2026-04-20T12:05:00.000Z",
+      resolvedAt: "2026-04-20T12:05:00.000Z",
+    });
+    const app = await createApp();
+
+    const res = await request(app)
+      .post("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/interactions/interaction-superseded/reject")
+      .send({ reason: "superseded" });
+
+    expect(res.status).toBe(200);
+    // Previously expired resolutions silently skipped the wake, stranding the assignee.
+    expect(mockHeartbeatService.wakeup).toHaveBeenCalled();
+  });
+
   it("allows agent-authored interaction creation and stamps the active run id", async () => {
     const app = await createApp({
       type: "agent",

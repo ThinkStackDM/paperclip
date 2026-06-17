@@ -674,7 +674,10 @@ function queueResolvedInteractionContinuationWakeup(input: {
     input.interaction.continuationPolicy === "wake_assignee_on_accept"
     && input.interaction.status !== "accepted"
   ) return;
-  if (input.interaction.status === "expired") return;
+  // Note: previously skipped on "expired", which left an assignee unaware that a
+  // board-action card it created had been superseded — so it re-asserted a stale
+  // pending approval. Expired resolutions now wake the assignee too; the resolution
+  // notice comment tells it not to re-request.
   if (!input.issue.assigneeAgentId || isClosedIssueStatus(input.issue.status)) return;
 
   const forceFreshSession = input.forceFreshSession === true;
@@ -1287,6 +1290,31 @@ export function issueRoutes(
           result: interaction.result ?? null,
         },
       });
+      // Superseded confirmations are always board-action interactions
+      // (request_confirmation). Post the symmetric resolution notice so the
+      // earlier "Board action required" comment does not dangle.
+      try {
+        await svc.addComment(
+          input.issue.id,
+          buildBoardActionResolvedBody({
+            kind: interaction.kind,
+            status: interaction.status,
+            title: null,
+            reason: boardActionInteractionReason(interaction),
+          }),
+          {
+            agentId: input.actor.agentId ?? undefined,
+            userId: input.actor.actorType === "user" ? input.actor.actorId : undefined,
+            runId: input.actor.runId,
+          },
+          { authorType: input.actor.actorType === "agent" ? "agent" : "user" },
+        );
+      } catch (err) {
+        logger.warn(
+          { err, issueId: input.issue.id, interactionId: interaction.id },
+          "failed to post board action-resolved notification for expired confirmation",
+        );
+      }
     }
   }
 
@@ -1320,6 +1348,93 @@ export function issueRoutes(
       `${boardAction.title ? ` (${boardAction.title})` : ""}.\n` +
       `- Resume condition: ${boardAction.resumeText}\n` +
       `- Source: ${sourceLabel} for ${trackerIssueIdentifier ? trackerIssueIdentifier : issue.identifier ?? issue.id}.`;
+  }
+
+  function boardActionResolvedOutcomeLabel(status: string) {
+    switch (status) {
+      case "accepted":
+        return "approved";
+      case "rejected":
+        return "rejected";
+      case "cancelled":
+        return "cancelled";
+      case "expired":
+        return "superseded / expired";
+      default:
+        return status;
+    }
+  }
+
+  function boardActionInteractionReason(interaction: { result?: unknown }) {
+    const result = interaction.result as { reason?: unknown; rejectionReason?: unknown } | null | undefined;
+    if (!result || typeof result !== "object") return null;
+    const reason = result.reason ?? result.rejectionReason;
+    return typeof reason === "string" && reason.trim().length > 0 ? reason.trim() : null;
+  }
+
+  function isBoardActionResolutionInteraction(
+    interaction: { kind: string },
+    issue: { assigneeUserId?: string | null },
+  ) {
+    if (interaction.kind === "request_confirmation") return true;
+    if (interaction.kind === "ask_user_questions" && !issue.assigneeUserId) return true;
+    return false;
+  }
+
+  function buildBoardActionResolvedBody(interaction: {
+    kind: string;
+    status: string;
+    title?: string | null;
+    reason?: string | null;
+  }) {
+    const label = interaction.title && interaction.title.trim().length > 0
+      ? ` "${interaction.title.trim()}"`
+      : "";
+    const lines = [
+      "Board action resolved — no board decision is pending.",
+      "",
+      `- ${interaction.kind} interaction${label}: ${boardActionResolvedOutcomeLabel(interaction.status)}.`,
+    ];
+    if (interaction.reason && interaction.reason.trim().length > 0) {
+      lines.push(`- Reason: ${interaction.reason.trim()}`);
+    }
+    lines.push(
+      "- This closes the earlier \"Board action required\" notice. Do not re-request this approval — reconcile against the live interaction status and continue.",
+    );
+    return lines.join("\n");
+  }
+
+  // Symmetric counterpart to postBoardActionNotification: when a board-action
+  // interaction is RESOLVED (accepted/rejected/answered/cancelled/superseded),
+  // close the loop in the thread so a later heartbeat (or human) does not read
+  // the dangling "Board action required" notice and re-assert a pending card.
+  async function postBoardActionResolvedNotification(input: {
+    issue: IssueRouteSnapshot;
+    actor: ReturnType<typeof getActorInfo>;
+    interaction: { id: string; kind: string; status: string; title?: string | null; reason?: string | null };
+    preferredNotificationIssue?: TrackerContextIssue | null;
+  }) {
+    const { issue, actor, interaction, preferredNotificationIssue } = input;
+    const candidateTargets = preferredNotificationIssue ? [preferredNotificationIssue, issue] : [issue];
+    for (const targetIssue of candidateTargets) {
+      try {
+        await svc.addComment(targetIssue.id, buildBoardActionResolvedBody(interaction), {
+          agentId: actor.agentId ?? undefined,
+          userId: actor.actorType === "user" ? actor.actorId : undefined,
+          runId: actor.runId,
+        }, {
+          authorType: actor.actorType === "agent" ? "agent" : "user",
+        });
+        return;
+      } catch (err) {
+        logger.warn({
+          err,
+          issueId: issue.id,
+          targetIssueId: targetIssue.id,
+          interactionId: interaction.id,
+        }, "failed to post board action-resolved notification");
+      }
+    }
   }
 
   type TrackerContextIssue = { id: string; identifier?: string | null; title?: string | null };
@@ -5615,6 +5730,22 @@ export function issueRoutes(
         workspaceRefreshReason: acceptedPlanConfirmation ? "accepted_plan_confirmation" : null,
       });
 
+      if (isBoardActionResolutionInteraction(interaction, issue)) {
+        const resolvedAncestors = await svc.getAncestors(issue.id);
+        await postBoardActionResolvedNotification({
+          issue,
+          actor,
+          interaction: {
+            id: interaction.id,
+            kind: interaction.kind,
+            status: interaction.status,
+            title: interaction.title,
+            reason: boardActionInteractionReason(interaction),
+          },
+          preferredNotificationIssue: findTrackerContextIssue(resolvedAncestors, issue),
+        });
+      }
+
       res.json(interaction);
     },
   );
@@ -5671,6 +5802,22 @@ export function issueRoutes(
         source: "issue.interaction.reject",
       });
 
+      if (isBoardActionResolutionInteraction(interaction, issue)) {
+        const resolvedAncestors = await svc.getAncestors(issue.id);
+        await postBoardActionResolvedNotification({
+          issue,
+          actor,
+          interaction: {
+            id: interaction.id,
+            kind: interaction.kind,
+            status: interaction.status,
+            title: interaction.title,
+            reason: boardActionInteractionReason(interaction),
+          },
+          preferredNotificationIssue: findTrackerContextIssue(resolvedAncestors, issue),
+        });
+      }
+
       res.json(interaction);
     },
   );
@@ -5723,6 +5870,22 @@ export function issueRoutes(
         source: "issue.interaction.respond",
       });
 
+      if (isBoardActionResolutionInteraction(interaction, issue)) {
+        const resolvedAncestors = await svc.getAncestors(issue.id);
+        await postBoardActionResolvedNotification({
+          issue,
+          actor,
+          interaction: {
+            id: interaction.id,
+            kind: interaction.kind,
+            status: interaction.status,
+            title: interaction.title,
+            reason: boardActionInteractionReason(interaction),
+          },
+          preferredNotificationIssue: findTrackerContextIssue(resolvedAncestors, issue),
+        });
+      }
+
       res.json(interaction);
     },
   );
@@ -5774,6 +5937,22 @@ export function issueRoutes(
         actor,
         source: "issue.interaction.cancel",
       });
+
+      if (isBoardActionResolutionInteraction(interaction, issue)) {
+        const resolvedAncestors = await svc.getAncestors(issue.id);
+        await postBoardActionResolvedNotification({
+          issue,
+          actor,
+          interaction: {
+            id: interaction.id,
+            kind: interaction.kind,
+            status: interaction.status,
+            title: interaction.title,
+            reason: boardActionInteractionReason(interaction),
+          },
+          preferredNotificationIssue: findTrackerContextIssue(resolvedAncestors, issue),
+        });
+      }
 
       res.json(interaction);
     },
