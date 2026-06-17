@@ -129,6 +129,33 @@ for P in $RUNTIME_PORTS; do
   fi
 done
 
+# --- @paperclipai dependency-symlink integrity guard (2026-06-17; see memory
+# paperclip-worktree-symlink-hazard). A `pnpm install` run from a paperclip-wt-*
+# worktree whose node_modules symlink into THIS repo clobbers
+# server/node_modules/@paperclipai/* — repointing them at the worktree's UNBUILT
+# packages, so the server crash-loops on ERR_MODULE_NOT_FOUND (e.g.
+# plugin-sdk/dist/index.js) and never self-recovers. Self-heal: repoint any link
+# whose target is outside $ROOT back to the matching $ROOT/packages/... path.
+PC_DEPS="$ROOT/server/node_modules/@paperclipai"
+if [ -d "$PC_DEPS" ]; then
+  for dep in "$PC_DEPS"/*; do
+    [ -L "$dep" ] || continue
+    tgt="$(readlink "$dep" 2>/dev/null)" || continue
+    case "$tgt" in
+      "$ROOT"/*) : ;;                       # already resolves into the main repo — ok
+      */packages/*)                         # hijacked to another repo/worktree
+        main_tgt="$ROOT/packages/${tgt#*/packages/}"
+        if [ -d "$main_tgt" ]; then
+          ln -sfn "$main_tgt" "$dep"
+          log "integrity-guard: repointed hijacked dep $(basename "$dep") -> $main_tgt"
+        else
+          log "integrity-guard: WARNING hijacked dep $(basename "$dep") -> $tgt but main target missing"
+        fi
+        ;;
+    esac
+  done
+fi
+
 log "cleanup complete; starting source server (lock held by pid $$ for server lifetime)"
 # Foreground: launchd manages this process directly (KeepAlive restarts it).
 # exec replaces this shell in place, so $$ (and thus the lock) now belongs to the server.
