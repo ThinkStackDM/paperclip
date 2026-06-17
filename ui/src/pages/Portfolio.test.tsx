@@ -4,7 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { AnchorHTMLAttributes } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { Agent, Company, Issue, IssueBlockedInboxAttention } from "@paperclipai/shared";
+import type { Agent, Company, Issue, IssueBlockedInboxAttention, IssueRelationIssueSummary } from "@paperclipai/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Portfolio } from "./Portfolio";
 
@@ -111,6 +111,10 @@ function withAttention(issue: Issue, over: Partial<IssueBlockedInboxAttention>):
       ...over,
     },
   } as Issue;
+}
+
+function blockerSummary(id: string, identifier: string, title: string): IssueRelationIssueSummary {
+  return { id, identifier, title, status: "todo", priority: "medium", assigneeAgentId: null, assigneeUserId: null };
 }
 
 const booksIssues = [
@@ -224,11 +228,63 @@ describe("Portfolio", () => {
     // under the old status === blocked/in_review filter).
     expect(container.textContent).toContain("Approve Q3 budget");
 
-    const links = Array.from(container.querySelectorAll("a")).map((a) => a.getAttribute("href"));
+    const anchors = Array.from(container.querySelectorAll("a"));
+    const links = anchors.map((a) => a.getAttribute("href"));
     expect(links).toContain("/TSB/issues/TSB-1");
     expect(links).toContain("/TSK/issues/TSK-9");
     // The ask deep-links straight to the interaction, not the issue top.
-    expect(links).toContain(`/TSB/issues/TSB-5#interaction-${ASK_INTERACTION_ID}`);
+    const askHref = `/TSB/issues/TSB-5#interaction-${ASK_INTERACTION_ID}`;
+    expect(links).toContain(askHref);
+    // A standalone actionable ask gets the same violet highlight as a chain leaf — so the thing to
+    // action reads identically whether or not it sits in a chain.
+    expect(anchors.find((a) => a.getAttribute("href") === askHref)?.className).toContain("ring-violet-500/40");
+    // ...while a non-actionable blocked-context row does not.
+    expect(anchors.find((a) => a.getAttribute("href") === "/TSB/issues/TSB-1")?.className).not.toContain("ring-violet-500/40");
+  });
+
+  it("folds a blocked chain into a nested tree and surfaces the buried ask", async () => {
+    // A 2-deep chain: TSB-10 is a blocked-context parent whose actual decision lives on the deep
+    // child TSB-11 (a pending ask). Before, both read as disconnected flat rows; now TSB-11 nests
+    // under TSB-10 and is pulled out as the actionable, deep-linked leaf.
+    const ask = withAttention(
+      createIssue({ id: "tsb-11", identifier: "TSB-11", title: "Approve vendor budget", status: "todo" }),
+      { reason: "pending_board_decision", interactionId: ASK_INTERACTION_ID },
+    );
+    const parent = withAttention(
+      createIssue({
+        id: "tsb-10",
+        identifier: "TSB-10",
+        title: "Launch storefront",
+        status: "blocked",
+        blockedBy: [blockerSummary("tsb-11", "TSB-11", "Approve vendor budget")],
+      }),
+      { reason: "blocked_chain_stalled", severity: "high", state: "needs_attention" },
+    );
+    mockIssuesApi.list.mockImplementation((companyId: string, filters?: { attention?: string }) => {
+      if (filters?.attention === "blocked") {
+        return Promise.resolve(companyId === "books" ? [parent, ask] : []);
+      }
+      return Promise.resolve(companyId === "books" ? booksIssues : kissIssues);
+    });
+
+    await renderPortfolio();
+
+    // The chain announces what it surfaced, and both members render.
+    expect(container.textContent).toContain("1 awaiting you · surfaced from a chain of 2");
+    expect(container.textContent).toContain("Launch storefront");
+    expect(container.textContent).toContain("Approve vendor budget");
+
+    const anchors = Array.from(container.querySelectorAll("a"));
+    const askLink = anchors.find((a) => a.getAttribute("href")?.includes("#interaction-"));
+    const parentLink = anchors.find((a) => a.getAttribute("href") === "/TSB/issues/TSB-10");
+
+    // The deep child is highlighted as the actionable leaf and deep-links straight to the ask.
+    expect(askLink?.getAttribute("href")).toBe(`/TSB/issues/TSB-11#interaction-${ASK_INTERACTION_ID}`);
+    expect(askLink?.className).toContain("ring-violet-500/40");
+    // The parent stays as dimmed context (no digging required to reach the leaf).
+    expect(parentLink?.className).toContain("opacity-60");
+    // The leaf is nested beneath the parent under an indent guide, not a sibling flat row.
+    expect(askLink?.closest("div.border-l")).not.toBeNull();
   });
 
   it("lists in-progress issues under Active now, most recent first", async () => {

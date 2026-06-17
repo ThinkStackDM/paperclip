@@ -1,6 +1,6 @@
 import { useEffect, useMemo, type CSSProperties } from "react";
 import { useQueries } from "@tanstack/react-query";
-import { Clock } from "lucide-react";
+import { ArrowRight, Clock, CornerDownRight } from "lucide-react";
 import type { Agent, Company, Issue } from "@paperclipai/shared";
 import { Link } from "@/lib/router";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -10,6 +10,7 @@ import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { queryKeys } from "../lib/queryKeys";
 import { isCoordinationNoiseIssue } from "../lib/issue-noise";
+import { buildNeedsYouForest, chainStats, isActionableAsk, type NeedsYouForest } from "../lib/needs-you-chains";
 import { getAgentFallbackLane } from "../lib/agent-lanes";
 import { timeAgo } from "../lib/timeAgo";
 import { cn } from "../lib/utils";
@@ -326,9 +327,26 @@ function askDeepLink(company: Company, issue: Issue): string | undefined {
   return undefined;
 }
 
+/**
+ * Whole-row treatment for an actionable ask (a linked approval or pending question). Violet is this
+ * app's "needs decision" colour; the same highlight + action chip are used for standalone asks and
+ * for chain leaves, so the thing to action always reads the same way wherever it sits.
+ */
+const ACTIONABLE_ASK_HIGHLIGHT = "bg-violet-500/10 ring-1 ring-violet-500/40 hover:bg-violet-500/15";
+
+function AskActionChip({ label }: { label: string }) {
+  return (
+    <span className="ml-1 inline-flex shrink-0 items-center gap-1 rounded-md border border-violet-500/30 bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium text-violet-300 align-middle">
+      <ArrowRight className="h-3 w-3" />
+      {label}
+    </span>
+  );
+}
+
 function PortfolioIssueRow({ data, issue, showCompany }: { data: CompanyPortfolioData; issue: Issue; showCompany?: boolean }) {
   const assigneeName = issue.assigneeAgentId ? data.agentNameById.get(issue.assigneeAgentId) ?? null : null;
   const attention = issue.blockedInboxAttention;
+  const actionable = isActionableAsk(issue);
   return (
     <EntityRow
       leading={
@@ -340,7 +358,9 @@ function PortfolioIssueRow({ data, issue, showCompany }: { data: CompanyPortfoli
       identifier={issue.identifier ?? issue.id.slice(0, 8)}
       title={issue.title}
       titleSuffix={
-        attention ? (
+        actionable ? (
+          <AskActionChip label={attention?.action.label ?? "Decide"} />
+        ) : attention ? (
           <BlockedReasonChip
             reason={attention.reason}
             severity={attention.severity}
@@ -356,7 +376,103 @@ function PortfolioIssueRow({ data, issue, showCompany }: { data: CompanyPortfoli
       }
       trailing={<span className="text-xs text-muted-foreground">{timeAgo(issue.updatedAt)}</span>}
       to={askDeepLink(data.company, issue) ?? issuePath(data.company, issue)}
+      className={actionable ? ACTIONABLE_ASK_HIGHLIGHT : undefined}
     />
+  );
+}
+
+/**
+ * A single row inside a nested chain. The actionable leaf (an approval/question) is highlighted in
+ * violet — this app's "needs decision" colour — and shows its decision action inline so it can be
+ * resolved in one hop. Pure-context ancestors (blocked, awaiting the leaf) are dimmed so the eye
+ * lands on the ask, not the scaffolding.
+ */
+function NeedsYouChainRow({ data, issue, isContext }: { data: CompanyPortfolioData; issue: Issue; isContext: boolean }) {
+  const attention = issue.blockedInboxAttention;
+  const actionable = isActionableAsk(issue);
+  return (
+    <Link
+      to={askDeepLink(data.company, issue) ?? issuePath(data.company, issue)}
+      className={cn(
+        "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-inherit no-underline transition-colors hover:bg-accent/60",
+        actionable && ACTIONABLE_ASK_HIGHLIGHT,
+        isContext && !actionable && "opacity-60 hover:opacity-100",
+      )}
+    >
+      <StatusIcon status={issue.status} />
+      <span className="shrink-0 font-mono text-xs text-muted-foreground">{issue.identifier ?? issue.id.slice(0, 8)}</span>
+      <span className="truncate">{issue.title}</span>
+      {actionable ? (
+        <AskActionChip label={attention?.action.label ?? "Decide"} />
+      ) : attention ? (
+        <BlockedReasonChip
+          reason={attention.reason}
+          severity={attention.severity}
+          compact
+          className="ml-1 max-w-[10rem] align-middle"
+        />
+      ) : null}
+      <span className="ml-auto shrink-0 text-xs text-muted-foreground">{timeAgo(issue.updatedAt)}</span>
+    </Link>
+  );
+}
+
+/** Recursively render a chain node and nest its descendants under an indent guide. */
+function NeedsYouChainNode({ data, id, forest }: { data: CompanyPortfolioData; id: string; forest: NeedsYouForest }) {
+  const issue = forest.byId.get(id);
+  if (!issue) return null;
+  const children = forest.childrenOf.get(id) ?? [];
+  return (
+    <>
+      <NeedsYouChainRow data={data} issue={issue} isContext={children.length > 0} />
+      {children.length > 0 && (
+        <div className="ml-3.5 border-l border-border pl-2.5">
+          {children.map((childId) => (
+            <NeedsYouChainNode key={childId} data={data} id={childId} forest={forest} />
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+/** A multi-issue chain: an indented tree framed with a one-line hint about what it surfaced. */
+function NeedsYouChain({ data, rootId, forest }: { data: CompanyPortfolioData; rootId: string; forest: NeedsYouForest }) {
+  const { size, asks } = chainStats(rootId, forest);
+  return (
+    <div className="border-b border-border bg-muted/20 p-1.5 last:border-b-0">
+      {asks > 0 && (
+        <div className="flex items-center gap-1.5 px-2 pb-1 pt-0.5 text-[11px] text-muted-foreground">
+          <CornerDownRight className="h-3 w-3 shrink-0" />
+          {asks} awaiting you · surfaced from a chain of {size}
+        </div>
+      )}
+      <div className="rounded-md border border-border/60 p-1">
+        <NeedsYouChainNode data={data} id={rootId} forest={forest} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Render a company's "Needs you" issues, folding any blocked chains into nested trees (so a buried
+ * approval is surfaced in place) while leaving standalone asks as the flat rows they already were.
+ */
+function NeedsYouList({ data }: { data: CompanyPortfolioData }) {
+  const forest = useMemo(() => buildNeedsYouForest(data.needsYou), [data.needsYou]);
+  return (
+    <>
+      {forest.roots.map((rootId) => {
+        const issue = forest.byId.get(rootId);
+        if (!issue) return null;
+        const children = forest.childrenOf.get(rootId) ?? [];
+        return children.length > 0 ? (
+          <NeedsYouChain key={rootId} data={data} rootId={rootId} forest={forest} />
+        ) : (
+          <PortfolioIssueRow key={rootId} data={data} issue={issue} />
+        );
+      })}
+    </>
   );
 }
 
@@ -571,9 +687,7 @@ export function Portfolio() {
                     )}
                   </div>
                   <div className="rounded-b-md border border-border">
-                    {data.needsYou.map((issue) => (
-                      <PortfolioIssueRow key={issue.id} data={data} issue={issue} />
-                    ))}
+                    <NeedsYouList data={data} />
                   </div>
                 </div>
               );
