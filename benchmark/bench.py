@@ -112,6 +112,15 @@ def execute(cells, cfg, run_dir):
     if has_agentic:
         timeout = pc.get("cellTimeoutSec", cfg["run"]["timeout_sec"])
         workers = pc.get("maxWorkers", cfg["run"].get("max_workers", 4))
+        # self-heal: clear any orphan fixtures a prior killed run left behind so
+        # they never accumulate / strand board-action cards in the live company.
+        try:
+            import paperclip_lane
+            swept = paperclip_lane.sweep_bench_fixtures(cfg)
+            if swept:
+                print(f"  pre-run sweep: cancelled {swept} orphan bench fixture(s)", flush=True)
+        except Exception as e:
+            print(f"  pre-run sweep skipped: {e}", flush=True)
     else:
         timeout = cfg["run"]["timeout_sec"]
         workers = cfg["run"].get("max_workers", 4)

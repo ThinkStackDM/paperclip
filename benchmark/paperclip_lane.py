@@ -112,6 +112,31 @@ def _aslist(payload, key="issues"):
     return []
 
 
+def sweep_bench_fixtures(cfg):
+    """Cancel any leftover OPEN fixtures in the bench project — orphans a killed
+    run couldn't tear down (incl. agent-spawned children + pending board cards).
+    Best-effort; returns the count cancelled. Run before a sweep so fixtures and
+    board-action notices never accumulate in the live company."""
+    pc = cfg.get("paperclip", {}) or {}
+    company, project = pc.get("benchCompanyId"), pc.get("benchProjectId")
+    if not (company and project):
+        return 0
+    n = 0
+    try:
+        xs = _aslist(_opt(
+            "GET", f"/api/companies/{company}/issues?projectId={project}&status={OPEN_STATUSES}&limit=200",
+        ) or [], "issues")
+        for i in xs:
+            try:
+                _opt("PATCH", f"/api/issues/{i['id']}", {"status": "cancelled", "comment": "[agentic-bench] pre-run sweep"})
+                n += 1
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return n
+
+
 def run_case(task, model, cfg, timeout):
     pc = cfg.get("paperclip", {}) or {}
     company = pc.get("benchCompanyId")
