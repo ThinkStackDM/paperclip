@@ -5,12 +5,14 @@
 # that backgrounds the server and exits would make launchd reap the whole group.
 #
 # 2026-06-14 restart-race hardening: the overnight process_lost storms were a
-# relaunch colliding with the PREVIOUS instance's orphaned children — the
-# embedded Postgres postmaster ("lock file postmaster.pid already exists") and
-# the runtime identity port 13100 ("Port 13100 is already in use"). This script
-# now (1) takes a single-instance lock so two concurrent launchd spawns can't
-# race the cleanup, and (2) reaps the previous instance's leftover postmaster +
-# runtime port before handing off. Safe on first boot (everything no-ops).
+# relaunch colliding with the PREVIOUS instance's orphaned children. This script
+# now takes a single-instance lock so two concurrent launchd spawns cannot race
+# cleanup, and reclaims only source-server/runtime ports before handing off.
+#
+# 2026-06-17 DB-SPOF hardening: Postgres is supervised by
+# scripts/paperclip-postgres-start.sh / ie.thinkstack.paperclip-postgres. This
+# source launcher must never reap or parent the postmaster; server reloads should
+# reconnect to DATABASE_URL instead of owning the DB lifecycle.
 set -uo pipefail
 
 # Adapters spawn CLIs (codex, claude, grok, hermes, agy, gemini) BY NAME, so the
@@ -38,14 +40,14 @@ if [ -x "$NODE_V20_BIN/node" ]; then
   export PATH="$NODE_V20_BIN:$PATH"
 fi
 export PAPERCLIP_UI_DEV_MIDDLEWARE=true
+export DATABASE_URL="${DATABASE_URL:-postgres://paperclip:paperclip@127.0.0.1:54329/paperclip}"
 ROOT="$HOME/paperclip"
 cd "$ROOT"
 
 # --- Coexist mode (TSMC-10172 follow-up). The LIVE fleet (:3100 + runtime :13100)
 # is served from a pinned DEPLOY worktree; THIS launchd job runs the source/dev
 # server ALONGSIDE it on a dedicated port. Pinning PORT keeps the source server off
-# :3100 so a source-server crash or restart can NEVER evict the live deploy fleet —
-# it only blips the shared embedded Postgres, which the deploy fleet reconnects to.
+# :3100 so a source-server crash or restart can NEVER evict the live deploy fleet.
 # The runtime identity port follows as PORT+10000 (3101 -> 13101). Opt back into the
 # legacy "source server reclaims :3100" behaviour with PAPERCLIP_RECLAIM_PRIMARY=1.
 export PORT="${PORT:-3101}"
@@ -92,24 +94,6 @@ for RP in $RECLAIM_PORTS; do
     [ -n "$STILL" ] && { log "force-killing :$RP (pid $STILL)"; kill -KILL $STILL 2>/dev/null || true; sleep 1; }
   fi
 done
-
-# --- Reap a STALE embedded-Postgres postmaster + lock file. Only remove the
-# pidfile when the recorded postmaster pid is confirmed DEAD — force-removing a
-# live cluster's lock can corrupt data.
-PGPIDFILE="$HOME/.paperclip/instances/default/db/postmaster.pid"
-if [ -f "$PGPIDFILE" ]; then
-  PG_PID="$(head -1 "$PGPIDFILE" 2>/dev/null | tr -dc '0-9')"
-  if [ -n "$PG_PID" ] && kill -0 "$PG_PID" 2>/dev/null; then
-    log "stopping leftover embedded postmaster (pid $PG_PID)"
-    kill -TERM "$PG_PID" 2>/dev/null || true
-    for _ in $(seq 1 20); do kill -0 "$PG_PID" 2>/dev/null || break; sleep 1; done
-    kill -0 "$PG_PID" 2>/dev/null && { log "force-killing postmaster $PG_PID"; kill -KILL "$PG_PID" 2>/dev/null || true; sleep 1; }
-  fi
-  PG_PID2="$(head -1 "$PGPIDFILE" 2>/dev/null | tr -dc '0-9')"
-  if [ -z "$PG_PID2" ] || ! kill -0 "$PG_PID2" 2>/dev/null; then
-    rm -f "$PGPIDFILE" 2>/dev/null || true
-  fi
-fi
 
 # --- Free orphaned runtime identity port(s) left by detached dev-servers. Coexist
 # mode only frees OUR runtime port ($RUNTIME_PORT); the deploy fleet's :13100 is left

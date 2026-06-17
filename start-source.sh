@@ -14,6 +14,12 @@ cd "$ROOT"
 LOGIN_PATH="$(/bin/zsh -lic 'printf %s "$PATH"' 2>/dev/null)"
 [ -n "$LOGIN_PATH" ] && export PATH="$LOGIN_PATH"
 
+# DB-SPOF (TSMC-10411): point at the standalone Postgres supervisor
+# (ie.thinkstack.paperclip-postgres) by default so a manual launch never falls
+# back to in-process embedded-postgres mode on the shared data dir. The launchd
+# service-mode launcher (launchd-start.sh) sets the same default.
+export DATABASE_URL="${DATABASE_URL:-postgres://paperclip:paperclip@127.0.0.1:54329/paperclip}"
+
 echo "[start-source] stopping any published 'paperclipai run' instance..."
 pkill -f "paperclipai run" 2>/dev/null || true
 pkill -f "scripts/dev-runner.ts" 2>/dev/null || true
