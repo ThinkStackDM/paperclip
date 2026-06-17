@@ -141,7 +141,7 @@
     "benchProjectId": "3c04d0d6-bc8e-4bdc-bc2a-2da45d7a358f",
     "maxWorkers": 4,
     "cellTimeoutSec": 600,
-    "_runtime_comment": "Agentic cells are heavy multi-step LIVE runs against the shared server (same box as the live fleet + DB). Keep maxWorkers low (2) so the sweep doesn't hammer the fleet, and cellTimeoutSec high (600) because complex stages (child+blocker+plan+approval) legitimately take minutes. The lane retries transient timeouts so a slow response doesn't fail a cell.",
+    "_runtime_comment": "Agentic cells are heavy multi-step LIVE runs against the shared server. maxWorkers=4 runs the 4 models in parallel (one cell per agent); the per-agent lock in paperclip_lane.py guarantees same-agent cells never collide (a collision leaves a run queued/cancelled and corrupts the score). cellTimeoutSec=600 because complex stages (child+blocker+plan+approval) legitimately take minutes; the lane retries transient timeouts. Bench fixtures run in TSMC's bench project — quiet the board-ask-janitor + stale-error-sweep launchd jobs around the run (see HANDOFF) so they don't cancel the board-action stages, and the bench agents reportTo a PAUSED Bench-Manager so stage-9 routing never wakes the real CEO.",
     "agents": {
       "grok-4.3": "862f5cf1-f0fc-4c4f-bcc4-a5a582f5effc",
       "grok-4-fast": "85c54411-4c7f-4904-aa4a-e8037a8f22ce",
