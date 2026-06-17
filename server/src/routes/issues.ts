@@ -12,6 +12,7 @@ import {
   issueRelations,
   issues as issueRows,
   projectWorkspaces,
+  routineRuns,
 } from "@paperclipai/db";
 import {
   addIssueCommentSchema,
@@ -858,6 +859,25 @@ export function issueRoutes(
     pluginWorkerManager: opts.pluginWorkerManager,
   });
   const feedback = feedbackService(db);
+
+  // THIAA-406: surface the incoming webhook request body on webhook-triggered execution
+  // issues. The routine fire already captures it on routine_runs.triggerPayload (linked to
+  // the issue via routine_runs.linked_issue_id); expose it so the assigned agent can route
+  // on triggerPayload.type without a separate API call. Returns null for non-routine issues.
+  async function resolveWebhookTriggerPayload(targetIssue: {
+    id: string;
+    originKind: string | null;
+  }): Promise<Record<string, unknown> | null> {
+    if (targetIssue.originKind !== "routine_execution") return null;
+    const row = await db
+      .select({ triggerPayload: routineRuns.triggerPayload })
+      .from(routineRuns)
+      .where(eq(routineRuns.linkedIssueId, targetIssue.id))
+      .orderBy(desc(routineRuns.triggeredAt))
+      .limit(1)
+      .then((rows) => rows[0] ?? null);
+    return (row?.triggerPayload as Record<string, unknown> | null) ?? null;
+  }
   const companiesSvc = companyService(db);
   let searchSvc = opts.searchService ?? null;
   const getSearchService = () => {
@@ -2233,6 +2253,8 @@ export function issueRoutes(
       activeRecoveryAction,
     });
 
+    const webhookTriggerPayload = await resolveWebhookTriggerPayload(issue);
+
     res.json({
       issue: {
         id: issue.id,
@@ -2257,6 +2279,7 @@ export function issueRoutes(
         assigneeUserId: issue.assigneeUserId,
         originKind: issue.originKind,
         originId: issue.originId,
+        triggerPayload: webhookTriggerPayload,
         updatedAt: issue.updatedAt,
       },
       ancestors: ancestors.map((ancestor) => ({
@@ -2368,8 +2391,10 @@ export function issueRoutes(
       ? await executionWorkspacesSvc.getById(issue.executionWorkspaceId)
       : null;
     const workProducts = await workProductsSvc.listForIssue(issue.id);
+    const webhookTriggerPayload = await resolveWebhookTriggerPayload(issue);
     res.json({
       ...issue,
+      triggerPayload: webhookTriggerPayload,
       title: svc.applyBoardActionTitlePrefix(issue.title, Boolean(boardAction)),
       boardAction,
       boardActionRequired: Boolean(boardAction),
