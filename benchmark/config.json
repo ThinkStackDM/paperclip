@@ -33,6 +33,13 @@
 
   "roles": ["engineer", "designer", "content", "intake", "ops"],
 
+  "agentic_roles": ["paperclip"],
+  "paperclip": {
+    "_comment": "Agentic 'Paperclip function' lane (paperclip_lane.py). OPT-IN: never part of a default `all` sweep — run with `--roles paperclip --models grok-4.3,grok-4-fast,grok-4.1-fast`. Requires PAPERCLIP_API_URL + PAPERCLIP_API_KEY (board token) in env. Maps each benchmark model id -> a DEDICATED bench AGENT that runs that model; the lane creates a fixture issue assigned to that agent, triggers a fresh-session run, and scores whether it reaches a VALID disposition. SAFE-BY-DEFAULT: `agents` is empty so a stray run is a no-op (the lane skips models with no configured agent). DO NOT point this at live fleet agents — that commandeers real lanes. Provision dedicated throwaway bench Hermes agents (one per grok model) in a sandbox/bench company, then fill `agents` + `benchCompanyId`. Candidate models to bench: grok-4.3 (reasoning, the working baseline), grok-4-fast / grok-4.1-fast (the deployed non-reasoning variants under suspicion), grok-4.20. For reference, the live TSC (211e0f96) agents on these models are MIDAS-Hermes=8e90bc2f (grok-4.3), Compiler-Hermes=94d53f33 (grok-4-fast-non-reasoning), Engineer-Hermes=a201c6a0 (grok-4-1-fast-non-reasoning) — use these ONLY to model dedicated bench agents after them, not as bench subjects.",
+    "benchCompanyId": null,
+    "agents": {}
+  },
+
   "scoring": {
     "deterministic_weight": 0.5,
     "judge_weight": 0.5,

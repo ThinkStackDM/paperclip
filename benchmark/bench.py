@@ -60,11 +60,15 @@ def select_models(cfg, only):
 
 
 def select_roles(cfg, only):
+    # Agentic roles (e.g. "paperclip") run real agents against live fixture issues,
+    # so they are OPT-IN: never part of a default `all` sweep, only when requested
+    # explicitly via --roles.
+    valid = list(cfg["roles"]) + list(cfg.get("agentic_roles", []))
     if not only:
         return cfg["roles"]
     want = [x.strip() for x in only.split(",") if x.strip()]
     for r in want:
-        if r not in cfg["roles"]:
+        if r not in valid:
             sys.exit(f"unknown role: {r}")
     return want
 
@@ -112,7 +116,11 @@ def execute(cells, cfg, run_dir):
         role, task, m = cell["role"], cell["task"], cell["model"]
         tag = f"{role}/{task['id']} @ {m['id']}"
         try:
-            raw = run_model(task["prompt"], m, adapters_cfg, timeout)
+            if role in cfg.get("agentic_roles", []):
+                import paperclip_lane
+                raw = paperclip_lane.run_case(task, m, cfg, timeout)
+            else:
+                raw = run_model(task["prompt"], m, adapters_cfg, timeout)
             scored = score_run(task, raw, cfg, adapters_cfg, timeout)
         except Exception as e:  # never let one cell kill the sweep
             raw = benchlib.empty_result()

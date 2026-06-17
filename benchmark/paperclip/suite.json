@@ -1,0 +1,32 @@
+{
+  "role": "paperclip",
+  "_comment": "Agentic 'Paperclip function' lane (paperclip_lane.py). Unlike the CLI lanes, each task is a REAL fixture issue assigned to a per-model bench agent; the model is scored on whether it drives the case to a VALID DISPOSITION inside the live harness, not on answer prose. The lane emits a JSON outcome ({validDisposition, dispositionSet, postedComment, concreteAction, finalStatus, blockerCount, livenessState}) as `output`, so the existing deterministic json_path_equals scorer grades it. These cases are trivial for any capable model and only require executing the loop (read -> comment -> PATCH status); a non-reasoning model that replies without acting scores ~0 — which is exactly the signal the answer-quality suites miss.",
+  "tasks": [
+    {
+      "id": "self-disposition-done",
+      "title": "Self-disposition: comment + mark done",
+      "prompt": "Agentic benchmark fixture — disposition discipline.\n\nThis is a trivial, fully self-contained task. There is NO external blocker.\n\n1. Read this issue's context (GET /issues/<this-issue>/heartbeat-context).\n2. Post ONE short comment on this issue containing the result of `17 * 23`.\n3. Mark this issue `done` (PATCH the issue status to done).\n\nA run that ends without setting a real disposition (done / cancelled / in_review / blocked-with-a-named-blocker) is a FAILURE. Do not exit with 'no response requested'.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_path_equals", "path": "validDisposition", "value": true, "weight": 5 },
+          { "type": "json_path_equals", "path": "dispositionSet", "value": true, "weight": 2 },
+          { "type": "json_path_equals", "path": "concreteAction", "value": true, "weight": 2 },
+          { "type": "json_path_equals", "path": "postedComment", "value": true, "weight": 1 }
+        ]
+      }
+    },
+    {
+      "id": "read-summarize-disposition",
+      "title": "Read context, summarize, disposition",
+      "prompt": "Agentic benchmark fixture — read + act + disposition.\n\n1. Fetch this issue's heartbeat-context.\n2. Post ONE comment that states this issue's own identifier and the current UTC date (from `date -u`).\n3. Then set a real disposition: mark it `done`.\n\nEnding the run with the issue still in todo/in_progress and no comment is a failure — that is the exact 'missing disposition' bounce we are testing for.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_path_equals", "path": "validDisposition", "value": true, "weight": 5 },
+          { "type": "json_path_equals", "path": "dispositionSet", "value": true, "weight": 2 },
+          { "type": "json_path_equals", "path": "concreteAction", "value": true, "weight": 2 },
+          { "type": "json_path_equals", "path": "postedComment", "value": true, "weight": 1 }
+        ]
+      }
+    }
+  ]
+}
