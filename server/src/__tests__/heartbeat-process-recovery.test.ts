@@ -1195,6 +1195,90 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     expect(run?.status).toBe("running");
   });
 
+  it("reaps a stale queued run on an idle, window-exempt agent with no in-progress issue", async () => {
+    const { runId, agentId } = await seedRunFixture({
+      runStatus: "queued",
+      agentStatus: "idle",
+      includeIssue: false,
+    });
+    await db
+      .update(agents)
+      .set({ runtimeConfig: { ignoreActivityWindow: true } })
+      .where(eq(agents.id, agentId));
+    const heartbeat = heartbeatService(db);
+
+    const result = await heartbeat.reapStaleQueuedRuns({
+      staleMs: 60_000,
+      now: new Date(Date.now() + 86_400_000),
+    });
+    expect(result.reaped).toBe(1);
+    expect(result.runIds).toEqual([runId]);
+
+    const run = await heartbeat.getRun(runId);
+    expect(run?.status).toBe("cancelled");
+  });
+
+  it("leaves a non-exempt agent's stale queued run alone (closed-window queues are correctly deferred)", async () => {
+    const { runId } = await seedRunFixture({
+      runStatus: "queued",
+      agentStatus: "idle",
+      adapterType: "claude_local", // not adapter-exempt + no ignoreActivityWindow flag
+      includeIssue: false,
+    });
+    const heartbeat = heartbeatService(db);
+
+    const result = await heartbeat.reapStaleQueuedRuns({
+      staleMs: 60_000,
+      now: new Date(Date.now() + 86_400_000),
+    });
+    expect(result.reaped).toBe(0);
+    expect((await heartbeat.getRun(runId))?.status).toBe("queued");
+  });
+
+  it("never reaps a queued continuation of an in-progress issue (loop caveat)", async () => {
+    const { runId, agentId } = await seedRunFixture({
+      runStatus: "queued",
+      agentStatus: "idle",
+      includeIssue: true, // fixture seeds an in_progress issue referenced by contextSnapshot.issueId
+    });
+    await db
+      .update(agents)
+      .set({ runtimeConfig: { ignoreActivityWindow: true } })
+      .where(eq(agents.id, agentId));
+    const heartbeat = heartbeatService(db);
+
+    const result = await heartbeat.reapStaleQueuedRuns({
+      staleMs: 60_000,
+      now: new Date(Date.now() + 86_400_000),
+    });
+    expect(result.reaped).toBe(0);
+    expect((await heartbeat.getRun(runId))?.status).toBe("queued");
+  });
+
+  it("leaves a queued run gated to a future retry time alone", async () => {
+    const { runId, agentId } = await seedRunFixture({
+      runStatus: "queued",
+      agentStatus: "idle",
+      includeIssue: false,
+    });
+    await db
+      .update(agents)
+      .set({ runtimeConfig: { ignoreActivityWindow: true } })
+      .where(eq(agents.id, agentId));
+    await db
+      .update(heartbeatRuns)
+      .set({ resultJson: { retryNotBefore: new Date(Date.now() + 2 * 86_400_000).toISOString() } })
+      .where(eq(heartbeatRuns.id, runId));
+    const heartbeat = heartbeatService(db);
+
+    const result = await heartbeat.reapStaleQueuedRuns({
+      staleMs: 60_000,
+      now: new Date(Date.now() + 86_400_000),
+    });
+    expect(result.reaped).toBe(0);
+    expect((await heartbeat.getRun(runId))?.status).toBe("queued");
+  });
+
   it("blocks the issue when process-loss retry is exhausted and the immediate continuation recovery also fails", async () => {
     mockAdapterExecute.mockRejectedValueOnce(new Error("continuation recovery failed"));
 

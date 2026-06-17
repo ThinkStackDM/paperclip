@@ -352,9 +352,9 @@ export function loadConfig(): Config {
     heartbeatHungRunNoOutputMs: readThresholdMs(process.env.HEARTBEAT_HUNG_RUN_NO_OUTPUT_MS, 12 * 60 * 1000),
     heartbeatHungRunMaxRuntimeMs: readThresholdMs(process.env.HEARTBEAT_HUNG_RUN_MAX_RUNTIME_MS, 30 * 60 * 1000),
     // Stale-queued-run reaper: cancel queued runs never claimed past this age on an idle,
-    // window-exempt agent (outage residue that wedges the pipeline). Default 0 = OFF; set
-    // HEARTBEAT_STALE_QUEUED_RUN_MS (e.g. 900000 = 15m) to enable after review.
-    heartbeatStaleQueuedRunMs: readThresholdMs(process.env.HEARTBEAT_STALE_QUEUED_RUN_MS, 0),
+    // window-exempt agent (outage residue that wedges the pipeline). Enabled 2026-06-17 at
+    // 15m after the unit tests landed; set HEARTBEAT_STALE_QUEUED_RUN_MS=0 to disable.
+    heartbeatStaleQueuedRunMs: readThresholdMs(process.env.HEARTBEAT_STALE_QUEUED_RUN_MS, 15 * 60 * 1000),
     // Terminate still-running, non-exempt runs when a company's activity window closes
     // (end of sprint). Set HEARTBEAT_TERMINATE_RUNS_ON_WINDOW_CLOSE=false to disable.
     terminateRunsOnWindowClose: process.env.HEARTBEAT_TERMINATE_RUNS_ON_WINDOW_CLOSE !== "false",
