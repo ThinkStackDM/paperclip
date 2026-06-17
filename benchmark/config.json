@@ -1,44 +1,145 @@
 {
-  "_comment": "Paperclip benchmark #15 — active model evaluator. Per-role suites -> multi-model runner -> deterministic+LLM-judge scorer -> quality-per-token -> per-role model recommendation that drives data-driven tiering (#9). Models are invoked via their CLIs in a neutralized temp CWD (no project CLAUDE.md/AGENTS.md/rules) so we measure the base model, not the local agent's tools/skills (that is #16's job).",
-
+  "_comment": "Paperclip benchmark #15 \u2014 active model evaluator. Per-role suites -> multi-model runner -> deterministic+LLM-judge scorer -> quality-per-token -> per-role model recommendation that drives data-driven tiering (#9). Models are invoked via their CLIs in a neutralized temp CWD (no project CLAUDE.md/AGENTS.md/rules) so we measure the base model, not the local agent's tools/skills (that is #16's job).",
   "models": [
-    { "id": "claude-opus",  "adapter": "claude", "model_arg": "opus",                       "label": "Claude Opus",        "lane": "claude" },
-    { "id": "codex-gpt-5.4", "adapter": "codex",  "model_arg": "gpt-5.4",                     "label": "Codex GPT-5.4",      "lane": "codex"  },
-    { "id": "gemini-pro",   "adapter": "gemini", "model_arg": null,                          "label": "Gemini Pro",         "lane": "gemini" },
-    { "id": "grok-4.3",     "adapter": "hermes", "model_arg": "grok-4.3",                    "label": "Grok 4.3",           "lane": "hermes" },
-    { "id": "grok-4.20",    "adapter": "hermes", "model_arg": "grok-4.20-0309-reasoning",    "label": "Grok 4.20 (reasoning)", "lane": "hermes" }
+    {
+      "id": "claude-opus",
+      "adapter": "claude",
+      "model_arg": "opus",
+      "label": "Claude Opus",
+      "lane": "claude"
+    },
+    {
+      "id": "codex-gpt-5.4",
+      "adapter": "codex",
+      "model_arg": "gpt-5.4",
+      "label": "Codex GPT-5.4",
+      "lane": "codex"
+    },
+    {
+      "id": "gemini-pro",
+      "adapter": "gemini",
+      "model_arg": null,
+      "label": "Gemini Pro",
+      "lane": "gemini"
+    },
+    {
+      "id": "grok-4.3",
+      "adapter": "hermes",
+      "model_arg": "grok-4.3",
+      "label": "Grok 4.3",
+      "lane": "hermes"
+    },
+    {
+      "id": "grok-4.20",
+      "adapter": "hermes",
+      "model_arg": "grok-4.20-0309-reasoning",
+      "label": "Grok 4.20 (reasoning)",
+      "lane": "hermes"
+    }
   ],
-
-  "_models_catalog_comment": "Validated within-family variants (confirmed callable via their CLI 2026-06-14). NOT in the default sweep — `bench.py all` runs `models` above. Opt in per run: `bench.py all --models claude-haiku,gpt-5.4-mini,gemini-flash,grok-4-fast`. These are the 'lower model' candidates for the cheap-model-+-skill gap-closing strategy. gpt-5.3-codex-spark IS a valid model (same as Paperclip's spark lane, invoked --model gpt-5.3-codex-spark with reasoning_effort=high) but is DAILY RATE-LIMITED — sweeps including it fail with a usage-limit error while exhausted (resets ~mid-afternoon). Genuinely NOT supported on this ChatGPT account (400 invalid_request, never works): plain gpt-5.3, gpt-5.3-codex, gpt-5-codex.",
+  "_models_catalog_comment": "Validated within-family variants (confirmed callable via their CLI 2026-06-14). NOT in the default sweep \u2014 `bench.py all` runs `models` above. Opt in per run: `bench.py all --models claude-haiku,gpt-5.4-mini,gemini-flash,grok-4-fast`. These are the 'lower model' candidates for the cheap-model-+-skill gap-closing strategy. gpt-5.3-codex-spark IS a valid model (same as Paperclip's spark lane, invoked --model gpt-5.3-codex-spark with reasoning_effort=high) but is DAILY RATE-LIMITED \u2014 sweeps including it fail with a usage-limit error while exhausted (resets ~mid-afternoon). Genuinely NOT supported on this ChatGPT account (400 invalid_request, never works): plain gpt-5.3, gpt-5.3-codex, gpt-5-codex.",
   "models_catalog": [
-    { "id": "claude-sonnet",   "adapter": "claude", "model_arg": "sonnet",                      "label": "Claude Sonnet 4.6",  "lane": "claude" },
-    { "id": "claude-haiku",    "adapter": "claude", "model_arg": "haiku",                       "label": "Claude Haiku 4.5",   "lane": "claude" },
-    { "id": "claude-opus-4.7", "adapter": "claude", "model_arg": "claude-opus-4-7",             "label": "Claude Opus 4.7",    "lane": "claude" },
-    { "id": "gpt-5.5",         "adapter": "codex",  "model_arg": "gpt-5.5",                     "label": "Codex GPT-5.5",      "lane": "codex"  },
-    { "id": "gpt-5.4-mini",    "adapter": "codex",  "model_arg": "gpt-5.4-mini",                "label": "Codex GPT-5.4 mini", "lane": "codex"  },
-    { "id": "gpt-5.3-codex-spark", "adapter": "codex", "model_arg": "gpt-5.3-codex-spark", "reasoning_effort": "high", "label": "Codex GPT-5.3 Spark", "lane": "codex", "note": "Paperclip's cheap codex lane; daily rate-limited" },
-    { "id": "gemini-flash",    "adapter": "gemini", "model_arg": "gemini-3-flash-preview",      "label": "Gemini 3 Flash",     "lane": "gemini" },
-    { "id": "gemini-flash-lite","adapter": "gemini","model_arg": "gemini-2.5-flash-lite",       "label": "Gemini Flash Lite",  "lane": "gemini" },
-    { "id": "grok-4-fast",     "adapter": "hermes", "model_arg": "grok-4-fast-non-reasoning",   "label": "Grok 4 Fast",        "lane": "hermes" },
-    { "id": "grok-4.1-fast",   "adapter": "hermes", "model_arg": "grok-4-1-fast-non-reasoning", "label": "Grok 4.1 Fast",      "lane": "hermes" },
-    { "id": "grok-3-mini",     "adapter": "hermes", "model_arg": "grok-3-mini",                 "label": "Grok 3 mini",        "lane": "hermes" }
+    {
+      "id": "claude-sonnet",
+      "adapter": "claude",
+      "model_arg": "sonnet",
+      "label": "Claude Sonnet 4.6",
+      "lane": "claude"
+    },
+    {
+      "id": "claude-haiku",
+      "adapter": "claude",
+      "model_arg": "haiku",
+      "label": "Claude Haiku 4.5",
+      "lane": "claude"
+    },
+    {
+      "id": "claude-opus-4.7",
+      "adapter": "claude",
+      "model_arg": "claude-opus-4-7",
+      "label": "Claude Opus 4.7",
+      "lane": "claude"
+    },
+    {
+      "id": "gpt-5.5",
+      "adapter": "codex",
+      "model_arg": "gpt-5.5",
+      "label": "Codex GPT-5.5",
+      "lane": "codex"
+    },
+    {
+      "id": "gpt-5.4-mini",
+      "adapter": "codex",
+      "model_arg": "gpt-5.4-mini",
+      "label": "Codex GPT-5.4 mini",
+      "lane": "codex"
+    },
+    {
+      "id": "gpt-5.3-codex-spark",
+      "adapter": "codex",
+      "model_arg": "gpt-5.3-codex-spark",
+      "reasoning_effort": "high",
+      "label": "Codex GPT-5.3 Spark",
+      "lane": "codex",
+      "note": "Paperclip's cheap codex lane; daily rate-limited"
+    },
+    {
+      "id": "gemini-flash",
+      "adapter": "gemini",
+      "model_arg": "gemini-3-flash-preview",
+      "label": "Gemini 3 Flash",
+      "lane": "gemini"
+    },
+    {
+      "id": "gemini-flash-lite",
+      "adapter": "gemini",
+      "model_arg": "gemini-2.5-flash-lite",
+      "label": "Gemini Flash Lite",
+      "lane": "gemini"
+    },
+    {
+      "id": "grok-4-fast",
+      "adapter": "hermes",
+      "model_arg": "grok-4-fast-non-reasoning",
+      "label": "Grok 4 Fast",
+      "lane": "hermes"
+    },
+    {
+      "id": "grok-4.1-fast",
+      "adapter": "hermes",
+      "model_arg": "grok-4-1-fast-non-reasoning",
+      "label": "Grok 4.1 Fast",
+      "lane": "hermes"
+    },
+    {
+      "id": "grok-3-mini",
+      "adapter": "hermes",
+      "model_arg": "grok-3-mini",
+      "label": "Grok 3 mini",
+      "lane": "hermes"
+    }
   ],
-
   "judge": {
     "id": "claude-opus",
     "adapter": "claude",
     "model_arg": "opus",
     "_comment": "Judge = claude-opus (user authorized heavy claude use 2026-06-14). Sharpest available grader and most neutral (it is a contestant too, but the judge is blind to which model produced an output and applied uniformly, so rankings are fair; its mild self-preference is the one caveat). The gemini-judge baseline (run-20260614-044003) is archived for a cross-judge agreement check. Swap back to {\"id\":\"gemini-pro\",\"adapter\":\"gemini\",\"model_arg\":null} to conserve claude quota."
   },
-
-  "roles": ["engineer", "designer", "content", "intake", "ops"],
-
-  "agentic_roles": ["paperclip"],
+  "roles": [
+    "engineer",
+    "designer",
+    "content",
+    "intake",
+    "ops"
+  ],
+  "agentic_roles": [
+    "paperclip"
+  ],
   "paperclip": {
-    "_comment": "Agentic 'Paperclip function' lane (paperclip_lane.py). OPT-IN: never part of a default `all` sweep — run with `--roles paperclip --models grok-4.3,grok-4-fast,grok-4.1-fast`. Requires PAPERCLIP_API_URL + PAPERCLIP_API_KEY (board token) in env. Maps each benchmark model id -> a DEDICATED bench AGENT that runs that model; the lane creates a fixture issue assigned to that agent, triggers a fresh-session run, and scores whether it reaches a VALID disposition. SAFE-BY-DEFAULT: `agents` is empty so a stray run is a no-op (the lane skips models with no configured agent). DO NOT point this at live fleet agents — that commandeers real lanes. Provision dedicated throwaway bench Hermes agents (one per grok model) in a sandbox/bench company, then fill `agents` + `benchCompanyId`. Candidate models to bench: grok-4.3 (reasoning, the working baseline), grok-4-fast / grok-4.1-fast (the deployed non-reasoning variants under suspicion), grok-4.20. For reference, the live TSC (211e0f96) agents on these models are MIDAS-Hermes=8e90bc2f (grok-4.3), Compiler-Hermes=94d53f33 (grok-4-fast-non-reasoning), Engineer-Hermes=a201c6a0 (grok-4-1-fast-non-reasoning) — use these ONLY to model dedicated bench agents after them, not as bench subjects.",
+    "_comment": "Agentic 'Paperclip function' lane (paperclip_lane.py). OPT-IN: never part of a default `all` sweep \u2014 run with `--roles paperclip --models grok-4.3,grok-4-fast,grok-4.1-fast`. Requires PAPERCLIP_API_URL + PAPERCLIP_API_KEY (board token) in env. Maps each benchmark model id -> a DEDICATED bench AGENT that runs that model; the lane creates a fixture issue assigned to that agent, triggers a fresh-session run, and scores whether it reaches a VALID disposition. SAFE-BY-DEFAULT: `agents` is empty so a stray run is a no-op (the lane skips models with no configured agent). DO NOT point this at live fleet agents \u2014 that commandeers real lanes. Provision dedicated throwaway bench Hermes agents (one per grok model) in a sandbox/bench company, then fill `agents` + `benchCompanyId`. Candidate models to bench: grok-4.3 (reasoning, the working baseline), grok-4-fast / grok-4.1-fast (the deployed non-reasoning variants under suspicion), grok-4.20. For reference, the live TSC (211e0f96) agents on these models are MIDAS-Hermes=8e90bc2f (grok-4.3), Compiler-Hermes=94d53f33 (grok-4-fast-non-reasoning), Engineer-Hermes=a201c6a0 (grok-4-1-fast-non-reasoning) \u2014 use these ONLY to model dedicated bench agents after them, not as bench subjects.",
     "benchCompanyId": "e6361895-a6a4-438d-bb76-b17a0ad026cb",
     "benchProjectId": "3c04d0d6-bc8e-4bdc-bc2a-2da45d7a358f",
-    "maxWorkers": 2,
+    "maxWorkers": 4,
     "cellTimeoutSec": 600,
     "_runtime_comment": "Agentic cells are heavy multi-step LIVE runs against the shared server (same box as the live fleet + DB). Keep maxWorkers low (2) so the sweep doesn't hammer the fleet, and cellTimeoutSec high (600) because complex stages (child+blocker+plan+approval) legitimately take minutes. The lane retries transient timeouts so a slow response doesn't fail a cell.",
     "agents": {
@@ -48,33 +149,53 @@
       "grok-4.20": "3bcf54cd-61eb-45f1-8260-c515796eb599"
     }
   },
-
   "scoring": {
     "deterministic_weight": 0.5,
     "judge_weight": 0.5,
     "_comment": "Per-task blend. If a task has only deterministic checks (e.g. intake ground-truth), quality = deterministic. If only judge criteria, quality = judge. If both, quality = normalized weighted blend of the two."
   },
-
   "recommendation": {
     "objective": "peak_quality_cost_aware",
     "quality_floor": 0.6,
     "value_metric": "output",
     "quality_epsilon": 0.02,
     "cost_ratio_trigger": 1.5,
-    "_comment": "objective=peak_quality_cost_aware (davin's policy 2026-06-14): TIER FOR PEAK QUALITY, but don't pay multiples for marginal gains. Rule per role: start from the highest-quality model; among models within quality_epsilon (0.02) of it, pick the one with the LOWEST mean output tokens — BUT only drop from the peak if the cheaper model is materially cheaper (peak_output / cheaper_output >= cost_ratio_trigger, default 1.5x). Otherwise keep the peak. Report shows peak, the cost-aware pick, quality given up, and the output-cost ratio so the tradeoff is explicit. Set quality_epsilon=0 to always take true peak. value_metric=output because total tokens are ~95% fixed CLI overhead (a harness artifact)."
+    "_comment": "objective=peak_quality_cost_aware (davin's policy 2026-06-14): TIER FOR PEAK QUALITY, but don't pay multiples for marginal gains. Rule per role: start from the highest-quality model; among models within quality_epsilon (0.02) of it, pick the one with the LOWEST mean output tokens \u2014 BUT only drop from the peak if the cheaper model is materially cheaper (peak_output / cheaper_output >= cost_ratio_trigger, default 1.5x). Otherwise keep the peak. Report shows peak, the cost-aware pick, quality given up, and the output-cost ratio so the tradeoff is explicit. Set quality_epsilon=0 to always take true peak. value_metric=output because total tokens are ~95% fixed CLI overhead (a harness artifact)."
   },
-
   "run": {
     "timeout_sec": 300,
     "max_workers": 4,
     "neutralize_env": true,
-    "_comment": "Each model call runs in a fresh empty temp CWD with config/rules-ignore flags where the CLI supports them. max_workers parallelizes across (role,task,model) cells; keep modest — the Mac is shared with the live fleet + image-gen."
+    "_comment": "Each model call runs in a fresh empty temp CWD with config/rules-ignore flags where the CLI supports them. max_workers parallelizes across (role,task,model) cells; keep modest \u2014 the Mac is shared with the live fleet + image-gen."
   },
-
   "adapters": {
-    "claude": { "extra_args": ["--allowedTools", "", "--strict-mcp-config"] },
-    "codex":  { "extra_args": ["--sandbox", "read-only", "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules"] },
-    "gemini": { "extra_args": ["--approval-mode", "plan"] },
-    "hermes": { "extra_args": ["--ignore-user-config", "--ignore-rules"] }
+    "claude": {
+      "extra_args": [
+        "--allowedTools",
+        "",
+        "--strict-mcp-config"
+      ]
+    },
+    "codex": {
+      "extra_args": [
+        "--sandbox",
+        "read-only",
+        "--skip-git-repo-check",
+        "--ignore-user-config",
+        "--ignore-rules"
+      ]
+    },
+    "gemini": {
+      "extra_args": [
+        "--approval-mode",
+        "plan"
+      ]
+    },
+    "hermes": {
+      "extra_args": [
+        "--ignore-user-config",
+        "--ignore-rules"
+      ]
+    }
   }
 }
