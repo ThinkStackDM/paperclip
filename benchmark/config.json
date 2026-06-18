@@ -141,7 +141,7 @@
     "benchProjectId": "f71e8665-3f38-4920-b777-348ec85b9071",
     "maxWorkers": 1,
     "cellTimeoutSec": 600,
-    "_runtime_comment": "Agentic cells are heavy multi-step LIVE runs against the shared server. maxWorkers=4 runs the 4 models in parallel (one cell per agent); the per-agent lock in paperclip_lane.py guarantees same-agent cells never collide (a collision leaves a run queued/cancelled and corrupts the score). cellTimeoutSec=600 because complex stages (child+blocker+plan+approval) legitimately take minutes; the lane retries transient timeouts. Bench fixtures run in TSMC's bench project \u2014 quiet the board-ask-janitor + stale-error-sweep launchd jobs around the run (see HANDOFF) so they don't cancel the board-action stages, and the bench agents reportTo a PAUSED Bench-Manager so stage-9 routing never wakes the real CEO.",
+    "_runtime_comment": "maxWorkers=1 (SERIAL) is REQUIRED: parallel rapid-fire invokes fight the platform's GLOBAL heartbeat machinery (heartbeat.wakeup() coalesces/dedups concurrent wakeups -> 'skipped'; run-recovery reapers cancel queued runs), which company isolation can't avoid. Single-model/serial runs were clean (grok-4.3=0.94); every parallel 4-model sweep collapsed to skipped/cancelled. cellTimeoutSec=600 because complex stages (child+blocker+plan+approval) legitimately take minutes; the lane retries transient timeouts + waits for agent-idle around each invoke. Runs in the dedicated isolated company (see _isolation_comment) so nothing acts on fixtures mid-run. ~70 min for the 4-model grok sweep, serial.",
     "agents": {
       "grok-4.3": "7fffa42f-467a-4f76-b802-4dc8bd552bd9",
       "grok-4-fast": "bdaef356-7877-40f1-a8aa-768861e427d2",
