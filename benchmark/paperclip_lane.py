@@ -28,6 +28,7 @@ Env: PAPERCLIP_API_URL + PAPERCLIP_API_KEY (board token).
 
 import json
 import os
+import re
 import threading
 import time
 import urllib.error
@@ -96,6 +97,39 @@ SOCKET_TIMEOUT_SEC = 120
 # 5 attempts w/ 1.5s-step backoff (~15s) tolerates a brief server reload/bounce
 # (ECONNREFUSED) on the shared box without failing a cell.
 MAX_ATTEMPTS = 5
+
+# --- Shadow disposition instrumentation (gated; OFF unless PAPERCLIP_BENCH_SHADOW_DISPOSITION=1) ---
+# Measures the disposition EXECUTION GAP: have the agent STATE its chosen
+# disposition as a structured token, then compare {token said X} vs {agent
+# actually set Y}. A token naming a valid disposition while the issue is left
+# without one = exactly the gap a system-side enforcement hook would close
+# (the attach-fix analog). Off by default, so the normal bench is unchanged.
+SHADOW_DISPOSITION = os.environ.get("PAPERCLIP_BENCH_SHADOW_DISPOSITION") == "1"
+SHADOW_DISPOSITION_INSTRUCTION = (
+    "\n\n---\nBENCHMARK INSTRUMENTATION (in addition to your normal status update): "
+    "as the FINAL line of your response, state the single disposition you chose for "
+    "this issue as JSON, e.g.\n"
+    'PAPERCLIP_DISPOSITION: {"status": "done|cancelled|in_review|blocked", "hasBlocker": true|false}'
+)
+_DISPOSITION_TOKEN_RE = re.compile(r"PAPERCLIP_DISPOSITION:\s*(\{.*?\})")
+
+
+def _parse_disposition_token(text):
+    """Return {'status','hasBlocker'} from the LAST token in the text, or None."""
+    if not text:
+        return None
+    last = None
+    for last in _DISPOSITION_TOKEN_RE.finditer(text):
+        pass
+    if not last:
+        return None
+    try:
+        obj = json.loads(last.group(1))
+    except Exception:
+        return None
+    if not isinstance(obj, dict):
+        return None
+    return {"status": obj.get("status"), "hasBlocker": bool(obj.get("hasBlocker"))}
 
 
 def _req(method, path, body=None, timeout=SOCKET_TIMEOUT_SEC):
@@ -193,6 +227,8 @@ def run_case(task, model, cfg, timeout):
     expect = spec.get("expect", {}) or {}
     title = spec.get("title") or task.get("title") or task["id"]
     description = task.get("prompt", "")
+    if SHADOW_DISPOSITION:
+        description += SHADOW_DISPOSITION_INSTRUCTION
 
     t0 = time.time()
     trigger_ts = None
@@ -331,6 +367,10 @@ def run_case(task, model, cfg, timeout):
             "hasApproval": approval_count > 0,
             "assigneeChangedAway": assignee_changed_away,
         }
+        if SHADOW_DISPOSITION:
+            token = _parse_disposition_token((run_final.get("resultJson") or {}).get("result") or "")
+            outcome["dispositionTokenPresent"] = token is not None
+            outcome["dispositionToken"] = token
         res["ok"] = True
         res["output"] = json.dumps(outcome)
 
