@@ -51,6 +51,19 @@ def _agent_lock(agent_id):
             lock = _AGENT_LOCKS[agent_id] = threading.Lock()
         return lock
 
+
+def _wait_agent_idle(agent_id, max_wait=40):
+    """Wait until the agent is idle (not mid-heartbeat). A just-finished run
+    leaves the agent briefly busy; invoking it then returns a `skipped` wakeup,
+    which scores 0 on an infra artifact. Bounded best-effort."""
+    deadline = time.time() + max_wait
+    while time.time() < deadline:
+        a = _opt("GET", f"/api/agents/{agent_id}")
+        status = a.get("status") if isinstance(a, dict) else None
+        if status in (None, "idle"):
+            return
+        time.sleep(2)
+
 TERMINAL_RUN_STATUSES = {"succeeded", "failed", "cancelled", "timed_out"}
 # A `blocked` disposition is VALID only when backed by a first-class blocker.
 CLEAN_TERMINAL_STATUSES = {"done", "cancelled", "in_review"}
@@ -213,18 +226,28 @@ def run_case(task, model, cfg, timeout):
         # in parallel. Without this, a concurrent same-agent invoke leaves this
         # run `queued`/`cancelled` and the cell scores 0 on an infra artifact.
         with _agent_lock(agent_id):
+            _wait_agent_idle(agent_id)  # don't invoke a still-busy agent
             trigger_ts = time.time()
-            run = _req("POST", f"/api/agents/{agent_id}/heartbeat/invoke", {
-                "forceFreshSession": True,
-                "reason": "agentic_bench",
-                "payload": {"issueId": issue_id, "taskId": issue_id},
-            })
+            run = {}
+            for _ in range(4):
+                run = _req("POST", f"/api/agents/{agent_id}/heartbeat/invoke", {
+                    "forceFreshSession": True,
+                    "reason": "agentic_bench",
+                    "payload": {"issueId": issue_id, "taskId": issue_id},
+                })
+                if run.get("id"):
+                    break
+                # skipped wakeup (agent busy/settling) — wait for idle and retry
+                _wait_agent_idle(agent_id, max_wait=20)
             run_id = run.get("id")
             run_status = run.get("status")
             deadline = time.time() + timeout
             while run_id and run_status not in TERMINAL_RUN_STATUSES and time.time() < deadline:
                 time.sleep(POLL_INTERVAL_SEC)
                 run_status = (_req("GET", f"/api/heartbeat-runs/{run_id}") or {}).get("status")
+            # settle before releasing the lock so the next same-agent cell's
+            # invoke isn't skipped by a still-finalizing agent
+            _wait_agent_idle(agent_id)
 
         run_final = _req("GET", f"/api/heartbeat-runs/{run_id}") if run_id else {}
         liveness = run_final.get("livenessState")
