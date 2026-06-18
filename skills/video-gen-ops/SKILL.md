@@ -1,30 +1,68 @@
 ---
 name: video-gen-ops
-description: How to produce video assets under subscription-only constraints. Use whenever an issue needs video (channel clips, promo/teaser, listing video, social short, explainer). Agents do NOT call paid video APIs — they produce the script, storyboard, shot list, and a copy-ready generation prompt; the board executes the prompt in-app (Sora via the ChatGPT Pro app, Veo via the Gemini app) and drops the file into the workspace. Agents then assemble board-provided clips + sourced b-roll with ffmpeg. Never block an issue silently on missing video capability.
+description: How to produce video assets for issues. Use whenever an issue needs video (channel clip, promo/teaser, listing video, social short, explainer, B-roll). If you have the native video_generate tool (grok-imagine), generate + ATTACH the clip directly. If you do NOT have the tool, ROUTE the issue to your company's Designer-Media agent (which generates via grok-imagine). Escalate to the BOARD only when the brief specifically needs Veo or Flow (Google) — or Sora (ChatGPT Pro) — capabilities grok-imagine lacks. Agents never call paid video APIs and never block silently on missing video capability. Then assemble clips + sourced b-roll with ffmpeg.
 ---
 
 # Video Gen Ops
 
-The portfolio guardrail applies: no pay-per-call video APIs. Generation happens through
-subscriptions the board already holds — **Sora (ChatGPT Pro app)** and **Veo (Gemini
-app)** — executed in-app by the board, not by agents. Your job is everything around
-the generation: the creative package before it, the assembly and QA after it.
+The portfolio guardrail still holds: **no pay-per-call video APIs.** But native
+generation via grok-imagine (the hermes `video_gen` toolset → `video_generate` tool) is
+**$0** and is the default path whenever you have the tool — same engine as image gen.
+Board-subscription tools (Veo/Flow/Sora) are the last resort, reserved for capabilities
+grok-imagine can't match. Your job is everything around generation too: the creative
+package before it, the assembly and QA after it.
 
-## Decision rule
+## Decision rule (in priority order)
 
-1. **Asset already obtainable as b-roll/stock?** Check the **broll-sourcing** skill
-   first. A licensed stock clip beats a generated one for generic footage (cityscapes,
-   hands typing, nature). Generate only what stock cannot supply.
-2. **Still image is enough?** Use **image-gen-ops** (Ken Burns pan/zoom over a
-   generated still is often sufficient — see references/ffmpeg-assembly.md §5).
-3. **Generation needed** → produce the full package (below) and mark the issue for
-   board action via the "Copy prompt" flow, same convention as image-gen-ops.
-4. **Clips delivered** (board drops files into the workspace `assets/` dir) →
-   assemble with ffmpeg per references/ffmpeg-assembly.md, then run the QA checklist.
+0. **If you have the `video_generate` tool (grok-imagine — the hermes `video_gen`
+   toolset), USE IT DIRECTLY. This is the preferred path whenever available** — $0, no
+   board round-trip, no GPU contention. Steps:
+   - Call `video_generate` with an art-directed prompt (state subject, camera movement,
+     lighting, palette, aspect ratio, duration *inside the prompt*).
+   - The tool writes the clip under `~/.hermes/cache/` (video alongside the image cache).
+     **The asset is NOT delivered until you ATTACH that file to the issue** — leaving it
+     in the cache is an INCOMPLETE disposition. Attach it:
+     ```bash
+     curl -sS -X POST -H "Authorization: Bearer $PAPERCLIP_API_KEY" \
+       -F "file=@<the-generated-clip-path>" \
+       "$PAPERCLIP_API_URL/api/companies/$PAPERCLIP_COMPANY_ID/issues/<this-issue-id>/attachments"
+     ```
+   - Comment the exact prompt used and confirm the attachment, then set the disposition.
+   - **Exception:** if the brief *explicitly* requires Veo, Flow, or Sora — capabilities
+     grok-imagine lacks — do NOT force grok-imagine; escalate to the board (step 3).
+1. **If you do NOT have the `video_generate` tool, ROUTE to the media agent — do NOT
+   board it, do NOT call a paid API.** Reassign the issue to your company's
+   **Designer-Media** agent (a `hermes_local` agent with the `video_gen` toolset that
+   generates natively via grok-imagine):
+   - find it: `GET /api/companies/$PAPERCLIP_COMPANY_ID/agents` → the agent named
+     `Designer-Media`, or a `hermes_local` agent whose `adapterConfig.toolsets` includes
+     `video_gen`;
+   - hand it off: `PATCH /api/issues/<id>` with `{"assigneeAgentId":"<designer-media-id>"}`
+     and comment that you routed it for generation.
+   - If your company has NO media agent yet, escalate to the board to provision one.
+2. **Asset already obtainable as b-roll/stock?** Check the **broll-sourcing** skill — a
+   licensed stock clip beats a generated one for generic footage (cityscapes, hands
+   typing, nature). A generated still with a Ken Burns pan/zoom (see
+   references/ffmpeg-assembly.md §5, via **image-gen-ops**) is often enough; generate
+   video only when motion is essential and stock can't supply it.
+3. **Escalate to the BOARD only for Veo, Flow, or Sora.** grok-imagine (via the
+   Designer-Media agent) covers essentially all routine clips, so the board is the LAST
+   resort — reserved for briefs that specifically need **Veo or Flow (Google)** or
+   **Sora (ChatGPT Pro app)**: the brief explicitly asks for one, or it needs a
+   long-form / high-fidelity shot grok-imagine can't match. Produce the full package
+   (below) and mark the issue for board action via the "Copy prompt" flow; a human runs
+   it in the subscription app and drops the file into the workspace. Do NOT board a
+   request merely because YOU lack the tool — that is what routing to Designer-Media
+   (step 1) is for.
+4. **Clips delivered** (native, routed, or board-dropped into the workspace `assets/`
+   dir) → assemble with ffmpeg per references/ffmpeg-assembly.md, then run the QA
+   checklist.
 
-## The generation package (what you post on the issue)
+## The generation package (for board action on Veo/Flow/Sora only)
 
-ONE comment, with the prompt in its own fenced block ready for "Copy prompt":
+Only when step 3 applies (the brief needs Veo/Flow/Sora, not for routine clips that
+go native via step 0/1). ONE comment, with the prompt in its own fenced block ready
+for "Copy prompt":
 
 1. **Script** — full voiceover/dialogue text, timed (words ÷ 2.5 ≈ seconds at
    narration pace). Mark emphasis and pauses.
