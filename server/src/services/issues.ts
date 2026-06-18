@@ -3933,8 +3933,73 @@ export function issueService(db: Db) {
     });
   }
 
+  async function clearCheckoutRunIfTerminal(issueId: string): Promise<boolean> {
+    return db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select ${issues.id} from ${issues} where ${issues.id} = ${issueId} for update`,
+      );
+      const issue = await tx
+        .select({
+          checkoutRunId: issues.checkoutRunId,
+          executionRunId: issues.executionRunId,
+        })
+        .from(issues)
+        .where(eq(issues.id, issueId))
+        .then((rows) => rows[0] ?? null);
+      if (!issue?.checkoutRunId) return false;
+
+      // Never displace a live executing lane: if a *different* execution run is
+      // still non-terminal, the checkout lock must stay put. Only the run that
+      // owns the lock — once terminal — may release it.
+      if (issue.executionRunId && issue.executionRunId !== issue.checkoutRunId) {
+        await tx.execute(
+          sql`select ${heartbeatRuns.id} from ${heartbeatRuns} where ${heartbeatRuns.id} = ${issue.executionRunId} for update`,
+        );
+        const executionRun = await tx
+          .select({ status: heartbeatRuns.status })
+          .from(heartbeatRuns)
+          .where(eq(heartbeatRuns.id, issue.executionRunId))
+          .then((rows) => rows[0] ?? null);
+        if (executionRun && !TERMINAL_HEARTBEAT_RUN_STATUSES.has(executionRun.status)) {
+          return false;
+        }
+      }
+
+      // Only a terminal checkout run releases the checkout lock.
+      await tx.execute(
+        sql`select ${heartbeatRuns.id} from ${heartbeatRuns} where ${heartbeatRuns.id} = ${issue.checkoutRunId} for update`,
+      );
+      const checkoutRun = await tx
+        .select({ status: heartbeatRuns.status })
+        .from(heartbeatRuns)
+        .where(eq(heartbeatRuns.id, issue.checkoutRunId))
+        .then((rows) => rows[0] ?? null);
+      if (checkoutRun && !TERMINAL_HEARTBEAT_RUN_STATUSES.has(checkoutRun.status)) {
+        return false;
+      }
+
+      const updated = await tx
+        .update(issues)
+        .set({
+          checkoutRunId: null,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(issues.id, issueId),
+            eq(issues.checkoutRunId, issue.checkoutRunId),
+          ),
+        )
+        .returning({ id: issues.id })
+        .then((rows) => rows[0] ?? null);
+
+      return Boolean(updated);
+    });
+  }
+
   return {
     clearExecutionRunIfTerminal,
+    clearCheckoutRunIfTerminal,
 
     list: async (companyId: string, filters?: IssueFilters) => {
       if (filters?.attention === "blocked") {
@@ -5535,25 +5600,17 @@ export function issueService(db: Db) {
       await clearExecutionRunIfTerminal(id);
 
       if (options?.checkoutType === "review") {
-        const checkoutRunMatches = checkoutRunId === null
-          ? isNull(issues.checkoutRunId)
-          : or(isNull(issues.checkoutRunId), eq(issues.checkoutRunId, checkoutRunId));
-        const executionRunMatches = checkoutRunId === null
-          ? isNull(issues.executionRunId)
-          : or(isNull(issues.executionRunId), eq(issues.executionRunId, checkoutRunId));
+        // Review checkout is a status-bound entitlement, not a lock acquisition.
+        // The tasks:gate_keeper_write capability gates the scoped writes; the
+        // existing execution/checkout lock and assignee MUST be preserved so
+        // the executing agent's lane is not displaced.
         const reviewUpdated = await db
           .update(issues)
-          .set({
-            checkoutRunId,
-            executionRunId: checkoutRunId,
-            updatedAt: now,
-          })
+          .set({ updatedAt: now })
           .where(
             and(
               eq(issues.id, id),
               inArray(issues.status, expectedStatuses),
-              checkoutRunMatches,
-              executionRunMatches,
             ),
           )
           .returning()
