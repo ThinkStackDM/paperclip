@@ -2514,12 +2514,26 @@ export function issueRoutes(
 
     const webhookTriggerPayload = await resolveWebhookTriggerPayload(issue);
 
+    // Disposition contract — placed in the task content the agent fetches (not just the
+    // wake-prompt workflow). The agent reads heartbeat-context as "the task", so this is
+    // where the structured-token requirement reliably lands: the bench's task-content
+    // placement got ~94% emit vs ~0% when it lived only in the wake prompt. The adapter
+    // captures the line into resultJson.disposition; the server shadow-logs it (applies
+    // nothing) until live emit-rates confirm enforcement is safe.
+    const dispositionContract =
+      "Before you finish, the FINAL line of your response MUST be your chosen disposition " +
+      "as JSON — Paperclip records your decision from this line even if a status PATCH " +
+      'fails: PAPERCLIP_DISPOSITION: {"status":"done|cancelled|in_review|blocked","hasBlocker":true|false}';
+
     res.json({
       issue: {
         id: issue.id,
         identifier: issue.identifier,
         title: svc.applyBoardActionTitlePrefix(issue.title, Boolean(boardAction)),
-        description: issue.description,
+        description: issue.description
+          ? `${issue.description}\n\n---\n${dispositionContract}`
+          : dispositionContract,
+        dispositionContract,
         status: issue.status,
         workMode: issue.workMode,
         ...(blockerAttention ? { blockerAttention } : {}),

@@ -4662,6 +4662,39 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
 
     if (decision.kind !== "enqueue" || !issue) return;
 
+    // --- Disposition enforcement (SHADOW only — measures, applies nothing) ---
+    // The source run is stuck `in_progress` with a missing disposition. If the agent
+    // stated a PAPERCLIP_DISPOSITION token (hermes adapter prompt step 7 → resultJson
+    // .disposition), record what a deterministic apply WOULD do, so we can measure on
+    // live traffic how often it would close the gap before enabling enforcement. The
+    // model still re-wakes below — shadow mode changes nothing about behaviour.
+    const statedDisposition =
+      run.resultJson && typeof run.resultJson === "object"
+        ? (run.resultJson as { disposition?: { status?: unknown; hasBlocker?: unknown } | null }).disposition
+        : null;
+    const statedStatus =
+      statedDisposition && typeof statedDisposition.status === "string"
+        ? statedDisposition.status
+        : null;
+    await logActivity(db, {
+      companyId: issue.companyId,
+      actorType: "system",
+      actorId: "heartbeat",
+      agentId: run.agentId,
+      runId: run.id,
+      action: "issue.disposition_shadow",
+      entityType: "issue",
+      entityId: issue.id,
+      details: {
+        label: "Disposition enforcement (shadow)",
+        tokenPresent: Boolean(statedStatus),
+        statedStatus: statedStatus ?? null,
+        hasBlocker: statedDisposition?.hasBlocker === true,
+        sourceRunId: run.id,
+        note: "shadow: would-apply only; enforcement not enabled",
+      },
+    });
+
     const handoffRun = await enqueueWakeup(run.agentId, {
       source: "automation",
       triggerDetail: "system",
