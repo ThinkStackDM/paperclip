@@ -1,6 +1,6 @@
 ---
 name: image-gen-ops
-description: How to produce image assets for issues. Use whenever an issue needs an image (logo, thumbnail, cover, illustration, social card, hero, diagram art). If you have the native image_generate tool (grok-imagine), generate the asset directly and ATTACH the file to the issue (never leave it unattached in the cache, never curl an external image API). Otherwise package a copy-ready prompt for board action (local on-device gen exists but is slow). Never block an issue silently on missing image capability.
+description: How to produce image assets for issues. Use whenever an issue needs an image (logo, thumbnail, cover, illustration, social card, hero, diagram art). If you have the native image_generate tool (grok-imagine), generate + ATTACH the file directly. If you do NOT have the tool, ROUTE the issue to your company's Designer-Media agent (which generates via grok-imagine) — never curl, never package a board prompt just because you lack the tool. Escalate to the BOARD only when the asset specifically needs Nano Banana (Google Gemini 2.5 Flash Image) or OpenAI image. Never block silently on missing image capability.
 ---
 
 # Image Gen Ops
@@ -28,55 +28,35 @@ description: How to produce image assets for issues. Use whenever an issue needs
      but garbles small text inside photoreal scenes — for hero shots treat embedded text
      as decorative and overlay real copy in the layout layer.
 
-If you do NOT have the `image_generate` tool, use the fallback paths below.
+   - **Exception:** if the brief *explicitly* requires Nano Banana (Gemini) or OpenAI
+     image — capabilities grok-imagine lacks — do NOT force grok-imagine; escalate to the
+     board (step 2).
 
-Fallback (no native tool): **package a copy-ready prompt for board action** (a human
-runs it and drops the file in the workspace). A local on-device generator exists
-(Apple-Silicon MLX FLUX.1-schnell, free/unlimited) but it shares the GPU with the
-fleet — **slow under load**, so OPT-IN, not the autonomous default.
+1. **If you do NOT have the `image_generate` tool, ROUTE to the media agent — do NOT
+   board it, do NOT curl, do NOT run local generation.** Reassign the issue to your
+   company's **Designer-Media** agent (a `hermes_local` agent with the `image_gen`
+   toolset that generates natively via grok-imagine and attaches the asset):
+   - find it: `GET /api/companies/$PAPERCLIP_COMPANY_ID/agents` → the agent named
+     `Designer-Media`, or a `hermes_local` agent whose `adapterConfig.toolsets` includes
+     `image_gen`;
+   - hand it off: `PATCH /api/issues/<id>` with `{"assigneeAgentId":"<designer-media-id>"}`
+     and comment that you routed it for generation.
+   - If your company has NO media agent yet, escalate to the board to provision one
+     (do not silently block, and do not fall back to a board prompt for a routine asset).
 
-1. **Any image asset, no native tool, by default** → produce the prompt package for
-   **board action** (see "Prompt package" below) and mark the issue for the board. Do
-   NOT fire local generation on your own during a sprint — it competes for the GPU.
+2. **Escalate to the BOARD only for Nano Banana or OpenAI image.** grok-imagine (via the
+   Designer-Media agent) covers essentially all assets, so the board is the LAST resort —
+   reserved for assets that specifically need **Nano Banana (Google Gemini 2.5 Flash
+   Image)** or **OpenAI image (gpt-image / DALL·E)**: the brief explicitly asks for one,
+   or it needs photoreal faces/hands with legible in-image text that grok-imagine garbles
+   and one of those is the right tool. Package the prompt (see "Prompt package") and mark
+   the issue for the board; a human runs it in Nano Banana / OpenAI. Do NOT board a request
+   merely because YOU lack the tool — that is what routing to Designer-Media (step 1) is for.
 
-2. **Local generation — only when explicitly authorized** (the issue or operator says
-   "the Mac is idle / generate it locally"), and best for low-stakes draft/iteration
-   art (backgrounds, mockups, thumbnails):
-   ```bash
-   bash ~/paperclip/scripts/imagegen/generate-image.sh "PROMPT" /path/to/out.png
-   # optional: --steps N (2-4) --size WxH --seed N
-   ```
-   - First time on a fresh host: run `bash ~/paperclip/scripts/imagegen/setup-local.sh`
-     once (needs Python 3.10-3.13; weights ~9.6 GB download once).
-   - Expect ~5 min/image while the fleet runs (peak ~8 GB), faster when idle. Attach
-     the file and note prompt + `local FLUX-schnell` in a comment.
-
-3. **Hero / brand-critical or photoreal assets** → always board action (never local).
-   Local FLUX-schnell can't do photoreal faces/hands, legible in-image text, or
-   brand-exact logos.
-
-## Local FLUX-schnell — what it is and isn't for
-
-Good for (when run on an idle Mac): flat-vector/illustrative art, backgrounds,
-mockups, thumbnails, social cards, abstract/branded compositions, diagram-style art.
-
-Not good for: photoreal human faces/hands, fine legible text rendered in-image,
-brand-exact logos — and not for time-sensitive work (minutes per image under load).
-Route those to board action.
-
-## Providers (env IMAGE_PROVIDER)
-
-- `local` (default in the script) — MLX FLUX-schnell, free/unlimited/on-device, but
-  slow under fleet load. Prefer the offloaded `cloudflare` option below for
-  unattended programmatic generation if a token is configured.
-- `cloudflare` — Workers AI `@cf/black-forest-labs/flux-1-schnell`. Opt-in only:
-  requires a DEDICATED `CF_IMAGE_API_TOKEN` + `CF_ACCOUNT_ID` you set explicitly.
-  The script will NOT reuse the instance `CLOUDFLARE_API_TOKEN` (that's for DNS).
-- `gemini` — Google Gemini image API. **Paid-only as of 2026-06** (free tier
-  limit is 0). Only usable if billing is enabled; needs `GEMINI_API_KEY`.
-
-If local isn't set up yet the script tells you exactly what to run:
-`run scripts/imagegen/setup-local.sh once … or set IMAGE_PROVIDER=cloudflare with CF_IMAGE_API_TOKEN`.
+> A local on-device generator (MLX FLUX.1-schnell, `scripts/imagegen/generate-image.sh`,
+> `IMAGE_PROVIDER=local|cloudflare|gemini`) exists as a deep OFFLINE fallback only — it is
+> slow under fleet load. Use it solely when explicitly told the Mac is idle and the asset is
+> low-stakes; otherwise route to Designer-Media (step 1) or, for Nano Banana/OpenAI, the board.
 
 ## Prompt package (for board action on hero/brand-critical assets)
 
