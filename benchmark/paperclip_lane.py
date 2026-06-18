@@ -52,7 +52,7 @@ def _agent_lock(agent_id):
         return lock
 
 
-def _wait_agent_idle(agent_id, max_wait=40):
+def _wait_agent_idle(agent_id, max_wait=90):
     """Wait until the agent is idle (not mid-heartbeat). A just-finished run
     leaves the agent briefly busy; invoking it then returns a `skipped` wakeup,
     which scores 0 on an infra artifact. Bounded best-effort."""
@@ -86,7 +86,13 @@ def _key():
 
 
 TRANSIENT_HTTP = {500, 502, 503, 504}
-SOCKET_TIMEOUT_SEC = 45
+# 120s (was 45s): a slow reasoning model (grok-4.20 observed at 313-444s/run) keeps
+# its per-agent environment lease held while it runs. A 45s socket timeout made the
+# next cell's heartbeat/invoke — and in-flight status polls — give up and ABANDON the
+# slow run, which then lingered as a lease-holding zombie and cascaded Errno 60
+# ("Operation timed out") into every following cell. 120s rides out those windows so
+# the slow run polls to a clean terminal status and releases the lease normally.
+SOCKET_TIMEOUT_SEC = 120
 # 5 attempts w/ 1.5s-step backoff (~15s) tolerates a brief server reload/bounce
 # (ECONNREFUSED) on the shared box without failing a cell.
 MAX_ATTEMPTS = 5

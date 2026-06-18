@@ -140,8 +140,8 @@
     "benchCompanyId": "e212ce50-b524-408c-b3d4-0c6108d8c2e2",
     "benchProjectId": "f71e8665-3f38-4920-b777-348ec85b9071",
     "maxWorkers": 1,
-    "cellTimeoutSec": 600,
-    "_runtime_comment": "maxWorkers=1 (SERIAL) is REQUIRED: parallel rapid-fire invokes fight the platform's GLOBAL heartbeat machinery (heartbeat.wakeup() coalesces/dedups concurrent wakeups -> 'skipped'; run-recovery reapers cancel queued runs), which company isolation can't avoid. Single-model/serial runs were clean (grok-4.3=0.94); every parallel 4-model sweep collapsed to skipped/cancelled. cellTimeoutSec=600 because complex stages (child+blocker+plan+approval) legitimately take minutes; the lane retries transient timeouts + waits for agent-idle around each invoke. Runs in the dedicated isolated company (see _isolation_comment) so nothing acts on fixtures mid-run. ~70 min for the 4-model grok sweep, serial.",
+    "cellTimeoutSec": 900,
+    "_runtime_comment": "maxWorkers=1 (SERIAL) is REQUIRED: parallel rapid-fire invokes fight the platform's GLOBAL heartbeat machinery (heartbeat.wakeup() coalesces/dedups concurrent wakeups -> 'skipped'; run-recovery reapers cancel queued runs), which company isolation can't avoid. Single-model/serial runs were clean (grok-4.3=0.94); every parallel 4-model sweep collapsed to skipped/cancelled. cellTimeoutSec=900 (raised from 600) because the grok-4.20 REASONING model legitimately runs 313-444s/cell; the lane retries transient timeouts + waits for agent-idle around each invoke. NOTE 2026-06-18: paperclip_lane SOCKET_TIMEOUT_SEC raised 45->120 — the old 45s socket timeout made a slow grok-4.20 run get abandoned mid-poll, leaving a lease-holding zombie that cascaded Errno 60 ('Operation timed out') into every following cell from ~stage 6 on. Runs in the dedicated isolated company (see _isolation_comment) so nothing acts on fixtures mid-run. ~70-90 min for the 4-model grok sweep, serial.",
     "agents": {
       "grok-4.3": "7fffa42f-467a-4f76-b802-4dc8bd552bd9",
       "grok-4-fast": "bdaef356-7877-40f1-a8aa-768861e427d2",
