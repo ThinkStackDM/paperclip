@@ -13,6 +13,7 @@ const recoveryActionId = "77777777-7777-4777-8777-777777777777";
 const mockIssueService = vi.hoisted(() => ({
   addComment: vi.fn(),
   assertCheckoutOwner: vi.fn(),
+  checkout: vi.fn(),
   create: vi.fn(),
   createChild: vi.fn(),
   getAttachmentById: vi.fn(),
@@ -27,6 +28,8 @@ const mockIssueService = vi.hoisted(() => ({
   update: vi.fn(),
   findMentionedAgents: vi.fn(),
 }));
+
+const mockLogActivity = vi.hoisted(() => vi.fn(async () => undefined));
 
 const mockAccessService = vi.hoisted(() => ({
   canUser: vi.fn(),
@@ -110,7 +113,7 @@ function registerRouteMocks() {
   }));
 
   vi.doMock("../services/activity-log.js", () => ({
-    logActivity: vi.fn(async () => undefined),
+    logActivity: mockLogActivity,
   }));
 
   vi.doMock("../services/index.js", () => ({
@@ -153,7 +156,7 @@ function registerRouteMocks() {
     }),
     issueService: () => mockIssueService,
     issueThreadInteractionService: () => mockIssueThreadInteractionService,
-    logActivity: vi.fn(async () => undefined),
+    logActivity: mockLogActivity,
     projectService: () => ({}),
     routineService: () => ({
       syncRunStatusForIssue: vi.fn(async () => undefined),
@@ -292,6 +295,7 @@ describe("agent issue mutation checkout ownership", () => {
     mockCompanyService.getById.mockReset();
     mockIssueService.addComment.mockReset();
     mockIssueService.assertCheckoutOwner.mockReset();
+    mockIssueService.checkout.mockReset();
     mockIssueService.create.mockReset();
     mockIssueService.createChild.mockReset();
     mockIssueService.getAttachmentById.mockReset();
@@ -407,6 +411,15 @@ describe("agent issue mutation checkout ownership", () => {
       companyId,
       body: "comment",
     });
+    mockIssueService.checkout.mockImplementation(
+      async (_id: string, agentId: string, _expectedStatuses: string[], runId: string | null, options?: { checkoutType?: "execution" | "review" }) => ({
+        ...makeIssue(),
+        assigneeAgentId: options?.checkoutType === "review" ? ownerAgentId : agentId,
+        checkoutRunId: runId,
+        executionRunId: runId,
+        status: options?.checkoutType === "review" ? "todo" : "in_progress",
+      }),
+    );
     mockIssueService.listAttachments.mockResolvedValue([]);
     mockIssueService.remove.mockResolvedValue(makeIssue({ status: "cancelled" }));
     mockIssueService.getAttachmentById.mockResolvedValue({
@@ -706,6 +719,164 @@ describe("agent issue mutation checkout ownership", () => {
     expect(mockIssueService.update).toHaveBeenCalled();
   });
 
+  it("allows gate-keeper comments and allowlisted documents on labeled issues and logs override use", async () => {
+    mockIssueService.getById.mockResolvedValue(makeIssue({
+      labels: [{ name: "auditor:in-scope" }],
+    }));
+    mockAccessService.decide.mockImplementation(async (input: { action: string }) => ({
+      allowed:
+        input.action === "tasks:assign" ||
+        input.action === "issue:read" ||
+        input.action === "issue:mutate" ||
+        input.action === "company_scope:read" ||
+        input.action === "tasks:gate_keeper_write",
+      action: input.action,
+      reason: input.action === "tasks:gate_keeper_write" ? "allow_explicit_grant" : "allow_explicit_grant",
+      explanation: input.action === "tasks:gate_keeper_write" ? "Allowed by gate-keeper grant." : "Allowed by test default.",
+    }));
+
+    const app = await createApp(peerActor());
+
+    await request(app).post(`/api/issues/${issueId}/comments`).send({ body: "audit note" }).expect(201);
+    await request(app).put(`/api/issues/${issueId}/documents/acceptance-criteria`).send({ format: "markdown", body: "# ok" }).expect(200);
+    await request(app).put(`/api/issues/${issueId}/documents/rollback-plan`).send({ format: "markdown", body: "# rollback" }).expect(200);
+    await request(app).put(`/api/issues/${issueId}/documents/review-evidence`).send({ format: "markdown", body: "# evidence" }).expect(200);
+
+    expect(mockIssueService.assertCheckoutOwner).not.toHaveBeenCalled();
+    expect(mockIssueService.addComment).toHaveBeenCalledWith(
+      issueId,
+      "audit note",
+      expect.any(Object),
+      expect.any(Object),
+    );
+    expect(mockDocumentService.upsertIssueDocument).toHaveBeenCalledTimes(3);
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "gate_keeper_write",
+        entityId: issueId,
+        details: expect.objectContaining({
+          event: "gate_keeper_write",
+          actorAgentId: peerAgentId,
+          issueId,
+          labels: ["auditor:in-scope"],
+        }),
+      }),
+    );
+  });
+
+  it("rejects gate-keeper override use when the issue label is missing and leaves unrelated behavior unchanged", async () => {
+    const appWithoutGrant = await createApp(peerActor());
+    const baseComment = await request(appWithoutGrant).post(`/api/issues/${issueId}/comments`).send({ body: "base" });
+
+    mockAccessService.decide.mockImplementation(async (input: { action: string }) => ({
+      allowed:
+        input.action === "tasks:assign" ||
+        input.action === "issue:read" ||
+        input.action === "issue:mutate" ||
+        input.action === "company_scope:read" ||
+        input.action === "tasks:gate_keeper_write",
+      action: input.action,
+      reason: input.action === "tasks:gate_keeper_write" ? "allow_explicit_grant" : "allow_explicit_grant",
+      explanation: input.action === "tasks:gate_keeper_write" ? "Allowed by gate-keeper grant." : "Allowed by test default.",
+    }));
+
+    const appWithGrant = await createApp(peerActor());
+    const grantedComment = await request(appWithGrant).post(`/api/issues/${issueId}/comments`).send({ body: "base" });
+    const docRes = await request(appWithGrant)
+      .put(`/api/issues/${issueId}/documents/acceptance-criteria`)
+      .send({ format: "markdown", body: "# blocked" });
+
+    expect(grantedComment.status).toBe(baseComment.status);
+    expect(grantedComment.body).toEqual(baseComment.body);
+    expect(docRes.status).toBe(409);
+    expect(docRes.body.error).toBe("Issue is checked out by another agent");
+    expect(mockDocumentService.upsertIssueDocument).not.toHaveBeenCalled();
+  });
+
+  it("keeps substance fields owner-only even for a labeled gate-keeper issue", async () => {
+    mockIssueService.getById.mockResolvedValue(makeIssue({
+      labels: [{ name: "auditor:in-scope" }],
+    }));
+    mockAccessService.decide.mockImplementation(async (input: { action: string }) => ({
+      allowed:
+        input.action === "tasks:assign" ||
+        input.action === "issue:read" ||
+        input.action === "issue:mutate" ||
+        input.action === "company_scope:read" ||
+        input.action === "tasks:gate_keeper_write",
+      action: input.action,
+      reason: "allow_explicit_grant",
+      explanation: input.action === "tasks:gate_keeper_write" ? "Allowed by gate-keeper grant." : "Allowed by test default.",
+    }));
+
+    const app = await createApp(peerActor());
+
+    await request(app).patch(`/api/issues/${issueId}`).send({ status: "done" }).expect(409);
+    await request(app).patch(`/api/issues/${issueId}`).send({ assigneeAgentId: peerAgentId }).expect(409);
+    await request(app).patch(`/api/issues/${issueId}`).send({ description: "x" }).expect(409);
+    await request(app).put(`/api/issues/${issueId}/documents/plan`).send({ format: "markdown", body: "# plan" }).expect(409);
+
+    expect(mockIssueService.update).not.toHaveBeenCalled();
+    expect(mockDocumentService.upsertIssueDocument).not.toHaveBeenCalled();
+  });
+
+  it("supports review checkout only for labeled gate-keeper issues and preserves execution checkout defaults", async () => {
+    mockIssueService.getById.mockResolvedValue(makeIssue({
+      status: "todo",
+      labels: [{ name: "auditor:in-scope" }],
+    }));
+    mockAccessService.decide.mockImplementation(async (input: { action: string }) => ({
+      allowed:
+        input.action === "tasks:assign" ||
+        input.action === "issue:read" ||
+        input.action === "issue:mutate" ||
+        input.action === "company_scope:read" ||
+        input.action === "tasks:gate_keeper_write",
+      action: input.action,
+      reason: "allow_explicit_grant",
+      explanation: input.action === "tasks:gate_keeper_write" ? "Allowed by gate-keeper grant." : "Allowed by test default.",
+    }));
+
+    const app = await createApp(peerActor());
+    const reviewRes = await request(app)
+      .post(`/api/issues/${issueId}/checkout`)
+      .send({ agentId: peerAgentId, expectedStatuses: ["todo"], checkoutType: "review" });
+
+    expect(reviewRes.status, JSON.stringify(reviewRes.body)).toBe(200);
+    expect(reviewRes.body).toMatchObject({
+      assigneeAgentId: ownerAgentId,
+      checkoutType: "review",
+    });
+    expect(mockIssueService.checkout).toHaveBeenCalledWith(
+      issueId,
+      peerAgentId,
+      ["todo"],
+      peerActor().runId,
+      { checkoutType: "review" },
+    );
+
+    mockIssueService.getById.mockResolvedValue(makeIssue({ status: "todo" }));
+    const reviewDenied = await request(await createApp(peerActor()))
+      .post(`/api/issues/${issueId}/checkout`)
+      .send({ agentId: peerAgentId, expectedStatuses: ["todo"], checkoutType: "review" });
+    expect(reviewDenied.status).toBe(403);
+    expect(reviewDenied.body.error).toContain("tasks:gate_keeper_write");
+
+    const executionRes = await request(await createApp(ownerActor()))
+      .post(`/api/issues/${issueId}/checkout`)
+      .send({ agentId: ownerAgentId, expectedStatuses: ["in_progress"] });
+    expect(executionRes.status, JSON.stringify(executionRes.body)).toBe(200);
+    expect(executionRes.body.checkoutType).toBe("execution");
+    expect(mockIssueService.checkout).toHaveBeenLastCalledWith(
+      issueId,
+      ownerAgentId,
+      ["in_progress"],
+      ownerRunId,
+      { checkoutType: "execution" },
+    );
+  });
+
   it.each([
     ["todo", "patch", (app: express.Express) => request(app).patch(`/api/issues/${issueId}`).send({ title: "Todo update" })],
     ["todo", "comment", (app: express.Express) => request(app).post(`/api/issues/${issueId}/comments`).send({ body: "Todo noise" })],
@@ -738,6 +909,7 @@ describe("agent issue mutation checkout ownership", () => {
       assigneeAgentId: null,
       title: "Claimable update",
     });
+    mockLogActivity.mockReset();
   });
 
   it("rejects peer-agent status updates that would clear a recovery action they do not own", async () => {

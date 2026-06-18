@@ -443,6 +443,7 @@ export type IssueExecutionWorkspaceSettings = z.infer<typeof issueExecutionWorks
 export const checkoutIssueSchema = z.object({
   agentId: z.string().uuid(),
   expectedStatuses: z.array(z.enum(ISSUE_STATUSES)).nonempty(),
+  checkoutType: z.enum(["execution", "review"]).optional(),
 });
 
 export type CheckoutIssue = z.infer<typeof checkoutIssueSchema>;

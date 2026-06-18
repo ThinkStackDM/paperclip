@@ -210,6 +210,68 @@ describe("issue execution policy routes", () => {
     expect(mockIssueService.update).not.toHaveBeenCalled();
   });
 
+  it("accepts a gate-keeper assignee as a typed in_review path and still rejects non-gate-keepers", async () => {
+    const issue = {
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      companyId: "company-1",
+      status: "todo",
+      assigneeAgentId: "33333333-3333-4333-8333-333333333333",
+      assigneeUserId: null,
+      createdByUserId: "local-board",
+      identifier: "PAP-1003",
+      title: "Gate keeper review path",
+      executionPolicy: null,
+      executionState: null,
+      labels: [{ name: "auditor:in-scope" }],
+    };
+    mockIssueService.getById.mockResolvedValue(issue);
+    mockIssueService.update.mockImplementation(async (_id: string, patch: Record<string, unknown>) => ({
+      ...issue,
+      ...patch,
+      updatedAt: new Date(),
+    }));
+    mockAccessService.decide.mockImplementation(async (input: { actor?: { type?: string; source?: string; agentId?: string }; action?: string }) => {
+      const allowed = input.action === "tasks:gate_keeper_write"
+        ? input.actor?.agentId === "44444444-4444-4444-8444-444444444444"
+        : input.actor?.type === "board" && input.actor.source === "local_implicit"
+          ? true
+          : input.actor?.type === "agent" && [
+              "company_scope:read",
+              "issue:read",
+              "issue:mutate",
+              "runtime:manage",
+            ].includes(input.action ?? "");
+      return {
+        allowed,
+        action: input.action,
+        reason: allowed ? "allow_explicit_grant" : "deny_missing_grant",
+        explanation: allowed ? "Allowed by test grant." : `Missing permission: ${input.action ?? "action"}`,
+      };
+    });
+
+    const app = await createApp({
+      type: "agent",
+      agentId: "33333333-3333-4333-8333-333333333333",
+      companyId: "company-1",
+      runId: "run-1",
+    });
+
+    const allowed = await request(app)
+      .patch("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+      .send({ status: "in_review", assigneeAgentId: "44444444-4444-4444-8444-444444444444" });
+    expect(allowed.status, JSON.stringify(allowed.body)).toBe(200);
+
+    const denied = await request(app)
+      .patch("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+      .send({ status: "in_review", assigneeAgentId: "55555555-5555-4555-8555-555555555555" });
+    expect(denied.status).toBe(422);
+    expect(denied.body.details).toMatchObject({
+      code: "invalid_issue_disposition",
+      missing: "review_path",
+    });
+    expect(denied.body.details.validReviewPaths).toContain("typed_gate_keeper");
+  });
+
   it("allows an agent-authored in_review transition with a pending confirmation interaction", async () => {
     const issue = {
       id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",

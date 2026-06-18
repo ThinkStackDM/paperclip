@@ -120,6 +120,12 @@ function scopeIncludesId(ids: string[], id: string | null | undefined) {
   return Boolean(id && ids.includes(id));
 }
 
+function scopeIncludesAnyValue(allowedValues: string[], requestedValues: string[]) {
+  if (requestedValues.length === 0) return false;
+  const allowed = new Set(allowedValues);
+  return requestedValues.some((value) => allowed.has(value));
+}
+
 function isSimpleAssignableAgentStatus(status: string | null | undefined) {
   return status !== "pending_approval" && status !== "terminated";
 }
@@ -274,6 +280,7 @@ async function scopeAllows(
         ? requestedScope.targetAgentId
         : null;
   const requestedProjectId = typeof requestedScope.projectId === "string" ? requestedScope.projectId : null;
+  const requestedLabels = scopeValueList(requestedScope.labels);
   let constrained = false;
 
   const projectIds = [
@@ -327,6 +334,15 @@ async function scopeAllows(
       }
     }
     if (!matchesSubtree) return false;
+  }
+
+  const labelNames = [
+    ...scopeValuesForKeys(grantScope, ["label", "labels"]),
+    ...prefixedScopeValues(grantScope, "label:"),
+  ];
+  if (labelNames.length > 0) {
+    constrained = true;
+    if (!scopeIncludesAnyValue(labelNames, requestedLabels)) return false;
   }
 
   // Unknown metadata keys do not constrain the grant. Recognized constraints

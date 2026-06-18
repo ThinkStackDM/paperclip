@@ -5502,7 +5502,13 @@ export function issueService(db: Db) {
         return enriched;
       }),
 
-    checkout: async (id: string, agentId: string, expectedStatuses: string[], checkoutRunId: string | null) => {
+    checkout: async (
+      id: string,
+      agentId: string,
+      expectedStatuses: string[],
+      checkoutRunId: string | null,
+      options?: { checkoutType?: "execution" | "review" },
+    ) => {
       const issueCompany = await db
         .select({ companyId: issues.companyId })
         .from(issues)
@@ -5527,6 +5533,37 @@ export function issueService(db: Db) {
       }
 
       await clearExecutionRunIfTerminal(id);
+
+      if (options?.checkoutType === "review") {
+        const checkoutRunMatches = checkoutRunId === null
+          ? isNull(issues.checkoutRunId)
+          : or(isNull(issues.checkoutRunId), eq(issues.checkoutRunId, checkoutRunId));
+        const executionRunMatches = checkoutRunId === null
+          ? isNull(issues.executionRunId)
+          : or(isNull(issues.executionRunId), eq(issues.executionRunId, checkoutRunId));
+        const reviewUpdated = await db
+          .update(issues)
+          .set({
+            checkoutRunId,
+            executionRunId: checkoutRunId,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(issues.id, id),
+              inArray(issues.status, expectedStatuses),
+              checkoutRunMatches,
+              executionRunMatches,
+            ),
+          )
+          .returning()
+          .then((rows) => rows[0] ?? null);
+
+        if (reviewUpdated) {
+          const [enriched] = await withIssueLabels(db, [reviewUpdated]);
+          return enriched;
+        }
+      }
 
       const dependencyReadiness = await listIssueDependencyReadinessMap(db, issueCompany.companyId, [id]);
       const unresolvedBlockerIssueIds = dependencyReadiness.get(id)?.unresolvedBlockerIssueIds ?? [];
