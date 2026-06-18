@@ -4676,6 +4676,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       statedDisposition && typeof statedDisposition.status === "string"
         ? statedDisposition.status
         : null;
+    const enforceDisposition = process.env.PAPERCLIP_DISPOSITION_ENFORCE === "1";
     await logActivity(db, {
       companyId: issue.companyId,
       actorType: "system",
@@ -4686,14 +4687,51 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       entityType: "issue",
       entityId: issue.id,
       details: {
-        label: "Disposition enforcement (shadow)",
+        label: "Disposition enforcement",
+        mode: enforceDisposition ? "enforce" : "shadow",
         tokenPresent: Boolean(statedStatus),
         statedStatus: statedStatus ?? null,
         hasBlocker: statedDisposition?.hasBlocker === true,
         sourceRunId: run.id,
-        note: "shadow: would-apply only; enforcement not enabled",
       },
     });
+
+    // --- Enforcement (gated by PAPERCLIP_DISPOSITION_ENFORCE; default OFF = shadow) ---
+    // Conservative: only `done`/`cancelled` are self-contained and safe to set here.
+    // This handler is only reached when the issue has NO blocker / reviewer / execution
+    // path (those are skip conditions in decideSuccessfulRunHandoff), so a stated
+    // `blocked`/`in_review` would be a DANGLING disposition — those fall through to the
+    // corrective re-wake to build the supporting structure properly. No token also falls
+    // through (never guess `done`). Best-effort: a failed apply never breaks the handler.
+    if (enforceDisposition && (statedStatus === "done" || statedStatus === "cancelled")) {
+      try {
+        const applied = await issuesSvc.update(issue.id, {
+          status: statedStatus,
+          actorAgentId: run.agentId,
+          actorUserId: null,
+        });
+        if (applied) {
+          await logActivity(db, {
+            companyId: issue.companyId,
+            actorType: "system",
+            actorId: "heartbeat",
+            agentId: run.agentId,
+            runId: run.id,
+            action: "issue.disposition_applied",
+            entityType: "issue",
+            entityId: issue.id,
+            details: {
+              label: "Disposition enforced from stated token",
+              appliedStatus: statedStatus,
+              sourceRunId: run.id,
+            },
+          });
+          return; // gap closed deterministically — skip the corrective re-wake
+        }
+      } catch {
+        // fall through to the existing re-wake recovery
+      }
+    }
 
     const handoffRun = await enqueueWakeup(run.agentId, {
       source: "automation",
