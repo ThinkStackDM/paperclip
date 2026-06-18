@@ -5598,6 +5598,7 @@ export function issueService(db: Db) {
       }
 
       await clearExecutionRunIfTerminal(id);
+      await clearCheckoutRunIfTerminal(id);
 
       if (options?.checkoutType === "review") {
         // Review checkout is a status-bound entitlement, not a lock acquisition.
