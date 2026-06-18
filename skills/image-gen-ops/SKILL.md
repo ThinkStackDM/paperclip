@@ -1,21 +1,43 @@
 ---
 name: image-gen-ops
-description: How to produce image assets for issues. Use whenever an issue needs an image (logo, thumbnail, cover, illustration, social card, hero, diagram art). DEFAULT to producing a copy-ready prompt for board action; local on-device generation exists but is slow under fleet load, so only use it when explicitly told the Mac is idle. Never block an issue silently on missing image capability.
+description: How to produce image assets for issues. Use whenever an issue needs an image (logo, thumbnail, cover, illustration, social card, hero, diagram art). If you have the native image_generate tool (grok-imagine), generate the asset directly and ATTACH the file to the issue (never leave it unattached in the cache, never curl an external image API). Otherwise package a copy-ready prompt for board action (local on-device gen exists but is slow). Never block an issue silently on missing image capability.
 ---
 
 # Image Gen Ops
 
-Default path: **package a copy-ready prompt for board action** (a human runs it in
-the appropriate tool and drops the file in the workspace). A local on-device
-generator exists (Apple-Silicon MLX FLUX.1-schnell, free/unlimited) but it shares
-the GPU with the agent fleet — it is **slow under load (minutes per image) and
-memory-heavy**, so it is OPT-IN, not the autonomous default.
+## Decision rule (in priority order)
 
-## Decision rule
+0. **If you have the `image_generate` tool (grok-imagine — the hermes `image_gen`
+   toolset), USE IT DIRECTLY. This is the preferred path whenever available** — $0,
+   ~13 s, production-quality 1024×1024, no GPU contention. Do NOT curl an external
+   image API; you have the native tool. Steps:
+   - Call `image_generate` with an art-directed prompt (see "Prompt quality bar").
+     For video/B-roll, `video_generate`.
+   - The tool writes the file to `~/.hermes/cache/images/xai_grok-imagine-image_*.jpg`
+     (video likewise under the hermes cache). **The asset is NOT delivered until you
+     ATTACH that file to the issue** — leaving it in the cache is an INCOMPLETE
+     disposition. Attach it:
+     ```bash
+     curl -sS -X POST -H "Authorization: Bearer $PAPERCLIP_API_KEY" \
+       -F "file=@<the-generated-file-path>" \
+       "$PAPERCLIP_API_URL/api/companies/$PAPERCLIP_COMPANY_ID/issues/<this-issue-id>/attachments"
+     ```
+   - If the brief is exacting, `vision_analyze` the file first and regenerate if off-brief.
+   - Comment the exact prompt used and confirm the attachment, then set the disposition.
+   - Text-in-image is bimodal: grok-imagine renders structured/infographic text cleanly
+     but garbles small text inside photoreal scenes — for hero shots treat embedded text
+     as decorative and overlay real copy in the layout layer.
 
-1. **Any image asset, by default** → produce the prompt package for **board action**
-   (see "Prompt package" below) and mark the issue for the board. Do NOT fire local
-   generation on your own during a sprint — it competes with live agents for the GPU.
+If you do NOT have the `image_generate` tool, use the fallback paths below.
+
+Fallback (no native tool): **package a copy-ready prompt for board action** (a human
+runs it and drops the file in the workspace). A local on-device generator exists
+(Apple-Silicon MLX FLUX.1-schnell, free/unlimited) but it shares the GPU with the
+fleet — **slow under load**, so OPT-IN, not the autonomous default.
+
+1. **Any image asset, no native tool, by default** → produce the prompt package for
+   **board action** (see "Prompt package" below) and mark the issue for the board. Do
+   NOT fire local generation on your own during a sprint — it competes for the GPU.
 
 2. **Local generation — only when explicitly authorized** (the issue or operator says
    "the Mac is idle / generate it locally"), and best for low-stakes draft/iteration
