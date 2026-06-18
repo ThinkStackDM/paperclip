@@ -4670,11 +4670,15 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     // model still re-wakes below — shadow mode changes nothing about behaviour.
     const statedDisposition =
       run.resultJson && typeof run.resultJson === "object"
-        ? (run.resultJson as { disposition?: { status?: unknown; hasBlocker?: unknown } | null }).disposition
+        ? (run.resultJson as { disposition?: { status?: unknown; hasBlocker?: unknown; blocker?: unknown } | null }).disposition
         : null;
     const statedStatus =
       statedDisposition && typeof statedDisposition.status === "string"
         ? statedDisposition.status
+        : null;
+    const statedBlocker =
+      statedDisposition && typeof statedDisposition.blocker === "string" && statedDisposition.blocker.trim()
+        ? statedDisposition.blocker.trim()
         : null;
     const enforceDisposition = process.env.PAPERCLIP_DISPOSITION_ENFORCE === "1";
     await logActivity(db, {
@@ -4697,20 +4701,43 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     });
 
     // --- Enforcement (gated by PAPERCLIP_DISPOSITION_ENFORCE; default OFF = shadow) ---
-    // Conservative: only `done`/`cancelled` are self-contained and safe to set here.
-    // This handler is only reached when the issue has NO blocker / reviewer / execution
-    // path (those are skip conditions in decideSuccessfulRunHandoff), so a stated
-    // `blocked`/`in_review` would be a DANGLING disposition — those fall through to the
-    // corrective re-wake to build the supporting structure properly. No token also falls
-    // through (never guess `done`). Best-effort: a failed apply never breaks the handler.
-    if (enforceDisposition && (statedStatus === "done" || statedStatus === "cancelled")) {
+    // Apply only what's self-contained or whose supporting structure we can build:
+    //   done/cancelled → set the agent's explicit terminal decision.
+    //   blocked + named blocker → create the prerequisite the agent reported, link it as
+    //     a first-class blocker, then set blocked (a real, non-dangling blocked state).
+    // in_review, or blocked WITHOUT a named blocker, fall through to the corrective re-wake
+    // (no reviewer/blocker structure to set safely). No token also falls through (never
+    // guess `done`). Best-effort: a failed apply never breaks the handler.
+    if (enforceDisposition) {
       try {
-        const applied = await issuesSvc.update(issue.id, {
-          status: statedStatus,
-          actorAgentId: run.agentId,
-          actorUserId: null,
-        });
-        if (applied) {
+        let appliedStatus: string | null = null;
+        let createdBlockerId: string | null = null;
+        if (statedStatus === "done" || statedStatus === "cancelled") {
+          const applied = await issuesSvc.update(issue.id, {
+            status: statedStatus,
+            actorAgentId: run.agentId,
+            actorUserId: null,
+          });
+          if (applied) appliedStatus = statedStatus;
+        } else if (statedStatus === "blocked" && statedBlocker) {
+          const blockerIssue = await issuesSvc.create(issue.companyId, {
+            title: `Unblock: ${statedBlocker.slice(0, 140)}`,
+            description: `Auto-created from a stated disposition on ${issue.identifier ?? issue.id}. The agent reported this issue is blocked on: ${statedBlocker}`,
+            status: "todo",
+            priority: "medium",
+          });
+          if (blockerIssue?.id) {
+            createdBlockerId = blockerIssue.id;
+            const applied = await issuesSvc.update(issue.id, {
+              status: "blocked",
+              blockedByIssueIds: [blockerIssue.id],
+              actorAgentId: run.agentId,
+              actorUserId: null,
+            });
+            if (applied) appliedStatus = "blocked";
+          }
+        }
+        if (appliedStatus) {
           await logActivity(db, {
             companyId: issue.companyId,
             actorType: "system",
@@ -4722,7 +4749,8 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
             entityId: issue.id,
             details: {
               label: "Disposition enforced from stated token",
-              appliedStatus: statedStatus,
+              appliedStatus,
+              ...(createdBlockerId ? { createdBlockerId } : {}),
               sourceRunId: run.id,
             },
           });

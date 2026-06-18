@@ -2523,7 +2523,8 @@ export function issueRoutes(
     const dispositionContract =
       "Before you finish, the FINAL line of your response MUST be your chosen disposition " +
       "as JSON — Paperclip records your decision from this line even if a status PATCH " +
-      'fails: PAPERCLIP_DISPOSITION: {"status":"done|cancelled|in_review|blocked","hasBlocker":true|false}';
+      "fails. If blocked, include a short `blocker` describing what must be resolved first: " +
+      'PAPERCLIP_DISPOSITION: {"status":"done|cancelled|in_review|blocked","hasBlocker":true|false,"blocker":"<short reason, only when blocked>"}';
 
     res.json({
       issue: {
