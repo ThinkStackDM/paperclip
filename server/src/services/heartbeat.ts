@@ -4670,7 +4670,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     // model still re-wakes below — shadow mode changes nothing about behaviour.
     const statedDisposition =
       run.resultJson && typeof run.resultJson === "object"
-        ? (run.resultJson as { disposition?: { status?: unknown; hasBlocker?: unknown; blocker?: unknown } | null }).disposition
+        ? (run.resultJson as { disposition?: { status?: unknown; hasBlocker?: unknown; blocker?: unknown; reviewer?: unknown } | null }).disposition
         : null;
     const statedStatus =
       statedDisposition && typeof statedDisposition.status === "string"
@@ -4679,6 +4679,10 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     const statedBlocker =
       statedDisposition && typeof statedDisposition.blocker === "string" && statedDisposition.blocker.trim()
         ? statedDisposition.blocker.trim()
+        : null;
+    const statedReviewer =
+      statedDisposition && typeof statedDisposition.reviewer === "string" && statedDisposition.reviewer.trim()
+        ? statedDisposition.reviewer.trim()
         : null;
     const enforceDisposition = process.env.PAPERCLIP_DISPOSITION_ENFORCE === "1";
     await logActivity(db, {
@@ -4705,13 +4709,15 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     //   done/cancelled → set the agent's explicit terminal decision.
     //   blocked + named blocker → create the prerequisite the agent reported, link it as
     //     a first-class blocker, then set blocked (a real, non-dangling blocked state).
-    // in_review, or blocked WITHOUT a named blocker, fall through to the corrective re-wake
-    // (no reviewer/blocker structure to set safely). No token also falls through (never
-    // guess `done`). Best-effort: a failed apply never breaks the handler.
+    //   in_review → hand to a real reviewer (agent-named if valid, else the source agent's
+    //     manager) so it is not a dangling review. blocked WITHOUT a named blocker falls
+    //     through to the corrective re-wake. No token also falls through (never guess `done`).
+    // Best-effort: a failed apply never breaks the handler.
     if (enforceDisposition) {
       try {
         let appliedStatus: string | null = null;
         let createdBlockerId: string | null = null;
+        let reviewerAssigned: string | null = null;
         if (statedStatus === "done" || statedStatus === "cancelled") {
           const applied = await issuesSvc.update(issue.id, {
             status: statedStatus,
@@ -4736,6 +4742,28 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
             });
             if (applied) appliedStatus = "blocked";
           }
+        } else if (statedStatus === "in_review") {
+          let reviewerAgentId: string | null = null;
+          if (statedReviewer) {
+            const named = await getAgent(statedReviewer).catch(() => null);
+            if (named && named.companyId === issue.companyId) reviewerAgentId = named.id;
+          }
+          if (!reviewerAgentId) {
+            const actor = await getAgent(run.agentId).catch(() => null);
+            reviewerAgentId = actor?.reportsTo ?? null;
+          }
+          if (reviewerAgentId && reviewerAgentId !== run.agentId) {
+            const applied = await issuesSvc.update(issue.id, {
+              status: "in_review",
+              assigneeAgentId: reviewerAgentId,
+              actorAgentId: run.agentId,
+              actorUserId: null,
+            });
+            if (applied) {
+              appliedStatus = "in_review";
+              reviewerAssigned = reviewerAgentId;
+            }
+          }
         }
         if (appliedStatus) {
           await logActivity(db, {
@@ -4751,6 +4779,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
               label: "Disposition enforced from stated token",
               appliedStatus,
               ...(createdBlockerId ? { createdBlockerId } : {}),
+              ...(reviewerAssigned ? { reviewerAssigned } : {}),
               sourceRunId: run.id,
             },
           });
