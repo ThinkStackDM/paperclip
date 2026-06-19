@@ -77,6 +77,14 @@ export const ACTIVE_RUN_OUTPUT_CONTINUE_REARM_MS = 30 * 60 * 1000;
 const ACTIVE_RUN_OUTPUT_EVIDENCE_TAIL_BYTES = 8 * 1024;
 const STRANDED_ISSUE_RECOVERY_ORIGIN_KIND = RECOVERY_ORIGIN_KINDS.strandedIssueRecovery;
 const STALE_ACTIVE_RUN_EVALUATION_ORIGIN_KIND = RECOVERY_ORIGIN_KINDS.staleActiveRunEvaluation;
+// Min idle (hours) before a blocked issue with no actionable blocker chain is
+// flagged as a wedge by the issue-graph liveness classifier.
+const ISSUE_GRAPH_LIVENESS_BLOCKED_STALE_HOURS = 48;
+// Cap on NEW liveness escalations created per auto-recovery run, so a large
+// stale backlog coming into scope drip-feeds rather than bursting (the churn
+// that prompted pausing auto-recovery). Remaining findings are picked up on
+// subsequent runs.
+const ISSUE_GRAPH_LIVENESS_MAX_ESCALATIONS_PER_RUN = 10;
 const DEFERRED_WAKE_CONTEXT_KEY = "_paperclipWakeContext";
 const SESSIONED_LOCAL_ADAPTERS = new Set([
   "claude_local",
@@ -3096,6 +3104,7 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
         executionState: issues.executionState,
         monitorNextCheckAt: issues.monitorNextCheckAt,
         monitorAttemptCount: issues.monitorAttemptCount,
+        updatedAt: issues.updatedAt,
       })
       .from(issues)
       .where(
@@ -3279,6 +3288,7 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
       pendingApprovals: approvalRows,
       openRecoveryIssues: openRecoveryIssues.concat(recoveryActionRows),
       now: new Date(),
+      blockedStaleHours: ISSUE_GRAPH_LIVENESS_BLOCKED_STALE_HOURS,
     });
   }
 
@@ -3882,6 +3892,8 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
       skipped: 0,
       skippedAutoRecoveryDisabled: 0,
       skippedOutsideLookback: 0,
+      skippedRateLimited: 0,
+      rateLimited: false,
       obsoleteRecoveriesRetired: obsoleteRecoveryCleanup.retired,
       obsoleteRecoveriesActiveSkipped: obsoleteRecoveryCleanup.activeSkipped,
       obsoleteRecoveryBlockerRelationsRemoved: obsoleteRecoveryCleanup.blockerRelationsRemoved,
@@ -3901,6 +3913,12 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
         result.skippedOutsideLookback += 1;
         result.skipped += 1;
         continue;
+      }
+      if (result.escalationsCreated >= ISSUE_GRAPH_LIVENESS_MAX_ESCALATIONS_PER_RUN) {
+        // Per-run cap reached — drip-feed the rest on subsequent runs rather
+        // than bursting the whole backlog into escalations at once.
+        result.rateLimited = true;
+        break;
       }
       const escalation = await createIssueGraphLivenessEscalation({
         finding,

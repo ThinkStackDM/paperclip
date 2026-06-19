@@ -2898,7 +2898,12 @@ async function listIssueBlockedInboxAttentionMap(
         : finding.recommendedOwnerAgentId ?? row.assigneeAgentId ?? leaf?.assigneeAgentId ?? null;
       result.set(row.id, attentionBase({
         state: "needs_attention",
-        reason: finding.state as IssueBlockedInboxAttention["reason"],
+        // `blocked_without_actionable_blocker` has no dedicated inbox reason; map
+        // it to the closest existing one (a stalled blocked chain) so the UI and
+        // validators handle it without a cross-package enum change.
+        reason: (finding.state === "blocked_without_actionable_blocker"
+          ? "blocked_chain_stalled"
+          : finding.state) as IssueBlockedInboxAttention["reason"],
         severity: finding.state === "blocked_by_assigned_backlog_issue"
           || finding.state === "in_review_without_action_path"
           ? "high"
@@ -2925,6 +2930,10 @@ async function listIssueBlockedInboxAttentionMap(
                 return "Repair review participant";
               case "in_review_without_action_path":
                 return "Choose review path";
+              case "blocked_without_actionable_blocker":
+                return "Unblock or attach owner";
+              default:
+                return "Review blocked issue";
             }
           })(),
           detail: finding.recommendedAction,

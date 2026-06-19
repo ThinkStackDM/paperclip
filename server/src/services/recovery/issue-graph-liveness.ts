@@ -8,7 +8,8 @@ export type IssueLivenessState =
   | "blocked_by_uninvokable_assignee"
   | "blocked_by_cancelled_issue"
   | "invalid_review_participant"
-  | "in_review_without_action_path";
+  | "in_review_without_action_path"
+  | "blocked_without_actionable_blocker";
 
 export interface IssueLivenessIssueInput {
   id: string;
@@ -27,6 +28,7 @@ export interface IssueLivenessIssueInput {
   executionState?: Record<string, unknown> | null;
   monitorNextCheckAt?: Date | string | null;
   monitorAttemptCount?: number | null;
+  updatedAt?: Date | string | null;
 }
 
 export interface IssueLivenessRelationInput {
@@ -104,6 +106,12 @@ export interface IssueGraphLivenessInput {
   pendingApprovals?: IssueLivenessWaitingPathInput[];
   openRecoveryIssues?: IssueLivenessWaitingPathInput[];
   now?: Date | string;
+  /**
+   * Minimum idle time (hours, on the issue's updatedAt) before a `blocked`
+   * issue with no actionable blocker chain is flagged as stuck. Guards against
+   * flagging an issue that was only just unblocked/transitioning. Default 48h.
+   */
+  blockedStaleHours?: number;
 }
 
 const INVOKABLE_AGENT_STATUSES = new Set(["active", "idle", "running", "error"]);
@@ -353,6 +361,7 @@ function finding(input: {
 
 export function classifyIssueGraphLiveness(input: IssueGraphLivenessInput): IssueLivenessFinding[] {
   const nowMs = readDateMs(input.now ?? new Date()) ?? Date.now();
+  const blockedStaleMs = Math.max(0, input.blockedStaleHours ?? 48) * 60 * 60 * 1000;
   const issuesById = new Map(input.issues.map((issue) => [issue.id, issue]));
   const agentsById = new Map(input.agents.map((agent) => [agent.id, agent]));
   const blockersByBlockedIssueId = new Map<string, IssueLivenessRelationInput[]>();
@@ -585,7 +594,39 @@ export function classifyIssueGraphLiveness(input: IssueGraphLivenessInput): Issu
     if (issue.status === "blocked") {
       if (unresolvedBlockers.has(issue.id)) continue;
       const chainFinding = firstBlockedChainFinding(issue, issue, [issue], new Set());
-      if (chainFinding) findings.push(chainFinding);
+      if (chainFinding) {
+        findings.push(chainFinding);
+      } else {
+        // No actionable blocker chain finding. That can mean the blockers are
+        // all resolved (done/cancelled) — or this is a parent whose children
+        // all resolved with no blocker relation. Only treat it as a wedge when
+        // there is genuinely NO live blocker still in flight (a blocker being
+        // actively worked is a legitimate wait), it's not otherwise waiting,
+        // and it has sat idle past the stale threshold. Staleness-gated so a
+        // just-transitioning issue is not flagged.
+        const liveBlocker = (blockersByBlockedIssueId.get(issue.id) ?? []).some((relation) => {
+          const blocker = issuesById.get(relation.blockerIssueId);
+          return blocker ? blocker.status !== "done" && blocker.status !== "cancelled" : false;
+        });
+        const idleMs = nowMs - (readDateMs(issue.updatedAt) ?? nowMs);
+        if (!liveBlocker && !hasExplicitWaitingPath(issue) && idleMs >= blockedStaleMs && blockedStaleMs > 0) {
+          const ownerCandidates = ownerCandidatesForRecoveryIssue(issue, input.agents, agentsById, {
+            includeStalledAssignee: true,
+          });
+          findings.push(finding({
+            issue,
+            state: "blocked_without_actionable_blocker",
+            reason: `${issueLabel(issue)} is blocked but has no unresolved blocker, owner action, or waiting path, and has been idle ${Math.round(idleMs / (60 * 60 * 1000))}h — its blockers/children appear resolved.`,
+            dependencyPath: [issue],
+            recoveryIssue: issue,
+            recommendedOwnerCandidateAgentIds: ownerCandidates.map((candidate) => candidate.agentId),
+            recommendedOwnerCandidates: ownerCandidates,
+            recommendedAction:
+              `Review ${issueLabel(issue)}: unblock it (move to todo / in_progress) if its blockers and child issues are resolved, or attach an actionable blocker or owner if it is genuinely waiting.`,
+            blockerIssueId: issue.id,
+          }));
+        }
+      }
     }
 
     if (issue.status === "in_review" && !unresolvedBlockers.has(issue.id)) {
