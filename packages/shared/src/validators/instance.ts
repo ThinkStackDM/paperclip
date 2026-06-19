@@ -48,6 +48,10 @@ export const instanceExperimentalSettingsSchema = z.object({
     .min(MIN_ISSUE_GRAPH_LIVENESS_AUTO_RECOVERY_LOOKBACK_HOURS)
     .max(MAX_ISSUE_GRAPH_LIVENESS_AUTO_RECOVERY_LOOKBACK_HOURS)
     .default(DEFAULT_ISSUE_GRAPH_LIVENESS_AUTO_RECOVERY_LOOKBACK_HOURS),
+  // Companies excluded from issue-graph-liveness scanning (findings, escalations,
+  // and the read-only preview). Used to keep isolated/UI-hidden harness companies
+  // (e.g. the agentic benchmark company) from leaking fixtures into prod recovery.
+  issueGraphLivenessExcludedCompanyIds: z.array(z.string().uuid()).default([]),
 }).strict();
 
 export const patchInstanceExperimentalSettingsSchema = instanceExperimentalSettingsSchema.partial();

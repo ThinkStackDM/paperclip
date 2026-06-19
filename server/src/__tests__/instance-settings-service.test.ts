@@ -20,6 +20,16 @@ describe("instance settings service", () => {
       autoRestartDevServerWhenIdle: true,
       enableIssueGraphLivenessAutoRecovery: true,
       issueGraphLivenessAutoRecoveryLookbackHours: 48,
+      issueGraphLivenessExcludedCompanyIds: [],
     });
+  });
+
+  it("preserves issueGraphLivenessExcludedCompanyIds and defaults it to empty", () => {
+    const companyId = "e212ce50-b524-408c-b3d4-0c6108d8c2e2";
+    expect(
+      normalizeExperimentalSettings({ issueGraphLivenessExcludedCompanyIds: [companyId] })
+        .issueGraphLivenessExcludedCompanyIds,
+    ).toEqual([companyId]);
+    expect(normalizeExperimentalSettings({}).issueGraphLivenessExcludedCompanyIds).toEqual([]);
   });
 });

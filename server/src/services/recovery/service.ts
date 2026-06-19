@@ -3086,6 +3086,8 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
   }
 
   async function collectIssueGraphLivenessFindings() {
+    const { issueGraphLivenessExcludedCompanyIds } = await instanceSettings.getExperimental();
+    const excludedCompanyIds = new Set(issueGraphLivenessExcludedCompanyIds);
     const issueRowsPromise = Promise.resolve(db
       .select({
         id: issues.id,
@@ -3263,8 +3265,12 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
       }];
     });
 
+    const scopedIssueRows = excludedCompanyIds.size === 0
+      ? issueRows
+      : issueRows.filter((row) => !excludedCompanyIds.has(row.companyId));
+
     return classifyIssueGraphLiveness({
-      issues: issueRows,
+      issues: scopedIssueRows,
       relations: relationRows,
       agents: agentRows,
       activeRuns: activeRunRows.map((row) => ({
