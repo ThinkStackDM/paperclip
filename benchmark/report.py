@@ -139,9 +139,14 @@ def _recommend(model_stats, cfg, labels):
                   f"(−{peak_q - rated[cheapest]['meanQuality']:.3f}) at {cost_ratio:.1f}× less output cost")
     else:
         pick = best_quality
-        if cheapest != best_quality:
+        if cheapest != best_quality and cost_ratio is not None:
             reason = (f"kept peak quality {labels.get(best_quality)} ({peak_q:.3f}); nearest "
                       f"cheaper model only {cost_ratio:.1f}× cheaper (< {cost_trigger:.1f}× trigger)")
+        elif cheapest != best_quality:
+            # No token/cost data (e.g. the agentic completion suite omits tokens) —
+            # there's nothing to justify dropping below peak quality, so keep peak.
+            reason = (f"peak quality {labels.get(best_quality)} ({peak_q:.3f}); no token/cost "
+                      f"data available to trade quality for a cheaper near-peak model")
         else:
             reason = f"peak quality {labels.get(best_quality)} ({peak_q:.3f}) is also the cheapest near-peak"
 
