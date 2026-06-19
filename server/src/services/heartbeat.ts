@@ -4685,24 +4685,33 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
         ? statedDisposition.reviewer.trim()
         : null;
     const enforceDisposition = process.env.PAPERCLIP_DISPOSITION_ENFORCE === "1";
-    await logActivity(db, {
-      companyId: issue.companyId,
-      actorType: "system",
-      actorId: "heartbeat",
-      agentId: run.agentId,
-      runId: run.id,
-      action: "issue.disposition_shadow",
-      entityType: "issue",
-      entityId: issue.id,
-      details: {
-        label: "Disposition enforcement",
-        mode: enforceDisposition ? "enforce" : "shadow",
-        tokenPresent: Boolean(statedStatus),
-        statedStatus: statedStatus ?? null,
-        hasBlocker: statedDisposition?.hasBlocker === true,
-        sourceRunId: run.id,
-      },
-    });
+    // Isolated harness companies (e.g. the agentic-bench company) exercise the disposition
+    // workflow on fixtures, which floods the shadow measurement and would trigger spurious
+    // enforcement. Skip both for them; the corrective re-wake below still runs unchanged.
+    // Comma-separated company ids; defaults to the bench company.
+    const dispositionExcluded = (process.env.PAPERCLIP_DISPOSITION_EXCLUDE_COMPANY_IDS
+      ?? "e212ce50-b524-408c-b3d4-0c6108d8c2e2")
+      .split(",").map((s) => s.trim()).filter(Boolean).includes(issue.companyId);
+    if (!dispositionExcluded) {
+      await logActivity(db, {
+        companyId: issue.companyId,
+        actorType: "system",
+        actorId: "heartbeat",
+        agentId: run.agentId,
+        runId: run.id,
+        action: "issue.disposition_shadow",
+        entityType: "issue",
+        entityId: issue.id,
+        details: {
+          label: "Disposition enforcement",
+          mode: enforceDisposition ? "enforce" : "shadow",
+          tokenPresent: Boolean(statedStatus),
+          statedStatus: statedStatus ?? null,
+          hasBlocker: statedDisposition?.hasBlocker === true,
+          sourceRunId: run.id,
+        },
+      });
+    }
 
     // --- Enforcement (gated by PAPERCLIP_DISPOSITION_ENFORCE; default OFF = shadow) ---
     // Apply only what's self-contained or whose supporting structure we can build:
@@ -4713,7 +4722,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     //     manager) so it is not a dangling review. blocked WITHOUT a named blocker falls
     //     through to the corrective re-wake. No token also falls through (never guess `done`).
     // Best-effort: a failed apply never breaks the handler.
-    if (enforceDisposition) {
+    if (enforceDisposition && !dispositionExcluded) {
       try {
         let appliedStatus: string | null = null;
         let createdBlockerId: string | null = null;
