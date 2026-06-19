@@ -16,7 +16,7 @@ A repeatable procedure for the recurring class of issues where the user (or a ma
 
 This skill is **diagnostic + product-design**, not engineering. The output is a written root cause and an approved plan. No code changes leave this skill.
 
-Canonical execution model: read `doc/execution-semantics.md` before diagnosing or proposing a new liveness/recovery rule. Use that document as the source of truth for status, action-path, post-run disposition, bounded continuation, productivity review, pause-hold, watchdog, and explicit recovery semantics. If the investigation finds a true product-rule gap, the plan should say whether `doc/execution-semantics.md` needs a matching update.
+**Execution contract is canonical.** Read `doc/execution-semantics.md` §§3,6,8,9,11,12 for the execution contract (status, action-path, post-run disposition, bounded continuation, productivity review, pause-hold, watchdog, explicit recovery) before diagnosing or proposing a new liveness/recovery rule, and keep its terms intact. Do not invent a new rule until you can state how it differs from that document.
 
 ## When to use
 
@@ -40,38 +40,25 @@ Also use when the user asks for forensics, root cause, or a write-up *before* an
 
 Every diagnosis and every proposed rule must hold these three invariants together. They recur on every issue of this class; treat them as load-bearing:
 
-1. **Productive work continues.** Agents that have a clear next action must keep working without needing the user to wake them (`doc/execution-semantics.md` §8 "Non-Terminal Issue Liveness Contract").
-2. **Only real blockers stop work.** Stops happen when something genuinely cannot proceed (missing approval, missing dependency, human owner). Pseudo-stops (in_review with no action path, cancelled leaves, malformed metadata) must be detected and routed, not left silent (§8 `in_review` and `blocked` subsections; §3 "Status Semantics").
-3. **No infinite loops.** Stranded-work recovery and continuation loops must be bounded and distinguishable from genuinely productive continuation (§9 "Crash and Restart Recovery", §12 "Auto-Recover vs Explicit Recovery vs Human Escalation").
+1. **Productive work continues.** Agents that have a clear next action must keep working without needing the user to wake them.
+2. **Only real blockers stop work.** Stops happen when something genuinely cannot proceed (missing approval, missing dependency, human owner). Pseudo-stops (in_review with no action path, cancelled leaves, malformed metadata) must be detected and routed, not left silent.
+3. **No infinite loops.** Stranded-work recovery and continuation loops must be bounded and distinguishable from genuinely productive continuation.
 
 If a proposed rule violates any of the three, drop it or rework it. State explicitly in the plan how each invariant is held.
 
 ## Procedure
-
-### 0. Read the current execution contract
-
-Before walking the tree, read `doc/execution-semantics.md` and keep its terms intact:
-
-- live path / waiting path / recovery path
-- post-run disposition: terminal, explicitly live, explicitly waiting, invalid
-- bounded `run_liveness_continuation`
-- productivity review vs liveness recovery
-- active subtree pause holds
-- silent active-run watchdog
-
-Do not invent a new rule until you can state how it differs from the current execution semantics document.
 
 ### 1. Forensics on the named tree — before anything else
 
 Do this in the same heartbeat. Do not propose a rule until you have a concrete stop point.
 
 - Open the linked issue (and its blocker chain, parents, recovery siblings, recent runs).
-- Walk the tree node-by-node and find the exact issue + state combination that stops the world. Recurring failure shapes (all defined precisely in `doc/execution-semantics.md`):
-  - `in_review` with no typed execution participant, no active run, no pending interaction, no recovery issue — a stalled review state per §8 `in_review`.
-  - `in_progress` after a successful run with no future action path queued — an invalid post-run disposition per §8 agent-assigned `in_progress`.
-  - Blocker chain whose leaf is `cancelled` / malformed / cross-company-inaccessible — `cancelled` blockers do not auto-resolve; see §6 "Parent/Sub-Issue vs Blockers".
-  - `issue.continuation_recovery` waking the same issue >N times after successful runs — continuation must stay bounded per §12.
-  - Stranded-work recovery treating its own recovery issues as more recoverable source work — recursive recovery, forbidden per §9 and the §11 watchdog's no-recursive-recovery rule.
+- Walk the tree node-by-node and find the exact issue + state combination that stops the world. Recurring failure shapes (all defined in the execution contract):
+  - `in_review` with no typed execution participant, no active run, no pending interaction, no recovery issue — a stalled review state.
+  - `in_progress` after a successful run with no future action path queued — an invalid post-run disposition.
+  - Blocker chain whose leaf is `cancelled` / malformed / cross-company-inaccessible — `cancelled` blockers do not auto-resolve.
+  - `issue.continuation_recovery` waking the same issue >N times after successful runs — continuation must stay bounded.
+  - Stranded-work recovery treating its own recovery issues as more recoverable source work — recursive recovery, forbidden.
 - Quote the evidence: run ids, comment timestamps, status transitions. "Inferred" is acceptable only when an API boundary blocks direct evidence — say so explicitly and mark the claim provisional.
 
 Respect the API boundary. If the linked issue is in another company and your agent token returns 403, do not bypass scoping. Either request a board-approved diagnostic path or proceed from inferred evidence visible from your own company and label it.
@@ -101,7 +88,7 @@ This classification table is requested on virtually every issue of this class. W
 
 The user does not want a one-off patch on the named tree. They want the rule. Two checks:
 
-- The rule is **stated as a contract**, not as an if/else patch. Example contract: "every agent-owned non-terminal issue must finish each heartbeat with a terminal state, an explicit waiting path, or an explicit live path" — this is the `doc/execution-semantics.md` §8 liveness contract restated.
+- The rule is **stated as a contract**, not as an if/else patch (e.g. the liveness contract: a heartbeat ends in a terminal state, an explicit waiting path, or an explicit live path).
 - The rule is reconciled against `doc/execution-semantics.md`. Prefer citing and applying the existing contract; propose a document change only when the current doc is incomplete or contradicted by accepted/implemented behavior.
 - The rule **explicitly preserves the three invariants** above. Show the work.
 
@@ -130,7 +117,7 @@ Do not create the child issues yet. Do not push code.
 
 Phase 0 cleans up the live tree without papering over evidence:
 
-- Move stalled `in_review` leaves with no participant to `todo` with a precise next action and named owner (the §8 stalled-`in_review` repair).
+- Move stalled `in_review` leaves with no participant to `todo` with a precise next action and named owner.
 - Detach cancelled/dead blockers from chains they were holding hostage; do not silently mark issues `done` to clear backlog.
 - Leave a comment on the original named issue summarizing what changed and why; never hide the recovery chain history.
 
@@ -140,13 +127,9 @@ When the phase chain is complete, post a board-level summary comment on the pare
 
 ## Pitfalls
 
-- **Coding before approval.** The user has said "make a plan first" on every recent diagnostic issue. Producing code in the forensic phase wastes the round-trip.
-- **Restating one invariant at the cost of another.** Bound continuation too tightly and productive work stalls; loosen recovery and infinite loops return. Always check all three.
-- **Skipping the recent-work survey.** Proposing a contract that contradicts what shipped 24 hours ago is the easiest way to get the plan rejected.
-- **Letting "in_review" mean done.** A leaf assigned to another agent with no participant or active run is not progress; treat it as a stop.
-- **Bypassing company scoping.** Cross-company forensics needs a board-approved diagnostic path, not a database read.
-- **Recursive recovery.** Stranded-work recovery that recovers its own recovery issues is the canonical infinite loop (`doc/execution-semantics.md` §9 and the §11 no-recursive-recovery rule). Detect it and refuse to deepen.
-- **Hiding the chain.** Don't silently delete or hide the symptomatic recovery issues — the operator needs the audit trail.
+- **Restating one invariant at the cost of another.** Bound continuation too tightly and productive work stalls; loosen recovery and infinite loops return. Always check all three together — this trade-off is the trap unique to this class.
+- **Coding before approval / skipping the recent-work survey.** Forensic-phase code and contracts that contradict what shipped 24 hours ago are the two fastest ways to get the plan rejected.
+- **Hiding the chain.** Don't silently delete, hide, or mark `done` the symptomatic recovery issues to clear backlog — the operator needs the audit trail.
 
 ## Verification checklist (before posting the plan)
 

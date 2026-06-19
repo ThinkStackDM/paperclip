@@ -83,4 +83,7 @@ and licence-filter flags: **references/api-reference.md**.
 
 <!-- TOOLS-2026-06 -->
 ## Local tools
-- Fetch reference footage/audio with `yt-dlp` for *reference only* — respect each source's ToS and licensing before using a clip in output.
+- `yt-dlp` is permitted **only** to pull a single clip/frame to *study* (write a
+  generation prompt, match a look) — **never into a deliverable**. Ripped footage
+  does not enter `assets/` or a published video. This does not loosen HARD RULE 1;
+  when the two seem to conflict, HARD RULE 1 wins.

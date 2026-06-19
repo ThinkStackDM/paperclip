@@ -16,11 +16,7 @@ description: >
 
 # Terminal-Bench Loop
 
-A repeatable operating skill for driving one Terminal-Bench problem to a passing smoke through Paperclip, with explicit issue topology, bounded runs, board-gated product fixes, and worktree continuity.
-
-This skill is **operational + diagnostic**, not engineering. It coordinates issues, artifacts, and approvals around a Terminal-Bench loop. It does not authorize code changes — every accepted product fix lands as a separate implementation child issue after a board confirmation.
-
-Canonical execution model: read `doc/execution-semantics.md` before starting a loop or moving any loop issue. Every loop issue must rest in a state the doc allows: terminal (`done`/`cancelled`), explicitly live (active run / queued wake), explicitly waiting (`in_review` with participant/interaction/approval), or explicit recovery/blocker (`blocked` with `blockedByIssueIds` and a named owner).
+A repeatable **operational + diagnostic** (not engineering) skill for driving one Terminal-Bench problem to a passing smoke through Paperclip, with explicit issue topology, bounded runs, board-gated product fixes, and worktree continuity. It coordinates issues, artifacts, and approvals; it does not authorize code changes — every accepted product fix lands as a separate implementation child issue after a board confirmation.
 
 ## When to use
 
@@ -40,19 +36,40 @@ Also use when the user hands you an existing top-level loop issue and asks for t
 - The assignment is a normal Paperclip product bug not surfaced by a Terminal-Bench loop. Use normal investigation.
 - You have not been granted permission to install or assign company skills, and the asker actually wants library mutation. Hand that step to an authorized skill-library owner.
 
-## Three invariants you must preserve
+## Disposition / liveness semantics (canonical references)
 
-Every loop iteration and every proposed product fix must hold these three invariants together. They come from `/diagnose-why-work-stopped` and the user has restated them across the liveness work:
+This skill does **not** re-derive the disposition/liveness state machine. That contract is owned by the `paperclip` skill plus `doc/execution-semantics.md` — read both before starting a loop or moving any loop issue, and use their terms intact (live path / waiting path / recovery path; post-run disposition; bounded continuation; productivity review; pause-hold; watchdog). Do not invent a new state.
 
-1. **Productive work continues.** Each loop issue must always have a clear next action owner — agent, board, user, or named blocker. No silent `in_review` with nothing waiting on it.
+**Canonical liveness states.** Every loop or iteration issue must, at the end of every heartbeat, rest in exactly one:
+
+- **Terminal:** `done` or `cancelled`. No further action.
+- **Explicitly live:** `in_progress` with an active run, a queued wake, or a child issue actively executing under it.
+- **Explicitly waiting:** `in_review` with a typed waiter — execution-policy participant, `request_confirmation` / `ask_user_questions` / `suggest_tasks` interaction, approval, or a named human owner.
+- **Explicit recovery / blocker:** `blocked` with `blockedByIssueIds` set to a real blocking issue, plus a comment naming the unblock owner and the action needed.
+
+If an issue does not fit one of these on exit, the heartbeat is not done — fix the state first.
+
+**Three invariants** (from `/diagnose-why-work-stopped`) every iteration and proposed fix must hold together, stated explicitly in the loop issue each iteration:
+
+1. **Productive work continues.** Each loop issue always has a clear next-action owner — agent, board, user, or named blocker. No silent `in_review` with nothing waiting on it.
 2. **Only real blockers stop work.** Stops happen when something genuinely cannot proceed (board confirmation, QA, missing credentials, exhausted budget). Pseudo-stops must be detected and routed.
 3. **No infinite loops.** Iteration count, wall-clock budget, and a board gate before product fixes are applied keep the loop bounded.
 
-If a proposed iteration violates any of the three, drop it or rework it. State explicitly in the loop issue how each invariant is held this iteration.
+If a proposed iteration violates any invariant, drop it or rework it.
+
+## Issue topology
+
+The loop must be representable as a tree, not as prose in comments. Wire dependencies with `blockedByIssueIds`, never with prose like "blocked by X"; when a dependent child is `done`, the executor auto-wakes the next.
+
+- **Top-level loop issue.** Long-lived. Holds inputs, iteration counter, current state, links to every iteration child, and the product-rule history.
+- **Iteration child issues.** One per iteration. Each carries: a bounded run issue (smoke), a diagnosis issue (applies `/diagnose-why-work-stopped`), a fix-proposal document with a `request_confirmation` interaction, and — only after acceptance — implementation, QA, CTO review, and rerun children. Iteration children are blocked by their predecessors so the executor wakes them in order.
+- **Paperclip App implementation issue.** The first iteration creates a fresh Paperclip App child whose project policy spawns an isolated worktree. Every later iteration's implementation/rerun child references that same execution workspace via `inheritExecutionWorkspaceFromIssueId` so the same worktree is amended and tested.
+
+**Parent-vs-child `in_review`/`blocked` rule (canonical).** The loop parent sits in `in_review` **only** when a typed waiter is attached directly to the parent (execution-policy participant, `request_confirmation` / `ask_user_questions` / `suggest_tasks` interaction, approval, or named human owner). While a child issue is the gating work — an iteration child holding a fix-proposal `request_confirmation`, or an implementation/QA/CTO-review child — the parent is `blocked` with `blockedByIssueIds` pointing at that child, **not** `in_review`. Never combine `in_review` on the parent with a child chain acting as the blocker; that ambiguous review shape is exactly what this skill exists to prevent. Steps 6 and 8 apply this rule; do not restate it there.
 
 ## Inputs
 
-Collect these on the top-level loop issue before iteration 1. Any input that cannot be supplied is a blocker — name the unblock owner and stop.
+Collect these on the top-level loop issue before iteration 1. Any input that cannot be supplied is a blocker — name the unblock owner and stop. Record each on the loop issue (description or a dedicated `inputs` document); if any input changes mid-loop, note the change and the iteration it took effect.
 
 - **Source issue.** The Paperclip issue that asked for the loop. The loop parent links back to it.
 - **Terminal-Bench task name.** Single-task identifier (e.g. `terminal-bench/fix-git`). Multi-task suites are out of scope for this skill.
@@ -63,23 +80,11 @@ Collect these on the top-level loop issue before iteration 1. Any input that can
 - **Latest artifact root.** Filesystem or storage path under which `paperclip-bench` writes run artifacts (manifest, `results.jsonl`, Harbor raw job folders, redacted telemetry). Each iteration appends; nothing is overwritten.
 - **Approval policy.** Who must accept a proposed product fix before implementation (default: board via `request_confirmation`; CTO if delegated; never the loop driver alone).
 
-Record each input on the top-level loop issue (description or a dedicated `inputs` document). If any input changes mid-loop, note the change and the iteration it took effect.
-
-## Issue topology
-
-The loop must be representable as a tree, not as prose in comments:
-
-- **Top-level loop issue.** Long-lived. Holds inputs, iteration counter, current state, links to every iteration child, and the product-rule history. Rests in `in_progress` while an iteration is running, `in_review` only when a typed waiter sits directly on the loop parent (execution-policy participant, `request_confirmation` / `ask_user_questions` / `suggest_tasks` interaction, approval, or named human owner), `blocked` with `blockedByIssueIds` while a child issue is the gating work (iteration child holding the fix-proposal `request_confirmation`, or implementation, QA, or CTO review children), `done` on pass, or `cancelled` on board-rejection / budget exhaustion.
-- **Iteration child issues.** One per iteration. Each carries: a bounded run issue (smoke), a diagnosis issue (applies `/diagnose-why-work-stopped`), a fix-proposal document with a `request_confirmation` interaction, and — only after acceptance — implementation, QA, CTO review, and rerun children. Iteration children are blocked by their predecessors so the executor wakes them in order.
-- **Paperclip App implementation issue.** The first iteration creates a fresh Paperclip App child whose project policy spawns an isolated worktree. Every later iteration's implementation/rerun child references that same execution workspace via `inheritExecutionWorkspaceFromIssueId` so the same worktree is amended and tested.
-
-Wire dependencies with `blockedByIssueIds`, never with prose like "blocked by X". When a dependent child is `done`, the executor auto-wakes the next.
-
 ## Procedure
 
 ### 0. Read the current execution contract
 
-Before opening or advancing a loop, read `doc/execution-semantics.md`. Use that document's terms intact when classifying loop-issue state: live path / waiting path / recovery path; post-run disposition; bounded continuation; productivity review; pause-hold; watchdog. Do not invent a new state.
+Before opening or advancing a loop, read `doc/execution-semantics.md` and the `paperclip` skill (see *Disposition / liveness semantics* above). Classify loop-issue state using their terms intact.
 
 ### 1. Open or reuse the top-level loop issue
 
@@ -115,7 +120,7 @@ Apply the `/diagnose-why-work-stopped` pattern to the iteration's run, scoped to
 - Walk the Paperclip issue tree the smoke produced under the Paperclip App worktree, node by node, and find the exact `(issue, status)` combination that stopped progress. Quote evidence: run ids, comment timestamps, status transitions.
 - Classify every non-progressing issue in that subtree as **truly needs human/board intervention**, **agent-actionable but not currently routed**, or **already covered**.
 - State whether the failure is task/model, Paperclip product, harness/setup, verifier/infrastructure, security, or unclear. Be explicit when evidence is inferred (e.g. cross-company API boundary blocks direct reads).
-- If the failure is a Paperclip product gap, frame the fix as a **general product rule** stated as a contract, and check it against the three invariants above. If the rule would have blocked a recent productive run, narrow it.
+- If the failure is a Paperclip product gap, frame the fix as a **general product rule** stated as a contract, and check it against the three invariants. If the rule would have blocked a recent productive run, narrow it.
 
 Record the diagnosis on the iteration child as a `diagnosis` document. Do not propose code yet.
 
@@ -131,15 +136,15 @@ Based on the diagnosis, the iteration ends in exactly one of these terminal-for-
 
 ### 6. Request board confirmation before any product fix
 
-When the iteration ends in **product fix proposed**:
+When the iteration ends in **product fix proposed** (applies the *Issue topology* parent-vs-child rule):
 
 - Update the iteration child's `plan` document with the proposed contract, the three-invariant check, the affected Paperclip surfaces, and the phased subtasks (implementation, QA, CTO review, rerun) — but do not create those subtasks.
 - Open the `request_confirmation` interaction on the **iteration child** (the same issue that owns the `plan` document), targeting the latest plan revision. Idempotency key: `confirmation:{iterationIssueId}:plan:{revisionId}`. Set `continuationPolicy` to `wake_assignee`.
-- Move the **iteration child** to `in_review`. The typed waiter — the `request_confirmation` interaction — sits directly on it, so its `in_review` is healthy. Comment links the plan document and names the pending confirmation.
-- Move the **loop parent** to `blocked` with `blockedByIssueIds: [iterationChildId]` and a comment naming the board (or whichever approver the approval policy designates) as the unblock owner. Do not move the loop parent to `in_review` here: the typed waiter lives on the iteration child, not on the parent, so the parent's wait path is the child blocker. This matches the topology rule that the loop parent only sits in `in_review` when a typed waiter is attached directly to the parent.
-- Wait for acceptance. If the board posts a superseding comment that changes the plan, revise the document, then open a fresh confirmation tied to the new revision on the iteration child — the prior one is invalidated. The loop parent's `blockedByIssueIds` already points at the iteration child, so it does not need to change.
+- Move the **iteration child** to `in_review` (typed waiter sits directly on it). Comment links the plan document and names the pending confirmation.
+- Move the **loop parent** to `blocked` with `blockedByIssueIds: [iterationChildId]` and a comment naming the board (or whichever approver the approval policy designates) as the unblock owner.
+- Wait for acceptance. If the board posts a superseding comment that changes the plan, revise the document, then open a fresh confirmation tied to the new revision on the iteration child — the prior one is invalidated. The loop parent's `blockedByIssueIds` already points at the iteration child, so it does not change.
 - On rejection, end the loop per the **Budget or board stop** rule; do not silently retry the same proposal.
-- On acceptance, create the implementation, QA, CTO review, and rerun child issues with `blockedByIssueIds` wired in order, and update the loop parent's `blockedByIssueIds` to point at the new gating child (typically the implementation child) so the parent stays `blocked` against real downstream work. The implementation child must inherit the Paperclip App execution workspace (`inheritExecutionWorkspaceFromIssueId` to the worktree-owning issue) so the fix lands in the same isolated worktree the smoke ran against.
+- On acceptance, create the implementation, QA, CTO review, and rerun child issues with `blockedByIssueIds` wired in order, and update the loop parent's `blockedByIssueIds` to point at the new gating child (typically the implementation child). The implementation child must inherit the Paperclip App execution workspace (`inheritExecutionWorkspaceFromIssueId` to the worktree-owning issue) so the fix lands in the same isolated worktree the smoke ran against.
 
 ### 7. Rerun against the same worktree
 
@@ -150,24 +155,21 @@ After implementation and QA complete (or immediately, in the **non-product failu
 
 ### 8. Pass: QA, CTO review, close
 
-When the smoke passes:
+When the smoke passes (applies the *Issue topology* parent-vs-child rule):
 
-- Create QA and CTO review children if they are not already in the dependency chain (CTO review blocked by QA, so the chain wakes in order). Move the loop parent to `blocked` with `blockedByIssueIds` set to the QA / CTO review chain, and post a comment that names QA and CTO as the unblock owners and links the children. The loop parent stays `blocked` — not `in_review` — because the typed waiter lives on the children, not on the parent.
-- If you instead want the loop parent itself to sit in `in_review` during this phase (for example because a board user has explicitly volunteered to drive the review), put a typed waiter directly on the parent — execution-policy participant, `request_confirmation` / `ask_user_questions` / `suggest_tasks` interaction, approval, or named human owner — and do not rely on the child chain alone. Do not combine `in_review` on the parent with QA/CTO children acting as the blocker; that is the ambiguous review shape this skill exists to prevent.
+- Create QA and CTO review children if they are not already in the dependency chain (CTO review blocked by QA, so the chain wakes in order). Move the loop parent to `blocked` with `blockedByIssueIds` set to the QA / CTO review chain, and post a comment naming QA and CTO as the unblock owners and linking the children. Only put the parent in `in_review` if a typed waiter sits directly on it (e.g. a board user has explicitly volunteered to drive the review).
 - QA validates artifacts (manifest, `results.jsonl`, Harbor raw job, redacted telemetry) and the rerun reproducibility against the same worktree.
 - CTO reviews the technical scope of any product fixes that landed during the loop.
 - On QA + CTO acceptance, close the loop issue with a board-level summary comment: task name, iteration count, stop reason (pass), worktree pointer, link to the final artifact root, and the list of accepted product fixes (each with its implementation issue id).
 
 ### 9. Stop rules
 
-The loop **must** stop, with state explicitly recorded on the loop issue, when any of these is true:
+The loop **must** stop, with state explicitly recorded on the loop issue, when any of these is true. A loop must never end on a prose comment alone — every stop is a status transition with a named next-action owner.
 
 - **Pass.** Smoke verifier reports pass and QA + CTO accept (Step 8). Loop issue → `done`.
 - **Board rejection.** Board rejects a fix proposal and does not request a revision. Loop issue → `cancelled`. Comment names the rejected proposal and the reason.
 - **Iteration budget reached.** Iteration counter reaches the budget without a pass. Loop issue → `cancelled` (or `in_review` if the user must decide whether to extend the budget). Never silently start iteration N+1.
 - **Real blocker named.** External blocker (credentials, quota, infra, security, missing skill) cannot be resolved by the loop driver. Loop issue → `blocked` with `blockedByIssueIds` to the blocker issue and the unblock owner named.
-
-A loop must never end on a prose comment alone. Every stop is a status transition with a named next-action owner.
 
 ## Worktree rule
 
@@ -179,42 +181,15 @@ The loop must not test whatever Paperclip checkout happens to be current for the
 - The benchmark command always sets `PAPERCLIPAI_CMD` (or the equivalent command binding) to the CLI entrypoint inside that worktree, and it carries the recorded dispatch runner config (`PAPERCLIP_HARBOR_RUNNER_CONFIG` or equivalent) needed to assign the benchmark issue and start the heartbeat. The benchmark command stored on the loop issue is the source of truth — if a heartbeat needs to run the smoke from a different shell, it copies the recorded command block verbatim, not only the Harbor invocation line.
 - If the workspace is pruned or the worktree path no longer resolves, the loop is invalid until rebuilt. Mark the loop `blocked` and name the unblock owner (typically CodexCoder or the Paperclip App owner).
 
-## Liveness rule
-
-Every loop issue, at the end of every heartbeat, must rest in one of:
-
-- **Terminal:** `done` or `cancelled`. No further action.
-- **Explicitly live:** `in_progress` with an active run, an upcoming queued wake, or a child issue actively executing under it.
-- **Explicitly waiting:** `in_review` with a typed waiter — execution-policy participant, `request_confirmation` / `ask_user_questions` / `suggest_tasks` interaction, approval, or a named human owner.
-- **Explicit recovery / blocker:** `blocked` with `blockedByIssueIds` set to a real blocking issue, plus a comment naming the unblock owner and the action needed.
-
-If a loop issue does not fit one of these on exit, the heartbeat is not done. Fix the state before exiting.
-
 ## Pitfalls
 
-- **Running the smoke against the operator's Paperclip checkout.** The whole point of the worktree rule is that the bench tests the worktree the fix lands in. Always set `PAPERCLIPAI_CMD` and verify the path before launching the run.
-- **Dropping the dispatch config.** A Harbor run that omits `PAPERCLIP_HARBOR_RUNNER_CONFIG` (or equivalent) may boot Paperclip and create `BEN-1`, but leave it unassigned with zero heartbeat-enabled agents. That is not a Terminal-Bench product signal. Preserve and rerun the full command block, including assignee and adapter config.
-- **Coding before approval.** No implementation child exists until a board confirmation accepts the iteration's `plan` document. Do not push code in the diagnostic phase.
-- **Skipping the recent-work survey.** When proposing a Paperclip product rule, check what already shipped in the affected liveness/execution area in the last few days. A rule that contradicts last-week's accepted contract is rework.
-- **Letting `in_review` mean done.** A loop or iteration child sitting in `in_review` with no participant, no interaction, no approval, and no human owner is a stop, not progress. Treat it as a liveness violation and route it.
-- **Silent iteration N+1.** If the iteration budget is reached, never start another iteration without an explicit budget extension recorded on the loop issue.
+These are failure modes, not new rules — each maps to a rule above.
+
 - **Comparable-run drift.** This skill produces smoke runs only. If the asker wants a comparable benchmark submission, hand off to BenchmarkQualityManager and BenchmarkForensics — do not relabel a smoke as comparable.
 - **Recursive recovery.** Stranded-work recovery that recovers its own recovery issues is the canonical infinite loop. If a diagnosis surfaces it inside the smoke's subtree, refuse to deepen and route to `/diagnose-why-work-stopped` for a product-rule fix.
 - **Skill-library mutation.** This skill never installs, edits, or assigns company skills as part of a loop iteration. Library changes go to an authorized skill-library owner via a separate issue.
 - **Hiding the chain.** Do not silently delete or hide failed iteration children, retracted proposals, or rejected confirmations. The audit trail is the loop's evidence.
-
-## Verification checklist (before exiting a heartbeat that touched the loop)
-
-- [ ] All inputs are recorded on the top-level loop issue, including the exact benchmark command, `PAPERCLIPAI_CMD` binding, and dispatch runner config.
-- [ ] Iteration counter is up to date and within budget.
-- [ ] The Paperclip App worktree pointer still resolves, and the iteration's run/implementation/rerun children share that workspace.
-- [ ] The smoke run is captured with run ids, manifest, `results.jsonl`, Harbor raw job folder, and stop reason.
-- [ ] Paperclip telemetry shows the benchmark issue was assigned and a heartbeat was enabled/observed, or the iteration is explicitly classified as harness/setup no-dispatch.
-- [ ] Diagnosis applies the `/diagnose-why-work-stopped` pattern, classifies every non-progressing issue, and checks the three invariants.
-- [ ] No implementation child exists for an unapproved fix proposal; if one was proposed, a `request_confirmation` is open against the latest plan revision.
-- [ ] Every loop and iteration issue rests in a terminal, explicitly-live, explicitly-waiting, or named-blocker state.
-- [ ] The stop reason — if the loop stopped this heartbeat — is one of pass, board rejection, budget exhausted, or named real blocker.
-- [ ] No company-skill library mutation happened in this heartbeat.
+- **Skipping the recent-work survey.** When proposing a Paperclip product rule, check what already shipped in the affected liveness/execution area in the last few days. A rule that contradicts last-week's accepted contract is rework.
 
 ## Deterministic smoke
 

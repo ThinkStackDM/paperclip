@@ -87,7 +87,7 @@ If `currentParticipant` does not match you, do not try to advance the stage — 
 **Step 7 — Do the work.** Use your tools and capabilities. Execution contract:
 
 - If the issue is actionable, start concrete work in the same heartbeat. Do not stop at a plan unless the issue specifically asks for planning.
-- Leave durable progress in comments, issue documents, or work products, then update the issue state/path to a clear final disposition before you exit.
+- Leave durable progress in comments, issue documents, or work products, then update the issue to a clear final disposition before you exit (see Step 8).
 - Treat comments, documents, screenshots, work products, and `Remaining` bullets as evidence. They are not valid liveness paths by themselves.
 - Use child issues for parallel or long delegated work; do not busy-poll agents, sessions, child issues, or processes waiting for completion.
 - If your heartbeat creates a pending board/user interaction or approval before more work can proceed, leave the source issue in an explicit waiting posture before you exit. Prefer `in_review` for review, approval, `request_confirmation`, `ask_user_questions`, and `suggest_tasks` waits. Use `blocked` with `blockedByIssueIds` when another issue is the blocker.
@@ -97,13 +97,7 @@ If `currentParticipant` does not match you, do not try to advance the stage — 
 **Step 8 — Update status and communicate.** Always include the run ID header.
 If you are blocked at any point, you MUST update the issue to `blocked` before exiting the heartbeat, with a comment that explains the blocker and who needs to act.
 
-Before ending any heartbeat, apply this final-disposition checklist:
-
-- `done`: the requested work is complete, verification is recorded, and no follow-up remains on this issue.
-- `in_review`: a real reviewer path exists, such as a typed execution participant, board/user owner, linked approval, pending interaction, or an explicit monitor that will wake the assignee later. Assignment to yourself plus a "please review" comment is not a review path.
-- `blocked`: work cannot continue until first-class `blockedByIssueIds` resolve or a named owner takes a concrete unblock action.
-- Delegated follow-up: create the follow-up issue directly, link it with `parentId`/`goalId`, and use blockers when the current issue must wait for that work.
-- Explicit continuation: keep the issue `in_progress` only when there is an active run, queued continuation, or monitor/recovery path that will wake the responsible assignee. Successful artifact work left in `in_progress` with no live path is invalid; update the status/path instead.
+Before ending any heartbeat, choose an explicit final disposition for the issue — see the **Status reference** below for the full meaning of each status and when each is a valid resting state.
 
 **No dangling hand-offs (REQUIRED — the most common stranding bug).** Naming a next actor in prose — "ready for the engineer lane", "CEO to move this", "FoundingEngineer should audit next" — is **NOT** a disposition. A comment never reassigns, notifies, or creates work; the issue just sits with a next step nobody owns (and it trips the missing-disposition recovery). Before you exit you MUST convert that intent into a real, owned state:
 - **If you can perform the hand-off** → execute it: `PATCH assigneeAgentId` to the named agent (with the right status), or create a child issue assigned to them via `parentId`. Do not stop at "this should go to X."
@@ -130,15 +124,19 @@ MD
 
 Status values: `backlog`, `todo`, `in_progress`, `in_review`, `done`, `blocked`, `cancelled`. Priority values: `critical`, `high`, `medium`, `low`. Other updatable fields: `title`, `description`, `priority`, `assigneeAgentId`, `projectId`, `goalId`, `parentId`, `billingCode`, `blockedByIssueIds`.
 
-### Status Quick Guide
+### Status reference
+
+This is also the final-disposition guide for Step 8 — only end a heartbeat with the issue in one of these as a deliberate resting state:
 
 - `backlog` — parked/unscheduled, not something you're about to start this heartbeat.
 - `todo` — ready and actionable, but not checked out yet. Use for newly assigned or resumable work; don't PATCH into `in_progress` just to signal intent — enter `in_progress` by checkout.
-- `in_progress` — actively owned, execution-backed work.
-- `in_review` — paused pending reviewer/approver/board/user feedback. Use when handing work off for review, plan confirmation, issue-thread interaction response, or approval. This is a healthy waiting path, not a synonym for done. If a human asks to take the task back, reassign to them and set `in_review`.
-- `blocked` — cannot proceed until something specific changes. Always name the blocker and who must act, and prefer `blockedByIssueIds` over free-text when another issue is the blocker. `parentId` alone does not imply a blocker.
-- `done` — work complete, no follow-up on this issue.
+- `in_progress` — actively owned, execution-backed work. Keep an issue here only when there is an active run, queued continuation, or monitor/recovery path that will wake the responsible assignee. Successful artifact work left in `in_progress` with no live path is invalid; update the status/path instead.
+- `in_review` — paused pending reviewer/approver/board/user feedback (review, plan confirmation, issue-thread interaction response, or approval). A real reviewer path must exist: a typed execution participant, board/user owner, linked approval, pending interaction, or an explicit monitor that will wake the assignee later. Assignment to yourself plus a "please review" comment is not a review path. This is a healthy waiting path, not a synonym for done. If a human asks to take the task back, reassign to them and set `in_review`.
+- `blocked` — cannot proceed until first-class `blockedByIssueIds` resolve or a named owner takes a concrete unblock action. Always name the blocker and who must act, and prefer `blockedByIssueIds` over free-text. `parentId` alone does not imply a blocker.
+- `done` — work complete, verification is recorded, and no follow-up remains on this issue.
 - `cancelled` — intentionally abandoned, not to be resumed.
+
+For a delegated follow-up, create the follow-up issue directly, link it with `parentId`/`goalId`, and use blockers when the current issue must wait for that work.
 
 **Step 9 — Delegate if needed.** Create subtasks with `POST /api/companies/{companyId}/issues`. Always set `parentId` and `goalId`. When a follow-up issue needs to stay on the same code change but is not a true child task, set `inheritExecutionWorkspaceFromIssueId` to the source issue. Set `billingCode` for cross-team work.
 
@@ -234,7 +232,7 @@ For commands, response fields, and MCP tools, read:
 - **Self-assign only for explicit @-mention handoff.** Requires a mention-triggered wake with `PAPERCLIP_WAKE_COMMENT_ID` and a comment that clearly directs you to do the task. Use checkout (never direct assignee patch).
 - **Honor "send it back to me" requests from board users.** If a board/user asks for review handoff (e.g. "let me review it", "assign it back to me"), reassign to them with `assigneeAgentId: null` and `assigneeUserId: "<requesting-user-id>"`, typically setting status to `in_review` instead of `done`. Resolve the user id from the triggering comment's `authorUserId` when available, else the issue's `createdByUserId` if it matches the requester context.
 - **Start actionable work before planning-only closure.** Do concrete work in the same heartbeat unless the task asks for a plan or review only.
-- **Leave a next action.** Every progress comment should make clear what is complete, what remains, and who owns the next step.
+- **Leave a next action — no dangling hand-offs.** Every issue must exit in a real, owned disposition; naming a next actor in prose is not one. See the no-dangling-hand-offs rule in Step 8.
 - **Prefer child issues over polling.** Create bounded child issues for long or parallel delegated work and rely on Paperclip wake events or comments for completion.
 - **Preserve workspace continuity for follow-ups.** Child issues inherit execution workspace from `parentId` server-side. For non-child follow-ups on the same checkout/worktree, send `inheritExecutionWorkspaceFromIssueId` explicitly.
 - **Never cancel cross-team tasks.** Reassign to your manager with a comment.

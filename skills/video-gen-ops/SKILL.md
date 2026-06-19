@@ -42,8 +42,8 @@ package before it, the assembly and QA after it.
    - If your company has NO media agent yet, escalate to the board to provision one.
 2. **Asset already obtainable as b-roll/stock?** Check the **broll-sourcing** skill — a
    licensed stock clip beats a generated one for generic footage (cityscapes, hands
-   typing, nature). A generated still with a Ken Burns pan/zoom (see
-   references/ffmpeg-assembly.md §5, via **image-gen-ops**) is often enough; generate
+   typing, nature). A generated still with a Ken Burns pan/zoom (stills→motion
+   recipe in **video-editing**, via **image-gen-ops**) is often enough; generate
    video only when motion is essential and stock can't supply it.
 3. **Escalate to the BOARD only for Veo, Flow, or Sora.** grok-imagine (via the
    Designer-Media agent) covers essentially all routine clips, so the board is the LAST
@@ -55,8 +55,8 @@ package before it, the assembly and QA after it.
    request merely because YOU lack the tool — that is what routing to Designer-Media
    (step 1) is for.
 4. **Clips delivered** (native, routed, or board-dropped into the workspace `assets/`
-   dir) → assemble with ffmpeg per references/ffmpeg-assembly.md, then run the QA
-   checklist.
+   dir) → assemble per **video-assembly-pipeline** (ffmpeg recipes live in
+   **video-editing**), then run the QA checklist.
 
 ## The generation package (for board action on Veo/Flow/Sora only)
 
@@ -92,9 +92,9 @@ spec:
 
 ## Assembly (board clips + b-roll → deliverable)
 
-All command patterns live in **references/ffmpeg-assembly.md** — use them, don't
-hand-roll: normalize every input to spec first (§1), concat with the demuxer (§2),
-overlay text/captions (§3), mix the audio bed under VO (§4), stills→motion (§5).
+Drive assembly with the **video-assembly-pipeline** skill; the ffmpeg command recipes
+(normalize, concat, overlay/captions, audio-bed mix, stills→motion) are owned by the
+**video-editing** skill — use them, don't hand-roll.
 Convention: inputs in `assets/gen/` and `assets/broll/`, normalized intermediates in
 `assets/_norm/`, output in `assets/final/`. Never re-encode more than once after
 normalization; never upscale b-roll past its native resolution.

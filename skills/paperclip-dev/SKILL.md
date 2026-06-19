@@ -51,6 +51,8 @@ Paperclip worktrees combine git worktrees with isolated Paperclip instances — 
 
 > **MANDATORY:** Before creating or managing worktrees, you MUST read the "Worktree-local Instances" and "Worktree CLI Reference" sections in `doc/DEVELOPING.md`. That is the canonical reference for all worktree commands, their options, seed modes, and environment variables.
 
+> ⚠️ **Symlink hazard — do NOT run `pnpm install` from inside a `paperclip-wt-*` worktree.** It can repoint the shared `@paperclipai/*` workspace symlinks at the worktree's `node_modules`, which clobbers the **main** server's links → `ERR_MODULE_NOT_FOUND` crash-loop (this caused a real ~1h fleet outage). Build inside a worktree with `pnpm build` only; if you must install deps, do it in an isolated worktree `node_modules` and verify the main instance's `@paperclipai` symlinks still point at the main tree afterward (repoint them back if not).
+
 ### When to Use Worktrees
 
 - Starting a feature branch that needs its own Paperclip environment

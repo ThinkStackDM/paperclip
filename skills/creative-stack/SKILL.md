@@ -1,40 +1,50 @@
 ---
 name: creative-stack
 description: >
-  The full creative-generation stack available to EVERY team — both self-serve generation
-  and premium tools the human operator runs by hand. Use whenever you need an image, video,
-  voiceover, deep research, or any media asset. Covers what you can run now vs what to request.
+  Catalogue of the creative-generation tools available to EVERY team — what you can
+  self-serve now (and which skill drives each) vs premium tools the human operator runs
+  by hand. Use to discover what's available, or to request an operator-run premium tool.
+  For HOW to actually produce an image or video, use image-gen-ops / video-gen-ops.
 ---
 
 # Creative Stack
 
-Every team can now generate images and video. Use this whenever a deliverable needs media —
-don't ship a blank placeholder or skip the asset.
+This is the *catalogue* of what's available — not the production how-to. To actually
+produce an asset, use the operational skills:
+- **image-gen-ops** — produce + attach an image (the generate / route / board decision tree).
+- **video-gen-ops** — produce + attach a video; **video-assembly-pipeline** + **video-editing** drive assembly.
+- **og-image-rendering** — render legible text on an image. (grok-imagine garbles small text in
+  photoreal scenes — owner of the "never trust the generator's text, overlay real copy" rule.)
 
-## Self-serve — run these yourself, $0 (needs a hermes lane in your company)
-- **Image:** `hermes -z "Generate an image: <detailed prompt>" -t image_gen` — grok-imagine,
-  ~13s, production-quality (logos, hero art, book covers, thumbnails, infographics, mascots).
-  It renders structured/infographic text cleanly but garbles small text in photoreal scenes —
-  so overlay real copy in the layout for photoreal heroes.
-- **Video:** `hermes -z "Generate a video: <prompt with camera direction>" -t video_gen` —
-  grok-imagine-video, ~8s, 720p, follows camera direction (push-in, pan). Good B-roll.
-- **Offline/logos:** local FLUX (`scripts/imagegen/generate-image.sh`) when offline — free but
-  slow (~5 min) and HW-heavy, so off-peak only.
+## Self-serve — $0, run on a hermes lane in your company
+| Tool / skill | What it's for |
+|---|---|
+| `image_gen` (grok-imagine) via **image-gen-ops** | logos, hero art, covers, thumbnails, mascots (~13s) |
+| `video_gen` (grok-imagine-video) via **video-gen-ops** | short B-roll / clips, ~8s 720p, follows camera direction |
+| **baoyu-infographic** (Hermes) | 21-layout infographics from any text/URL/topic — image_gen-backed, $0 |
+| **baoyu-comic** (Hermes) | educational / explainer "knowledge comics" — image_gen-backed, $0 |
+| **p5js** (Hermes) | generative / motion / audio-reactive visuals → MP4 / GIF / SVG |
+| **pixel-art** (Hermes) | image → retro pixel art (NES / Game Boy / PICO-8), animate to GIF / MP4 |
+| **claude-design** / **popular-web-designs** (Hermes) | polished on-brand HTML pages / landing / decks (54 real brand systems) |
+| **excalidraw** / **architecture-diagram** (Hermes) | hand-drawn / infra diagrams, no API key |
+| **humanizer** (Hermes) | strip AI-isms from any prose before it ships |
+| local FLUX (`scripts/imagegen/generate-image.sh`) | offline image gen — free but slow (~5 min), off-peak only |
 
-## Premium — human-in-the-loop (the operator runs these by hand; raise a request)
-These tools are part of our stack but run by the human operator, who copy-pastes your prompt
-and returns the output:
-- **Flow** and **Veo** — high-end video generation.
-- **NotebookLM** — research synthesis + audio overviews.
-- **NanoBanana** — advanced image generation/editing.
+The Hermes skills above are installed + enabled on hermes lanes — call them directly (no install).
+
+## Premium — human-in-the-loop (operator runs these by hand; raise a request)
+Part of our stack but run by the human operator, who pastes your prompt and returns the output:
+- **Flow** / **Veo** (Google) — high-end video generation.
+- **Sora** (ChatGPT Pro) — high-fidelity / long-form video.
+- **NanoBanana** — advanced image generation / editing.
 - **ChatGPT Image creation** — image generation.
+- **NotebookLM** — research synthesis + audio overviews.
 - **Perplexity Pro** — deep research with citations.
 
 ### How to request one
-Create a board ask / human request titled **`[CREATIVE REQUEST] <tool>: <one-line need>`** that contains:
+Create a board ask titled **`[CREATIVE REQUEST] <tool>: <one-line need>`** containing:
 1. the **exact prompt** to paste (self-contained — the operator won't add context),
 2. **what output you need back** (format, count, dimensions) and **where it should go**,
 3. why it needs the premium tool vs self-serve grok-imagine.
 
-The operator pastes the prompt, runs the tool, and returns the asset/text; you then integrate
-it into the deliverable. Batch related requests into one ask to save the operator's time.
+Batch related requests into one ask to save the operator's time.

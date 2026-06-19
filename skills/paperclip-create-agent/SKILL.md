@@ -128,7 +128,7 @@ curl -sS "$PAPERCLIP_API_URL/api/approvals/<approval-id>" \
 curl -sS -X POST "$PAPERCLIP_API_URL/api/approvals/<approval-id>/comments" \
   -H "Authorization: Bearer $PAPERCLIP_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"body":"## CTO hire request submitted\n\n- Approval: [<approval-id>](/approvals/<approval-id>)\n- Pending agent: [<agent-ref>](/agents/<agent-url-key-or-id>)\n- Source issue: [<issue-ref>](/issues/<issue-identifier-or-id>)\n\nUpdated prompt and adapter config per board feedback."}'
+  -d '{"body":"## CTO hire request submitted\n\n- Approval: [<approval-id>](/<company-prefix>/approvals/<approval-id>)\n- Pending agent: [<agent-ref>](/<company-prefix>/agents/<agent-url-key-or-id>)\n- Source issue: [<issue-ref>](/<company-prefix>/issues/<issue-identifier-or-id>)\n\nUpdated prompt and adapter config per board feedback. (Links MUST be company-prefixed per the paperclip skill.)"}'
 ```
 
 If the approval already exists and needs manual linking to the issue:
