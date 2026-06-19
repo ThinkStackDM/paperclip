@@ -67,3 +67,7 @@ hermes-paperclip-adapter/
 
 # local dev logs (not source)
 .devlogs/
+
+# Python bytecode cache (from scripts/)
+__pycache__/
+*.pyc
