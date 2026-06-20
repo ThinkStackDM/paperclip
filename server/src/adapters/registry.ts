@@ -138,6 +138,17 @@ import {
   agentConfigurationDoc as hermesAgentConfigurationDoc,
   models as hermesModels,
 } from "hermes-paperclip-adapter";
+import {
+  execute as antigravityExecute,
+  testEnvironment as antigravityTestEnvironment,
+  sessionCodec as antigravitySessionCodec,
+  listAntigravitySkills,
+  syncAntigravitySkills,
+} from "@paperclipai/adapter-antigravity-local/server";
+import {
+  agentConfigurationDoc as antigravityAgentConfigurationDoc,
+  models as antigravityModels,
+} from "@paperclipai/adapter-antigravity-local";
 import { BUILTIN_ADAPTER_TYPES } from "./builtin-adapter-types.js";
 import { buildExternalAdapters } from "./plugin-loader.js";
 import { getDisabledAdapterTypes } from "../services/adapter-plugin-store.js";
@@ -362,6 +373,24 @@ const geminiLocalAdapter: ServerAdapterModule = {
     buildNpmRuntimeCommandSpec(config, "gemini", "@google/gemini-cli"),
   agentConfigurationDoc: geminiAgentConfigurationDoc,
   getQuotaWindows: geminiGetQuotaWindows,
+};
+
+const antigravityLocalAdapter: ServerAdapterModule = {
+  type: "antigravity_local",
+  execute: antigravityExecute as unknown as ServerAdapterModule["execute"],
+  testEnvironment: antigravityTestEnvironment as unknown as ServerAdapterModule["testEnvironment"],
+  listSkills: listAntigravitySkills,
+  syncSkills: syncAntigravitySkills,
+  sessionCodec: antigravitySessionCodec,
+  sessionManagement: getAdapterSessionManagement("antigravity_local") ?? undefined,
+  models: antigravityModels,
+  supportsLocalAgentJwt: true,
+  supportsInstructionsBundle: true,
+  instructionsPathKey: "instructionsFilePath",
+  requiresMaterializedRuntimeSkills: true,
+  agentConfigurationDoc: antigravityAgentConfigurationDoc,
+  // The `agy` CLI is resolved from PATH (config.command="agy"), not an npm package —
+  // so no getRuntimeCommandSpec (same as the hermes adapter).
 };
 
 const grokLocalAdapter: ServerAdapterModule = {
@@ -649,6 +678,7 @@ function registerBuiltInAdapters() {
     cursorCloudAdapter,
     cursorLocalAdapter,
     geminiLocalAdapter,
+    antigravityLocalAdapter,
     grokLocalAdapter,
     openclawGatewayAdapter,
     hermesLocalAdapter,
