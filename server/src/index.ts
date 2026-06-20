@@ -909,6 +909,24 @@ export async function startServer(): Promise<StartedServer> {
           });
       }
 
+      // Orphaned-wakeup reaper: cancel agent_wakeup_requests left queued/deferred against
+      // an issue that has since resolved (done/cancelled). The stale-queued-run reaper above
+      // only covers heartbeat_runs, so these wakeups otherwise accumulate forever as inert
+      // cruft. Open-issue and no-issue wakeups are left alone. Set
+      // HEARTBEAT_ORPHANED_WAKEUP_REAP=false to disable.
+      if (process.env.HEARTBEAT_ORPHANED_WAKEUP_REAP !== "false") {
+        void heartbeat
+          .reapOrphanedWakeups()
+          .then((result) => {
+            if (result.reaped > 0) {
+              logger.warn({ reaped: result.reaped }, "orphaned-wakeup reaper cleared resolved-issue wakeups");
+            }
+          })
+          .catch((err) => {
+            logger.error({ err }, "orphaned-wakeup reaper failed");
+          });
+      }
+
       // Periodically reap orphaned runs (5-min staleness threshold) and make sure
       // persisted queued work is still being driven forward.
       void heartbeat

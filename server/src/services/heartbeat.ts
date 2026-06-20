@@ -7393,6 +7393,38 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     return { reaped: reaped.length, runIds: reaped };
   }
 
+  /**
+   * Orphaned-wakeup reaper: cancel agent_wakeup_requests left queued/deferred against
+   * an issue that has since resolved (done/cancelled). reapStaleQueuedRuns only reaps
+   * heartbeat_runs, so these wakeups are never cleared and accumulate as inert cruft —
+   * the issue is closed, so the wakeup can never do anything useful. Uses the same
+   * terminal-status convention the run-completion path uses when it clears a wakeup
+   * (status=cancelled, finishedAt, updatedAt). Open-issue wakeups (blocked/todo/
+   * in_progress) and wakeups with no linked issue are deliberately left alone. On by
+   * default; set HEARTBEAT_ORPHANED_WAKEUP_REAP=false to disable (gated at the call site).
+   */
+  async function reapOrphanedWakeups(opts?: { now?: Date }) {
+    const now = opts?.now ?? new Date();
+    const reaped = await db
+      .update(agentWakeupRequests)
+      .set({ status: "cancelled", finishedAt: now, error: null, updatedAt: now })
+      .where(
+        and(
+          inArray(agentWakeupRequests.status, ["queued", "deferred_issue_execution"]),
+          sql`EXISTS (
+            SELECT 1 FROM ${issues}
+            WHERE ${issues.id}::text = COALESCE(${agentWakeupRequests.payload} ->> 'issueId', ${agentWakeupRequests.payload} ->> 'taskId')
+              AND ${issues.status} IN ('done', 'cancelled')
+          )`,
+        ),
+      )
+      .returning({ id: agentWakeupRequests.id });
+    if (reaped.length > 0) {
+      logger.warn({ reapedCount: reaped.length }, "orphaned-wakeup reaper cancelled wakeups for done/cancelled issues");
+    }
+    return { reaped: reaped.length, ids: reaped.map((r) => r.id) };
+  }
+
   async function resumeQueuedRuns() {
     const queuedRuns = await db
       .select({ agentId: heartbeatRuns.agentId })
@@ -10961,6 +10993,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     terminateHungRuns,
     terminateRunsForClosedWindows,
     reapStaleQueuedRuns,
+    reapOrphanedWakeups,
 
     promoteDueScheduledRetries,
     retryScheduledRetryNow,

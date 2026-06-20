@@ -1279,6 +1279,94 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     expect((await heartbeat.getRun(runId))?.status).toBe("queued");
   });
 
+  it("reapOrphanedWakeups cancels wakeups for done/cancelled issues and leaves open-issue + no-issue wakeups alone", async () => {
+    const companyId = randomUUID();
+    const agentId = randomUUID();
+    const issuePrefix = `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`;
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix,
+      requireBoardApprovalForNewAgents: false,
+    });
+    await db.insert(agents).values({
+      id: agentId,
+      companyId,
+      name: "CodexCoder",
+      role: "engineer",
+      status: "idle",
+      adapterType: "codex_local",
+      adapterConfig: {},
+      runtimeConfig: {},
+      permissions: {},
+    });
+
+    type IssueStatus = (typeof issues.$inferInsert)["status"];
+    type WakeStatus = (typeof agentWakeupRequests.$inferInsert)["status"];
+    const seedIssue = (id: string, status: string, n: number) =>
+      db.insert(issues).values({
+        id,
+        companyId,
+        title: `issue ${n}`,
+        status: status as IssueStatus,
+        priority: "medium",
+        issueNumber: n,
+        identifier: `${issuePrefix}-${n}`,
+      });
+    const seedWake = (id: string, payload: Record<string, unknown>, status: string) =>
+      db.insert(agentWakeupRequests).values({
+        id,
+        companyId,
+        agentId,
+        source: "assignment",
+        triggerDetail: "system",
+        reason: "issue_assigned",
+        payload,
+        status: status as WakeStatus,
+      });
+
+    const doneIssueId = randomUUID();
+    const cancelledIssueId = randomUUID();
+    const blockedIssueId = randomUUID();
+    const todoIssueId = randomUUID();
+    await seedIssue(doneIssueId, "done", 1);
+    await seedIssue(cancelledIssueId, "cancelled", 2);
+    await seedIssue(blockedIssueId, "blocked", 3);
+    await seedIssue(todoIssueId, "todo", 4);
+
+    const wDone = randomUUID();
+    const wCancelled = randomUUID();
+    const wBlocked = randomUUID();
+    const wTodo = randomUUID();
+    const wNoIssue = randomUUID();
+    await seedWake(wDone, { issueId: doneIssueId }, "queued"); // orphan
+    await seedWake(wCancelled, { issueId: cancelledIssueId }, "deferred_issue_execution"); // orphan
+    await seedWake(wBlocked, { issueId: blockedIssueId }, "deferred_issue_execution"); // legit (open)
+    await seedWake(wTodo, { issueId: todoIssueId }, "queued"); // legit (open)
+    await seedWake(wNoIssue, {}, "queued"); // legit (no linked issue)
+
+    const heartbeat = heartbeatService(db);
+    const result = await heartbeat.reapOrphanedWakeups();
+
+    expect(result.reaped).toBe(2);
+    expect([...result.ids].sort()).toEqual([wDone, wCancelled].sort());
+
+    const rows = await db
+      .select({ id: agentWakeupRequests.id, status: agentWakeupRequests.status, finishedAt: agentWakeupRequests.finishedAt })
+      .from(agentWakeupRequests)
+      .where(eq(agentWakeupRequests.companyId, companyId));
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    // orphans cancelled with a finishedAt stamp
+    expect(byId.get(wDone)?.status).toBe("cancelled");
+    expect(byId.get(wDone)?.finishedAt).not.toBeNull();
+    expect(byId.get(wCancelled)?.status).toBe("cancelled");
+    // open-issue and no-issue wakeups untouched
+    expect(byId.get(wBlocked)?.status).toBe("deferred_issue_execution");
+    expect(byId.get(wTodo)?.status).toBe("queued");
+    expect(byId.get(wNoIssue)?.status).toBe("queued");
+  });
+
   it("blocks the issue when process-loss retry is exhausted and the immediate continuation recovery also fails", async () => {
     mockAdapterExecute.mockRejectedValueOnce(new Error("continuation recovery failed"));
 
