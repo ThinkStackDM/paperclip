@@ -6,6 +6,7 @@ import {
   activityLog,
   agents,
   agentRuntimeState,
+  agentTaskSessions,
   agentWakeupRequests,
   budgetPolicies,
   companySkills,
@@ -371,6 +372,7 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     await db.delete(budgetPolicies);
     for (let attempt = 0; attempt < 5; attempt += 1) {
       await db.delete(agentRuntimeState);
+      await db.delete(agentTaskSessions);
       try {
         await db.delete(agents);
         break;
@@ -1365,6 +1367,81 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     expect(byId.get(wBlocked)?.status).toBe("deferred_issue_execution");
     expect(byId.get(wTodo)?.status).toBe("queued");
     expect(byId.get(wNoIssue)?.status).toBe("queued");
+  });
+
+  it("reapAgedTaskSessions caps exempt-agent task sessions by age, leaving recent + non-exempt + running ones alone", async () => {
+    const companyId = randomUUID();
+    const exemptIdle = randomUUID();
+    const exemptRunning = randomUUID();
+    const nonExempt = randomUUID();
+    const issuePrefix = `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`;
+    const now = new Date("2026-03-19T00:00:00.000Z");
+    const old = new Date(now.getTime() - 72 * 60 * 60 * 1000); // 3 days old
+    const recent = new Date(now.getTime() - 1 * 60 * 60 * 1000); // 1 hour old
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix,
+      requireBoardApprovalForNewAgents: false,
+    });
+    const mkAgent = (id: string, exempt: boolean) =>
+      db.insert(agents).values({
+        id,
+        companyId,
+        name: `A-${id.slice(0, 4)}`,
+        role: "engineer",
+        status: "idle",
+        adapterType: "claude_local", // not adapter-exempt; exemption comes only from the flag
+        adapterConfig: {},
+        runtimeConfig: exempt ? { ignoreActivityWindow: true } : {},
+        permissions: {},
+      });
+    await mkAgent(exemptIdle, true);
+    await mkAgent(exemptRunning, true);
+    await mkAgent(nonExempt, false);
+
+    // A live run on exemptRunning — exercises the skip-if-running guard.
+    await db.insert(heartbeatRuns).values({
+      id: randomUUID(),
+      companyId,
+      agentId: exemptRunning,
+      invocationSource: "assignment",
+      triggerDetail: "system",
+      status: "running",
+      startedAt: now,
+      updatedAt: now,
+    });
+
+    const mkSess = (agentId: string, createdAt: Date, taskKey: string) =>
+      db.insert(agentTaskSessions).values({
+        id: randomUUID(),
+        companyId,
+        agentId,
+        adapterType: "claude_local",
+        taskKey,
+        createdAt,
+        updatedAt: createdAt,
+      });
+    await mkSess(exemptIdle, old, "t-old"); // purged (exempt, aged, idle)
+    await mkSess(exemptIdle, recent, "t-recent"); // kept (recent)
+    await mkSess(exemptRunning, old, "t-old"); // kept (running)
+    await mkSess(nonExempt, old, "t-old"); // kept (not exempt)
+
+    const heartbeat = heartbeatService(db);
+    const result = await heartbeat.reapAgedTaskSessions({ maxAgeMs: 48 * 60 * 60 * 1000, now });
+
+    expect(result.purged).toBe(1);
+    expect(result.agents).toBe(1);
+
+    const remaining = await db
+      .select({ agentId: agentTaskSessions.agentId, taskKey: agentTaskSessions.taskKey })
+      .from(agentTaskSessions)
+      .where(eq(agentTaskSessions.companyId, companyId));
+    const keys = remaining.map((r) => `${r.agentId}:${r.taskKey}`).sort();
+    expect(keys).toEqual(
+      [`${exemptIdle}:t-recent`, `${exemptRunning}:t-old`, `${nonExempt}:t-old`].sort(),
+    );
   });
 
   it("blocks the issue when process-loss retry is exhausted and the immediate continuation recovery also fails", async () => {

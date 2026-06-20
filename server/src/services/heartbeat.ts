@@ -7535,6 +7535,86 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
   }
 
   /**
+   * Aged-task-session reaper for window-exempt agents. The sprint-end purge
+   * (sweepActivityWindowSessionPurges) clears task sessions when a company's
+   * activity window closes — but it deliberately skips isActivityWindowExemptAgent
+   * agents (ignoreActivityWindow / adapter-exempt), which run 24/7 and therefore
+   * have no window-close event. Their per-task sessions then accumulate unbounded
+   * and a long-lived one eventually grows too big to compact ("remote compact task:
+   * ... ran out of room in the model's context window"). This caps each task
+   * session's lifespan: it deletes agent_task_sessions rows older than maxAgeMs for
+   * exempt agents, so the next run on that task starts a fresh session (the agent
+   * rebuilds context from the issue, exactly as the sprint-end purge already does
+   * for windowed agents). Agents with a running run are skipped — don't yank a
+   * session a live run may still write back to; the sweep retries next tick.
+   * Disabled when maxAgeMs <= 0.
+   */
+  async function reapAgedTaskSessions(opts?: { maxAgeMs?: number; now?: Date }) {
+    const maxAgeMs = Math.max(0, opts?.maxAgeMs ?? 0);
+    if (maxAgeMs <= 0) return { purged: 0, agents: 0 };
+    const now = opts?.now ?? new Date();
+    const cutoff = new Date(now.getTime() - maxAgeMs);
+
+    const agedRows = await db
+      .select({ agentId: agentTaskSessions.agentId })
+      .from(agentTaskSessions)
+      .where(lt(agentTaskSessions.createdAt, cutoff));
+    const agentIds = [...new Set(agedRows.map((r) => r.agentId))];
+
+    let purged = 0;
+    let purgedAgents = 0;
+    for (const agentId of agentIds) {
+      const agent = (
+        await db
+          .select({
+            companyId: agents.companyId,
+            adapterType: agents.adapterType,
+            runtimeConfig: agents.runtimeConfig,
+            status: agents.status,
+          })
+          .from(agents)
+          .where(eq(agents.id, agentId))
+          .limit(1)
+      )[0];
+      if (!agent || agent.status === "terminated") continue;
+      // Only window-exempt agents — windowed agents are already cleared at sprint-end close.
+      if (
+        !isActivityWindowExemptAgent({
+          adapterType: agent.adapterType,
+          runtimeConfig: parseObject(agent.runtimeConfig),
+        })
+      ) {
+        continue;
+      }
+      // Don't delete a session a live run may still be writing back to.
+      if ((await countRunningRunsForAgent(agentId)) > 0) continue;
+
+      const deleted = await db
+        .delete(agentTaskSessions)
+        .where(and(eq(agentTaskSessions.agentId, agentId), lt(agentTaskSessions.createdAt, cutoff)))
+        .returning({ id: agentTaskSessions.id });
+      if (deleted.length === 0) continue;
+      purged += deleted.length;
+      purgedAgents += 1;
+      await logActivity(db, {
+        companyId: agent.companyId,
+        actorType: "system",
+        actorId: "aged_task_session_reaper",
+        agentId,
+        action: "agent.aged_task_sessions_reaped",
+        entityType: "agent",
+        entityId: agentId,
+        details: { purged: deleted.length, maxAgeMs },
+      });
+    }
+
+    if (purged > 0) {
+      logger.warn({ purged, purgedAgents }, "aged-task-session reaper purged exempt-agent sessions");
+    }
+    return { purged, agents: purgedAgents };
+  }
+
+  /**
    * End-of-sprint run termination. When a company's activity window has closed,
    * terminate still-running, non-exempt runs instead of letting them ride past the
    * sprint boundary. (A run that straddles the close also blocks the sprint session
@@ -10994,6 +11074,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     terminateRunsForClosedWindows,
     reapStaleQueuedRuns,
     reapOrphanedWakeups,
+    reapAgedTaskSessions,
 
     promoteDueScheduledRetries,
     retryScheduledRetryNow,

@@ -927,6 +927,26 @@ export async function startServer(): Promise<StartedServer> {
           });
       }
 
+      // Aged-task-session reaper: cap how long a window-exempt (24/7) agent's per-task
+      // sessions live, so a long-lived session never grows too big to compact ("remote
+      // compact task: ... ran out of room"). The sprint-end purge skips exempt agents,
+      // so without this their sessions accumulate unbounded (some hit 1000+). Set
+      // HEARTBEAT_EXEMPT_TASK_SESSION_PURGE=false to disable; tune the age cap with
+      // HEARTBEAT_EXEMPT_TASK_SESSION_MAX_AGE_MS (default 48h).
+      if (process.env.HEARTBEAT_EXEMPT_TASK_SESSION_PURGE !== "false") {
+        const maxAgeMs = Number(process.env.HEARTBEAT_EXEMPT_TASK_SESSION_MAX_AGE_MS) || 48 * 60 * 60 * 1000;
+        void heartbeat
+          .reapAgedTaskSessions({ maxAgeMs })
+          .then((result) => {
+            if (result.purged > 0) {
+              logger.warn({ ...result }, "aged-task-session reaper purged exempt-agent sessions");
+            }
+          })
+          .catch((err) => {
+            logger.error({ err }, "aged-task-session reaper failed");
+          });
+      }
+
       // Periodically reap orphaned runs (5-min staleness threshold) and make sure
       // persisted queued work is still being driven forward.
       void heartbeat
