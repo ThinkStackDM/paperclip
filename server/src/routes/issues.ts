@@ -1675,6 +1675,32 @@ export function issueRoutes(
     return decision.allowed;
   }
 
+  async function actorHasGateKeeperWriteGrant(
+    issue: {
+      id: string;
+      companyId: string;
+      assigneeAgentId: string | null;
+      labels?: Array<{ name?: string | null }> | null;
+    },
+    actorAgentId: string,
+  ): Promise<{ labels: string[] } | null> {
+    const labels = gateKeeperScopedIssueLabels(issue);
+    if (labels.length === 0) return null;
+    const decision = await access.decide({
+      actor: { type: "agent", agentId: actorAgentId, companyId: issue.companyId },
+      action: "tasks:gate_keeper_write",
+      resource: {
+        type: "issue",
+        companyId: issue.companyId,
+        issueId: issue.id,
+        assigneeAgentId: issue.assigneeAgentId,
+      },
+      scope: { labels },
+    });
+    if (!decision.allowed) return null;
+    return { labels };
+  }
+
   async function hasGateKeeperWriteOverride(
     issue: {
       id: string;
@@ -1690,23 +1716,11 @@ export function issueRoutes(
     if (input.override.kind === "document" && !GATE_KEEPER_ALLOWED_DOCUMENT_KEYS.has(input.override.documentKey)) {
       return null;
     }
-    const labels = gateKeeperScopedIssueLabels(issue);
-    if (labels.length === 0) return null;
-    const decision = await access.decide({
-      actor: { type: "agent", agentId: input.actorAgentId, companyId: issue.companyId },
-      action: "tasks:gate_keeper_write",
-      resource: {
-        type: "issue",
-        companyId: issue.companyId,
-        issueId: issue.id,
-        assigneeAgentId: issue.assigneeAgentId,
-      },
-      scope: { labels },
-    });
-    if (!decision.allowed) return null;
+    const grant = await actorHasGateKeeperWriteGrant(issue, input.actorAgentId);
+    if (!grant) return null;
     return {
       actorAgentId: input.actorAgentId,
-      labels,
+      labels: grant.labels,
       action: input.override.kind === "comment" ? "comment" : "document_put",
       documentKey: input.override.kind === "document" ? input.override.documentKey : null,
     };
@@ -1769,6 +1783,32 @@ export function issueRoutes(
           },
         });
         return true;
+      }
+      const gateKeeperGrant = await actorHasGateKeeperWriteGrant(issue, actorAgentId);
+      if (gateKeeperGrant) {
+        const requested = options?.gateKeeperOverride;
+        const requestedDetail = requested?.kind === "document"
+          ? { kind: "document" as const, documentKey: requested.documentKey, reason: "document_key_not_in_allowlist" as const }
+          : requested?.kind === "comment"
+            ? { kind: "comment" as const, reason: "comment_override_rejected" as const }
+            : { kind: "mutation" as const, reason: "non_allowlisted_issue_mutation" as const };
+        res.status(403).json({
+          error: "tasks:gate_keeper_write does not authorize this mutation",
+          details: {
+            issueId: issue.id,
+            assigneeAgentId: issue.assigneeAgentId,
+            actorAgentId,
+            scope: { labels: gateKeeperGrant.labels },
+            requested: requestedDetail,
+            allowlist: {
+              comment: true,
+              documentKeys: [...GATE_KEEPER_ALLOWED_DOCUMENT_KEYS],
+              reviewCheckout: true,
+            },
+            securityPrinciples: ["Least Privilege", "Complete Mediation", "Fail Securely"],
+          },
+        });
+        return false;
       }
       if (issue.status === "in_progress") {
         res.status(409).json({

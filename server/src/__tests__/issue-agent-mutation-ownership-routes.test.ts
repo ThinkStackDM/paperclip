@@ -794,6 +794,38 @@ describe("agent issue mutation checkout ownership", () => {
     expect(mockDocumentService.upsertIssueDocument).not.toHaveBeenCalled();
   });
 
+  it("returns 403 capability-denied for a grant-holder when the document key is outside the allowlist", async () => {
+    mockIssueService.getById.mockResolvedValue(makeIssue({
+      labels: [{ name: "auditor:in-scope" }],
+    }));
+    mockAccessService.decide.mockImplementation(async (input: { action: string }) => ({
+      allowed:
+        input.action === "tasks:assign" ||
+        input.action === "issue:read" ||
+        input.action === "issue:mutate" ||
+        input.action === "company_scope:read" ||
+        input.action === "tasks:gate_keeper_write",
+      action: input.action,
+      reason: "allow_explicit_grant",
+      explanation: input.action === "tasks:gate_keeper_write" ? "Allowed by gate-keeper grant." : "Allowed by test default.",
+    }));
+
+    const res = await request(await createApp(peerActor()))
+      .put(`/api/issues/${issueId}/documents/plan`)
+      .send({ format: "markdown", body: "# blocked" });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(403);
+    expect(res.body.error).toBe("tasks:gate_keeper_write does not authorize this mutation");
+    expect(res.body.details).toMatchObject({
+      scope: { labels: ["auditor:in-scope"] },
+      requested: { kind: "document", documentKey: "plan", reason: "document_key_not_in_allowlist" },
+    });
+    expect(res.body.details.allowlist.documentKeys).toEqual(
+      expect.arrayContaining(["acceptance-criteria", "rollback-plan", "review-evidence"]),
+    );
+    expect(mockDocumentService.upsertIssueDocument).not.toHaveBeenCalled();
+  });
+
   it("keeps substance fields owner-only even for a labeled gate-keeper issue", async () => {
     mockIssueService.getById.mockResolvedValue(makeIssue({
       labels: [{ name: "auditor:in-scope" }],
@@ -812,10 +844,30 @@ describe("agent issue mutation checkout ownership", () => {
 
     const app = await createApp(peerActor());
 
-    await request(app).patch(`/api/issues/${issueId}`).send({ status: "done" }).expect(409);
-    await request(app).patch(`/api/issues/${issueId}`).send({ assigneeAgentId: peerAgentId }).expect(409);
-    await request(app).patch(`/api/issues/${issueId}`).send({ description: "x" }).expect(409);
-    await request(app).put(`/api/issues/${issueId}/documents/plan`).send({ format: "markdown", body: "# plan" }).expect(409);
+    const statusRes = await request(app).patch(`/api/issues/${issueId}`).send({ status: "done" });
+    expect(statusRes.status, JSON.stringify(statusRes.body)).toBe(403);
+    expect(statusRes.body.error).toBe("tasks:gate_keeper_write does not authorize this mutation");
+    expect(statusRes.body.details.requested).toEqual({
+      kind: "mutation",
+      reason: "non_allowlisted_issue_mutation",
+    });
+
+    const assigneeRes = await request(app).patch(`/api/issues/${issueId}`).send({ assigneeAgentId: peerAgentId });
+    expect(assigneeRes.status, JSON.stringify(assigneeRes.body)).toBe(403);
+    expect(assigneeRes.body.error).toBe("tasks:gate_keeper_write does not authorize this mutation");
+
+    const descRes = await request(app).patch(`/api/issues/${issueId}`).send({ description: "x" });
+    expect(descRes.status, JSON.stringify(descRes.body)).toBe(403);
+    expect(descRes.body.error).toBe("tasks:gate_keeper_write does not authorize this mutation");
+
+    const docRes = await request(app).put(`/api/issues/${issueId}/documents/plan`).send({ format: "markdown", body: "# plan" });
+    expect(docRes.status, JSON.stringify(docRes.body)).toBe(403);
+    expect(docRes.body.error).toBe("tasks:gate_keeper_write does not authorize this mutation");
+    expect(docRes.body.details.requested).toEqual({
+      kind: "document",
+      documentKey: "plan",
+      reason: "document_key_not_in_allowlist",
+    });
 
     expect(mockIssueService.update).not.toHaveBeenCalled();
     expect(mockDocumentService.upsertIssueDocument).not.toHaveBeenCalled();
