@@ -34,6 +34,9 @@ _HERMES_LOCK = threading.Lock()
 # calls hang until the timeout. Serialize them — serial codex calls return in seconds.
 _CODEX_LOCK = threading.Lock()
 
+# agy is a heavy 142MB binary; cap concurrent antigravity calls on the shared Mac.
+_AGY_SEM = threading.BoundedSemaphore(2)
+
 
 def run_model(prompt, model_row, adapters_cfg, timeout_sec):
     """Dispatch to the right adapter by model_row['adapter']."""
@@ -49,6 +52,7 @@ def run_model(prompt, model_row, adapters_cfg, timeout_sec):
         "codex": _run_codex,
         "gemini": _run_gemini,
         "hermes": _run_hermes,
+        "antigravity": _run_antigravity,
     }.get(adapter)
     if fn is None:
         r = benchlib.empty_result()
@@ -96,12 +100,15 @@ def _tail(s, n=600):
 def _run_claude(prompt, model_arg, extra, timeout_sec):
     r = benchlib.empty_result()
     with tempfile.TemporaryDirectory(prefix="bench-claude-") as cwd:
-        cmd = ["claude", "-p", prompt, "--output-format", "json"]
+        # Pass the prompt on STDIN, not as a `-p <arg>`: the claude CLI exits 1 on large
+        # prompt arguments (~2k+ chars), which silently failed every with-skills/agent-file
+        # cell. STDIN handles any size and keeps the prompt out of the logged argv.
+        cmd = ["claude", "-p", "--output-format", "json"]
         if model_arg:
             cmd += ["--model", model_arg]
         cmd += list(extra)
         r["cmd"] = cmd[:4] + (["--model", model_arg] if model_arg else [])
-        rc, out, err, wall, timed_out = _exec(cmd, timeout_sec, cwd)
+        rc, out, err, wall, timed_out = _exec(cmd, timeout_sec, cwd, stdin=prompt)
         r["wallMs"] = wall
         r["stderrTail"] = _tail(err)
         if timed_out:
@@ -139,13 +146,18 @@ def _run_codex(prompt, model_arg, extra, timeout_sec):
     r = benchlib.empty_result()
     with tempfile.TemporaryDirectory(prefix="bench-codex-") as cwd:
         last = Path(cwd) / "_last.txt"
-        cmd = ["codex", "exec", prompt, "--json", "-o", str(last)]
+        # Pass the prompt on STDIN (`exec -` reads instructions from stdin), not as a positional
+        # argv. With-skills/agent-file prompts wrap blocks in "--- BEGIN ... ---" markers; codex's
+        # clap parser reads the leading "--" as an unknown flag and exits rc=2 BEFORE the model runs
+        # (verified 2026-06-22 — this, not an agentic-derail, was the "codex hard-fails on large
+        # prompts" signal). stdin sidesteps arg-parsing entirely and keeps the prompt out of argv.
+        cmd = ["codex", "exec", "-", "--json", "-o", str(last)]
         if model_arg:
             cmd += ["-m", model_arg]
         cmd += list(extra)
-        r["cmd"] = ["codex", "exec", "<prompt>", "--json"] + (["-m", model_arg] if model_arg else [])
+        r["cmd"] = ["codex", "exec", "-", "--json"] + (["-m", model_arg] if model_arg else [])
         with _CODEX_LOCK:  # serialize: concurrent ChatGPT-OAuth codex calls hang
-            rc, out, err, wall, timed_out = _exec(cmd, timeout_sec, cwd)
+            rc, out, err, wall, timed_out = _exec(cmd, timeout_sec, cwd, stdin=prompt)
         r["wallMs"] = wall
         r["stderrTail"] = _tail(err)
         # final message: prefer -o file, else last agent_message event on stdout
@@ -211,6 +223,40 @@ def _codex_model(events):
                 if isinstance(v, str) and v:
                     return v
     return None
+
+
+# --------------------------------------------------------------------------
+# antigravity (agy) — Google's supported replacement for the retired gemini CLI
+# --------------------------------------------------------------------------
+
+def _run_antigravity(prompt, model_arg, extra, timeout_sec):
+    """Antigravity (`agy`) CLI. Selects a model by its display-name string, e.g.
+    'Gemini 3.5 Flash (Medium)'. Print mode returns plain text only (no usage JSON),
+    so tokens are ESTIMATED and flagged. Runs in a neutralized temp CWD. agy is a heavy
+    142MB binary; cap concurrency on the shared Mac via _AGY_SEM."""
+    r = benchlib.empty_result()
+    with _AGY_SEM, tempfile.TemporaryDirectory(prefix="bench-agy-") as cwd:
+        cmd = ["agy", "-p", prompt]
+        if model_arg:
+            cmd += ["--model", model_arg]
+        cmd += list(extra)
+        r["cmd"] = ["agy", "-p", "<prompt>"] + (["--model", model_arg] if model_arg else [])
+        rc, out, err, wall, timed_out = _exec(cmd, timeout_sec, cwd)
+        r["wallMs"] = wall
+        r["stderrTail"] = _tail(err)
+        r["output"] = (out or "").strip()
+        if timed_out:
+            r["error"] = "timeout"
+        elif rc not in (0, None) and not r["output"]:
+            r["error"] = f"agy: rc={rc}: {_tail(err, 160)}"
+        r["model"] = model_arg
+        # agy print mode emits no usage JSON -> estimate tokens (flagged)
+        r["inputTokens"] = benchlib.estimate_tokens(prompt)
+        r["outputTokens"] = benchlib.estimate_tokens(r["output"])
+        r["tokensEstimated"] = True
+        r["totalTokens"] = (r["inputTokens"] or 0) + (r["outputTokens"] or 0) or None
+        r["ok"] = bool(r["output"]) and not r["error"]
+        return r
 
 
 # --------------------------------------------------------------------------
