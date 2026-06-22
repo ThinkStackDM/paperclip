@@ -31,10 +31,11 @@ if (typeof window !== "undefined" && window.localStorage !== globalThis.localSto
   installStorageMock(window as unknown as Record<string, unknown>);
 }
 
-// jsdom does not implement Element.prototype.scrollIntoView. Components that
-// scroll on mount or interaction — e.g. the issue thread now lands on the
-// latest message by default — would otherwise throw under test. Provide a no-op
-// only when it's missing so tests that spy on or override it keep working.
+// jsdom does not implement Element.prototype.scrollIntoView. Several surfaces
+// (e.g. IssueChatThread's auto-scroll-to-latest, and the issue thread now
+// landing on the latest message by default) call it during normal render, so
+// provide a no-op default only when it's missing. Tests that assert on scroll
+// behaviour spy on or override it on the prototype themselves and restore it.
 if (typeof window !== "undefined" && typeof window.Element !== "undefined") {
   const elementProto = window.Element.prototype as unknown as {
     scrollIntoView?: (...args: unknown[]) => void;
