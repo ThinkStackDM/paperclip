@@ -740,8 +740,15 @@
     {
       "idx": 105,
       "version": "7",
+      "when": 1781902000000,
+      "tag": "0105_instance_scoped_environments",
+      "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
       "when": 1781910000000,
-      "tag": "0105_cross_company_messages",
+      "tag": "0106_cross_company_messages",
       "breakpoints": true
     }
   ]
