@@ -2,13 +2,19 @@ import type {
   InstanceExperimentalSettings,
   InstanceGeneralSettings,
   InstanceRunControls,
+  InstanceSettings,
   IssueGraphLivenessAutoRecoveryPreview,
+  PatchInstanceSettings,
   PatchInstanceGeneralSettings,
   PatchInstanceExperimentalSettings,
 } from "@paperclipai/shared";
 import { api } from "./client";
 
 export const instanceSettingsApi = {
+  get: () =>
+    api.get<InstanceSettings>("/instance/settings"),
+  update: (patch: PatchInstanceSettings) =>
+    api.patch<InstanceSettings>("/instance/settings", patch),
   getRunControls: () =>
     api.get<InstanceRunControls>("/instance/settings/run-controls"),
   pauseInstanceRuns: (reason?: string) =>

@@ -6,6 +6,7 @@ import {
   createApprovalSchema,
   createIssueInputSchema,
   issueThreadInteractionContinuationPolicySchema,
+  requestCheckboxConfirmationPayloadSchema,
   requestConfirmationPayloadSchema,
   requiredAskSummarySchema,
   suggestTasksPayloadSchema,
@@ -143,6 +144,17 @@ const createRequestConfirmationToolSchema = z.object({
   summary: requiredAskSummarySchema,
   continuationPolicy: issueThreadInteractionContinuationPolicySchema.optional().default("none"),
   payload: requestConfirmationPayloadSchema,
+});
+
+const createRequestCheckboxConfirmationToolSchema = z.object({
+  issueId: issueIdSchema,
+  idempotencyKey: z.string().trim().max(255).nullable().optional(),
+  sourceCommentId: z.string().uuid().nullable().optional(),
+  sourceRunId: z.string().uuid().nullable().optional(),
+  title: z.string().trim().max(240).nullable().optional(),
+  summary: z.string().trim().max(1000).nullable().optional(),
+  continuationPolicy: issueThreadInteractionContinuationPolicySchema.optional().default("wake_assignee"),
+  payload: requestCheckboxConfirmationPayloadSchema,
 });
 
 const approvalDecisionSchema = z.object({
@@ -518,6 +530,18 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
         client.requestJson("POST", `/issues/${encodeURIComponent(issueId)}/interactions`, {
           body: {
             kind: "request_confirmation",
+            ...body,
+          },
+        }),
+    ),
+    makeTool(
+      "paperclipRequestCheckboxConfirmation",
+      "Create a request_checkbox_confirmation interaction on an issue",
+      createRequestCheckboxConfirmationToolSchema,
+      async ({ issueId, ...body }) =>
+        client.requestJson("POST", `/issues/${encodeURIComponent(issueId)}/interactions`, {
+          body: {
+            kind: "request_checkbox_confirmation",
             ...body,
           },
         }),
