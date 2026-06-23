@@ -33,7 +33,12 @@ import {
   type AgentSidebarSortMode,
   writeAgentSortMode,
 } from "../lib/agent-order";
-import { getAgentFallbackLane, getAgentModelBadge, groupAgentFallbackLanes } from "../lib/agent-lanes";
+import {
+  getAgentFallbackLane,
+  getAgentModelBadge,
+  getAgentRegistryLaneRole,
+  groupAgentFallbackLanesWithRegistry,
+} from "../lib/agent-lanes";
 import { AgentIcon } from "./AgentIconPicker";
 import { AgentLaneBadge } from "./AgentLaneBadge";
 import { AgentModelBadge } from "./AgentModelBadge";
@@ -157,6 +162,9 @@ function SidebarAgentItem({
     >
       <AgentIcon icon={agent.icon} className="shrink-0 h-3.5 w-3.5 text-muted-foreground" />
       <span className={rail ? SIDEBAR_RAIL_HIDDEN_LABEL : "flex-1 truncate"}>{laneInfo ? laneInfo.base : agent.name}</span>
+      {!rail && isPrimary ? (
+        <Crown className="shrink-0 h-3 w-3 text-amber-500" aria-label="Primary agent" />
+      ) : null}
       {!rail ? (modelBadge ? <AgentModelBadge badge={modelBadge} /> : laneInfo ? <AgentLaneBadge lane={laneInfo.lane} /> : null) : null}
       {!rail && hasInvalidOrgChain ? (
         <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" aria-label="Invalid reporting chain" />
@@ -322,22 +330,30 @@ export function SidebarAgents({ streamlined = false }: { streamlined?: boolean }
     companyId: selectedCompanyId,
     userId: currentUserId,
   });
-  // Keep fallback "sister" lanes (Agent-Codex/-Grok/...) grouped directly
-  // under their primary agent regardless of sort mode so the list scans as
-  // one row-cluster per agent instead of scattered clones.
+  // Keep fallback "sister" lanes grouped directly under their primary agent
+  // regardless of sort mode so the list scans as one row-cluster per agent
+  // instead of scattered clones. The `agent_fallback_sisters` registry (via
+  // each agent's server-computed `lanePrimaryAgentId`) is the source of truth;
+  // agents with no registry rows fall back to the name heuristic.
   const sortedAgents = useMemo(
-    () => groupAgentFallbackLanes(sortAgents(orderedAgents, sortMode)),
+    () => groupAgentFallbackLanesWithRegistry(sortAgents(orderedAgents, sortMode)),
     [orderedAgents, sortMode],
   );
   const sortedAgentNames = useMemo(
     () => new Set(sortedAgents.map((agent) => agent.name)),
     [sortedAgents],
   );
-  // Base agents that lead a sister group (have >=1 -Codex/-Grok/... clone present)
-  // get the "primary" marker so the lead of each trio is identifiable at a glance.
+  const sortedAgentIds = useMemo(
+    () => new Set(sortedAgents.map((agent) => agent.id)),
+    [sortedAgents],
+  );
+  // Base agents that lead a NAME-based sister group (registry-less primaries
+  // whose -Codex/-Grok/... clones are present). Registry-managed primaries are
+  // handled per-agent via lanePrimaryAgentId, so they are excluded here.
   const primaryBaseNames = useMemo(() => {
     const bases = new Set<string>();
     for (const agent of sortedAgents) {
+      if (getAgentRegistryLaneRole(agent) !== null) continue;
       const laneInfo = getAgentFallbackLane(agent.name);
       if (laneInfo && sortedAgentNames.has(laneInfo.base)) bases.add(laneInfo.base);
     }
@@ -495,11 +511,24 @@ export function SidebarAgents({ streamlined = false }: { streamlined?: boolean }
       {displayedAgents.map((agent: Agent) => {
         const runCount = liveCountByAgent.get(agent.id) ?? 0;
         const laneInfo = getAgentFallbackLane(agent.name);
-        const isPrimary = laneInfo == null && primaryBaseNames.has(agent.name);
+        const registryRole = getAgentRegistryLaneRole(agent);
+        // Registry (agent_fallback_sisters) wins when the agent has rows: the
+        // registered primary gets the marker, its sisters nest under it. Agents
+        // with no registry rows fall back to the name heuristic.
+        const isPrimary =
+          registryRole !== null
+            ? registryRole === "primary"
+            : laneInfo == null && primaryBaseNames.has(agent.name);
+        const nestedUnderPrimary =
+          registryRole !== null
+            ? registryRole === "sister" &&
+              !!agent.lanePrimaryAgentId &&
+              sortedAgentIds.has(agent.lanePrimaryAgentId)
+            : laneInfo != null && sortedAgentNames.has(laneInfo.base);
         return (
           <SidebarAgentItem
             key={agent.id}
-            nestedUnderPrimary={laneInfo != null && sortedAgentNames.has(laneInfo.base)}
+            nestedUnderPrimary={nestedUnderPrimary}
             isPrimary={isPrimary}
             activeAgentId={activeAgentId}
             activeTab={activeTab}

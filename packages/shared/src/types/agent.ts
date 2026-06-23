@@ -101,6 +101,15 @@ export interface Agent {
   lastHeartbeatAt: Date | null;
   metadata: Record<string, unknown> | null;
   orgChainHealth?: AgentOrgChainHealth;
+  /**
+   * Registry-driven fallback-lane primary, sourced from `agent_fallback_sisters`
+   * (server-computed in the company agents list). For an agent in a fallback
+   * lane this is the id of the lane's PRIMARY agent (an agent's own id when it is
+   * the primary; the primary's id when it is a sister). Null/undefined when the
+   * agent has no registry rows — consumers fall back to the name heuristic
+   * (getAgentFallbackLane / primaryBaseNames).
+   */
+  lanePrimaryAgentId?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }

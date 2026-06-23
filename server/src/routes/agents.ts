@@ -2,8 +2,8 @@ import { Router, type Request, type Response } from "express";
 import { generateKeyPairSync, randomUUID } from "node:crypto";
 import path from "node:path";
 import type { Db } from "@paperclipai/db";
-import { agents as agentsTable, companies, heartbeatRuns, issues as issuesTable, projects as projectsTable } from "@paperclipai/db";
-import { and, desc, eq, inArray, not, sql } from "drizzle-orm";
+import { agents as agentsTable, agentFallbackSisters, companies, heartbeatRuns, issues as issuesTable, projects as projectsTable } from "@paperclipai/db";
+import { and, desc, eq, inArray, isNull, not, sql } from "drizzle-orm";
 import {
   agentSkillSyncSchema,
   agentMineInboxQuerySchema,
@@ -230,6 +230,31 @@ export function agentRoutes(
       return decideAgentRead(req, { id, companyId });
     }));
     return rows.filter((_, index) => decisions[index]?.allowed);
+  }
+
+  /**
+   * Build the registry-driven lane-primary map for a company from
+   * `agent_fallback_sisters` (active rows only). The returned map answers, for
+   * any agent id, "which agent id is the PRIMARY of its fallback lane?":
+   *   - every distinct primary_agent_id maps to itself,
+   *   - every sister_agent_id maps to its primary_agent_id.
+   * Agents that appear in no active row are absent (caller defaults to null and
+   * the UI falls back to the name heuristic). Queried once per company.
+   */
+  async function buildLanePrimaryMap(companyId: string): Promise<Map<string, string>> {
+    const rows = await db
+      .select({
+        primaryAgentId: agentFallbackSisters.primaryAgentId,
+        sisterAgentId: agentFallbackSisters.sisterAgentId,
+      })
+      .from(agentFallbackSisters)
+      .where(and(eq(agentFallbackSisters.companyId, companyId), isNull(agentFallbackSisters.revokedAt)));
+    const map = new Map<string, string>();
+    for (const row of rows) {
+      map.set(row.primaryAgentId, row.primaryAgentId);
+      map.set(row.sisterAgentId, row.primaryAgentId);
+    }
+    return map;
   }
 
   /**
@@ -1842,7 +1867,18 @@ export function agentRoutes(
       });
       return;
     }
-    const result = await filterAgentsForActor(req, await svc.list(companyId));
+    const rows = await svc.list(companyId);
+    // Registry-driven lane primary: agent_fallback_sisters is the source of truth
+    // for which agent in a fallback lane is PRIMARY (gets the Crown) and which are
+    // sisters grouped under it. Build the map once for the whole company. Every
+    // distinct primary maps to itself; every sister maps to its primary. Agents
+    // with no registry rows get null and the UI falls back to the name heuristic.
+    const lanePrimaryByAgentId = await buildLanePrimaryMap(companyId);
+    const rowsWithLane = rows.map((agent) => ({
+      ...agent,
+      lanePrimaryAgentId: lanePrimaryByAgentId.get(agent.id) ?? null,
+    }));
+    const result = await filterAgentsForActor(req, rowsWithLane);
     const canReadConfigs = await actorCanReadConfigurationsForCompany(req, companyId);
     if (canReadConfigs) {
       res.json(result);
