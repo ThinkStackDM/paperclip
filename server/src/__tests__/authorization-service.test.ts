@@ -66,7 +66,7 @@ async function grantAgentPermission(
   db: ReturnType<typeof createDb>,
   companyId: string,
   agentId: string,
-  permissionKey: "tasks:assign" | "tasks:assign_scope" | "tasks:gate_keeper_write",
+  permissionKey: "tasks:assign" | "tasks:assign_scope" | "tasks:gate_keeper_write" | "tasks:fallback_reassign" | "agents:manage_fallback",
   scope: Record<string, unknown> | null = null,
 ) {
   await db.insert(companyMemberships).values({

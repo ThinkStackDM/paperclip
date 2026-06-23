@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, NavLink, useLocation } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Crown,
   MoreHorizontal,
   Loader2,
   LogOut,
@@ -31,9 +32,10 @@ import {
   type AgentSidebarSortMode,
   writeAgentSortMode,
 } from "../lib/agent-order";
-import { getAgentFallbackLane, groupAgentFallbackLanes } from "../lib/agent-lanes";
+import { getAgentFallbackLane, getAgentModelBadge, groupAgentFallbackLanes } from "../lib/agent-lanes";
 import { AgentIcon } from "./AgentIconPicker";
 import { AgentLaneBadge } from "./AgentLaneBadge";
+import { AgentModelBadge } from "./AgentModelBadge";
 import { BudgetSidebarMarker } from "./BudgetSidebarMarker";
 import { SidebarSection, type SidebarSectionRadioChoice } from "./SidebarSection";
 import { Button } from "@/components/ui/button";
@@ -93,6 +95,7 @@ function SidebarAgentItem({
   runCount,
   setSidebarOpen,
   nestedUnderPrimary = false,
+  isPrimary = false,
 }: {
   activeAgentId: string | null;
   activeTab: string | null;
@@ -105,8 +108,10 @@ function SidebarAgentItem({
   runCount: number;
   setSidebarOpen: (open: boolean) => void;
   nestedUnderPrimary?: boolean;
+  isPrimary?: boolean;
 }) {
   const laneInfo = getAgentFallbackLane(agent.name);
+  const modelBadge = getAgentModelBadge(agent);
   const routeRef = agentRouteRef(agent);
   const href = activeTab ? `${agentUrl(agent)}/${activeTab}` : agentUrl(agent);
   const editHref = `${agentUrl(agent)}/configuration`;
@@ -140,7 +145,17 @@ function SidebarAgentItem({
       >
         <AgentIcon icon={agent.icon} className="shrink-0 h-3.5 w-3.5 text-muted-foreground" />
         <span className="flex-1 truncate">{laneInfo ? laneInfo.base : agent.name}</span>
-        {laneInfo ? <AgentLaneBadge lane={laneInfo.lane} /> : null}
+        {isPrimary ? (
+          <Crown className="shrink-0 h-3 w-3 text-amber-500" aria-label="Primary agent" />
+        ) : null}
+        {modelBadge ? (
+          <AgentModelBadge badge={modelBadge} />
+        ) : laneInfo ? (
+          <AgentLaneBadge lane={laneInfo.lane} />
+        ) : null}
+        {isPaused && !isBudgetPaused ? (
+          <PauseCircle className="shrink-0 h-3.5 w-3.5 text-muted-foreground/70" aria-label="Paused" />
+        ) : null}
         {(agent.pauseReason === "budget" || runCount > 0) && (
           <span className="ml-auto flex items-center gap-1.5 shrink-0">
             {agent.pauseReason === "budget" ? (
@@ -291,6 +306,16 @@ export function SidebarAgents() {
     () => new Set(sortedAgents.map((agent) => agent.name)),
     [sortedAgents],
   );
+  // Base agents that lead a sister group (have >=1 -Codex/-Grok/... clone present)
+  // get the "primary" marker so the lead of each trio is identifiable at a glance.
+  const primaryBaseNames = useMemo(() => {
+    const bases = new Set<string>();
+    for (const agent of sortedAgents) {
+      const laneInfo = getAgentFallbackLane(agent.name);
+      if (laneInfo && sortedAgentNames.has(laneInfo.base)) bases.add(laneInfo.base);
+    }
+    return bases;
+  }, [sortedAgents, sortedAgentNames]);
 
   const agentMatch = location.pathname.match(/^\/(?:[^/]+\/)?agents\/([^/]+)(?:\/([^/]+))?/);
   const activeAgentId = agentMatch?.[1] ?? null;
@@ -424,10 +449,12 @@ export function SidebarAgents() {
       {sortedAgents.map((agent: Agent) => {
         const runCount = liveCountByAgent.get(agent.id) ?? 0;
         const laneInfo = getAgentFallbackLane(agent.name);
+        const isPrimary = laneInfo == null && primaryBaseNames.has(agent.name);
         return (
           <SidebarAgentItem
             key={agent.id}
             nestedUnderPrimary={laneInfo != null && sortedAgentNames.has(laneInfo.base)}
+            isPrimary={isPrimary}
             activeAgentId={activeAgentId}
             activeTab={activeTab}
             agent={agent}

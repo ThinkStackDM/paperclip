@@ -32,6 +32,7 @@ export function grantsForHumanRole(
         { permissionKey: "users:invite", scope: null },
         { permissionKey: "users:manage_permissions", scope: null },
         { permissionKey: "tasks:assign", scope: null },
+        { permissionKey: "agents:manage_fallback", scope: null },
         { permissionKey: "joins:approve", scope: null },
       ];
     case "admin":
@@ -40,6 +41,7 @@ export function grantsForHumanRole(
         { permissionKey: "environments:manage", scope: null },
         { permissionKey: "users:invite", scope: null },
         { permissionKey: "tasks:assign", scope: null },
+        { permissionKey: "agents:manage_fallback", scope: null },
         { permissionKey: "joins:approve", scope: null },
       ];
     case "operator":

@@ -677,6 +677,7 @@ export const PERMISSION_KEYS = [
   "tasks:gate_keeper_write",
   "tasks:manage_active_checkouts",
   "tasks:fallback_reassign",
+  "agents:manage_fallback",
   "joins:approve",
 ] as const;
 export type PermissionKey = (typeof PERMISSION_KEYS)[number];
