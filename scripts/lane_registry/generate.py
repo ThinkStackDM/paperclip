@@ -28,8 +28,8 @@ import lib  # noqa: E402
 def build_registry(company_id: str, member_sets: dict, agents: dict) -> dict[str, list[str]]:
     """Flat registry for one company from its star lanes."""
     registry: dict[str, list[str]] = {}
-    for _primary, members in member_sets.get(company_id, {}).items():
-        for aid, chain in lib.lane_chains(members, agents).items():
+    for primary, members in member_sets.get(company_id, {}).items():
+        for aid, chain in lib.lane_chains_for(primary, members, agents).items():
             # Each agent belongs to exactly one lane post-normalization, so a
             # collision here means malformed data — surface it loudly.
             if aid in registry and registry[aid] != chain:

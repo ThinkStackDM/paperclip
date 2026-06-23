@@ -105,6 +105,57 @@ def lane_chains(member_ids: Iterable[str], agents: dict) -> dict[str, list[str]]
     return expand_chains(order_members(member_ids, agents))
 
 
+# --- Content-lane ordering (benchmark-driven, single-pass) -----------------
+# For single-pass content/draft lanes, failover prefers the content order
+# (gemini-flash -> grok-4.1-fast -> codex -> claude), NOT the agentic model-tier.
+# Everything else keeps the agentic model-tier order (unchanged).
+CONTENT_LANE_BASES = {
+    "Author", "Editor", "Quill", "Designer", "Scribe", "ContentStrategist",
+    "Storyboard", "Frame", "BrandDesigner",
+}
+CONTENT_ROLES = {"cmo", "designer"}
+CONTENT_FAMILY_RANK = {
+    "antigravity_local": 0, "gemini_local": 0,   # gemini-flash leads content
+    "hermes_local": 1, "grok_local": 1,           # grok-4.1-fast runner-up
+    "codex_local": 2,                              # capable generalist
+    "claude_local": 3,                             # claude (sonnet) last for content
+}
+
+
+def is_content_lane(primary_agent: dict) -> bool:
+    role = str(primary_agent.get("role") or "").lower()
+    name = str(primary_agent.get("name") or "")
+    if role in CONTENT_ROLES:
+        return True
+    if name.endswith("-Drafter"):
+        return True
+    return base_of(name) in CONTENT_LANE_BASES
+
+
+def content_rank(adapter: str) -> int:
+    return CONTENT_FAMILY_RANK.get((adapter or "").strip().lower(), UNKNOWN_RANK)
+
+
+def order_lane(primary_id: str, member_ids: Iterable[str], agents: dict) -> list[str]:
+    """Failover order for one lane. Content lanes: primary first, then the other
+    members by content preference. Agentic lanes: model-tier (unchanged)."""
+    members = list(dict.fromkeys(member_ids))
+    primary = agents.get(primary_id, {})
+    if primary_id in members and is_content_lane(primary):
+        others = [m for m in members if m != primary_id]
+        others.sort(key=lambda a: (
+            content_rank(agents.get(a, {}).get("adapter", "")),
+            is_suffixed(agents.get(a, {}).get("name", a)),
+            agents.get(a, {}).get("name", a),
+        ))
+        return [primary_id] + others
+    return order_members(members, agents)
+
+
+def lane_chains_for(primary_id: str, member_ids: Iterable[str], agents: dict) -> dict[str, list[str]]:
+    return expand_chains(order_lane(primary_id, member_ids, agents))
+
+
 def group_scope_into_lanes(scope_ids: Iterable[str], agents: dict) -> dict[str, list[str]]:
     """Group a set of agent ids into name-base lanes. Returns base_name ->
     [member_ids]. Used by the backfill to reconstruct lanes from the historical
@@ -135,11 +186,11 @@ def _psql(db_url: str, sql: str) -> list[list[str]]:
 
 
 def load_agents(db_url: str = DEFAULT_DB_URL) -> dict:
-    """id -> {adapter, name, status, company_id}."""
-    rows = _psql(db_url, "select id, adapter_type, name, status, company_id from agents;")
+    """id -> {adapter, name, status, role, company_id}."""
+    rows = _psql(db_url, "select id, adapter_type, name, status, coalesce(role,''), company_id from agents;")
     return {
-        r[0]: {"adapter": r[1], "name": r[2], "status": r[3], "company_id": r[4]}
-        for r in rows if len(r) >= 5
+        r[0]: {"adapter": r[1], "name": r[2], "status": r[3], "role": r[4], "company_id": r[5]}
+        for r in rows if len(r) >= 6
     }
 
 
@@ -157,7 +208,7 @@ def load_active_fallback_rows(db_url: str = DEFAULT_DB_URL) -> list[dict]:
 
 
 def load_agents_from_tsv(path: str) -> dict:
-    """Test/offline helper: TSV of id<TAB>adapter<TAB>name<TAB>status[<TAB>company]."""
+    """Test/offline helper: TSV id<TAB>adapter<TAB>name<TAB>status[<TAB>role[<TAB>company]]."""
     agents = {}
     with open(path) as fh:
         for line in fh:
@@ -166,7 +217,8 @@ def load_agents_from_tsv(path: str) -> dict:
                 continue
             agents[p[0]] = {
                 "adapter": p[1], "name": p[2], "status": p[3],
-                "company_id": p[4] if len(p) > 4 else "",
+                "role": p[4] if len(p) > 4 else "",
+                "company_id": p[5] if len(p) > 5 else "",
             }
     return agents
 

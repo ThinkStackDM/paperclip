@@ -8,8 +8,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lib
 
 
-def A(adapter, name):
-    return {"adapter": adapter, "name": name, "status": "idle"}
+def A(adapter, name, role="general"):
+    return {"adapter": adapter, "name": name, "status": "idle", "role": role}
 
 
 class TestBase(unittest.TestCase):
@@ -80,6 +80,39 @@ class TestExpansion(unittest.TestCase):
     def test_two_member_lane(self):
         agents = {"p": A("claude_local", "BrandDesigner"), "s": A("codex_local", "BrandDesigner-Codex")}
         self.assertEqual(lib.lane_chains(["p", "s"], agents), {"p": ["s"]})
+
+
+class TestContentOrdering(unittest.TestCase):
+    def test_agentic_lane_unchanged(self):
+        # CEO/engineer lane keeps model-tier order (codex primary -> gemini -> grok)
+        agents = {
+            "cx": A("codex_local", "GLaD0S-Codex", "ceo"),
+            "cl": A("claude_local", "GLaD0S", "ceo"),
+            "gm": A("antigravity_local", "GLaD0S-Gemini", "ceo"),
+            "hm": A("hermes_local", "GLaD0S-Hermes", "ceo"),
+        }
+        # tier order: claude, codex, gemini, grok -> matches the live agentic behavior
+        self.assertEqual(lib.order_lane("cx", ["cx", "cl", "gm", "hm"], agents),
+                         ["cl", "cx", "gm", "hm"])
+
+    def test_content_lane_gemini_before_codex(self):
+        # Author (claude content worker): primary first, then gemini-flash, then codex
+        agents = {
+            "cl": A("claude_local", "Author", "general"),
+            "cx": A("codex_local", "Author-Codex", "general"),
+            "gm": A("antigravity_local", "Author-Gemini", "general"),
+        }
+        self.assertEqual(lib.order_lane("cl", ["cl", "cx", "gm"], agents),
+                         ["cl", "gm", "cx"])  # claude -> gemini-flash -> codex
+        self.assertEqual(lib.lane_chains_for("cl", ["cl", "cx", "gm"], agents),
+                         {"cl": ["gm", "cx"], "gm": ["cx"]})
+
+    def test_content_classification(self):
+        self.assertTrue(lib.is_content_lane({"name": "Author", "role": "general"}))
+        self.assertTrue(lib.is_content_lane({"name": "ContentStrategist", "role": "cmo"}))
+        self.assertTrue(lib.is_content_lane({"name": "Books-Drafter", "role": "general"}))
+        self.assertFalse(lib.is_content_lane({"name": "Ledger", "role": "general"}))
+        self.assertFalse(lib.is_content_lane({"name": "GLaD0S-Codex", "role": "ceo"}))
 
 
 class TestGrouping(unittest.TestCase):
