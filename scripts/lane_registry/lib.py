@@ -105,21 +105,31 @@ def lane_chains(member_ids: Iterable[str], agents: dict) -> dict[str, list[str]]
     return expand_chains(order_members(member_ids, agents))
 
 
-# --- Content-lane ordering (benchmark-driven, single-pass) -----------------
-# For single-pass content/draft lanes, failover prefers the content order
-# (gemini-flash -> grok-4.1-fast -> codex -> claude), NOT the agentic model-tier.
-# Everything else keeps the agentic model-tier order (unchanged).
+# --- Benchmark-driven capability ordering ----------------------------------
+# Every lane fails over PRIMARY-FIRST, then to the next MOST CAPABLE available
+# sister (benchmark capability for the lane's archetype), so a limited agent
+# always passes to the best alternative — UP or DOWN the model tier.
+#
+# Agentic capability (multi-step tool-use): codex-gpt-5.4 0.917 ≈ gemini-pro
+# 0.914 ≈ opus-4.8 0.900 >> grok 0.66.  Content capability (single-pass):
+# gemini-flash leads, grok-4.1-fast runner-up, then codex, then claude(sonnet).
+AGENTIC_FAMILY_RANK = {
+    "codex_local": 0,                              # gpt-5.4 — top agentic
+    "antigravity_local": 1, "gemini_local": 1,     # gemini-pro ≈ codex
+    "claude_local": 2,                             # opus
+    "hermes_local": 3, "grok_local": 3,            # grok — last (cliff)
+}
+CONTENT_FAMILY_RANK = {
+    "antigravity_local": 0, "gemini_local": 0,     # gemini-flash leads content
+    "hermes_local": 1, "grok_local": 1,            # grok-4.1-fast runner-up
+    "codex_local": 2,                              # capable generalist
+    "claude_local": 3,                             # claude (sonnet) last for content
+}
 CONTENT_LANE_BASES = {
     "Author", "Editor", "Quill", "Designer", "Scribe", "ContentStrategist",
     "Storyboard", "Frame", "BrandDesigner",
 }
 CONTENT_ROLES = {"cmo", "designer"}
-CONTENT_FAMILY_RANK = {
-    "antigravity_local": 0, "gemini_local": 0,   # gemini-flash leads content
-    "hermes_local": 1, "grok_local": 1,           # grok-4.1-fast runner-up
-    "codex_local": 2,                              # capable generalist
-    "claude_local": 3,                             # claude (sonnet) last for content
-}
 
 
 def is_content_lane(primary_agent: dict) -> bool:
@@ -136,20 +146,26 @@ def content_rank(adapter: str) -> int:
     return CONTENT_FAMILY_RANK.get((adapter or "").strip().lower(), UNKNOWN_RANK)
 
 
+def agentic_rank(adapter: str) -> int:
+    return AGENTIC_FAMILY_RANK.get((adapter or "").strip().lower(), UNKNOWN_RANK)
+
+
 def order_lane(primary_id: str, member_ids: Iterable[str], agents: dict) -> list[str]:
-    """Failover order for one lane. Content lanes: primary first, then the other
-    members by content preference. Agentic lanes: model-tier (unchanged)."""
+    """Failover order: the active primary first, then the other members by the
+    lane's benchmark CAPABILITY order (content vs agentic) — most capable next.
+    So a limited agent always passes to the best available sister, up or down tier."""
     members = list(dict.fromkeys(member_ids))
     primary = agents.get(primary_id, {})
-    if primary_id in members and is_content_lane(primary):
-        others = [m for m in members if m != primary_id]
-        others.sort(key=lambda a: (
-            content_rank(agents.get(a, {}).get("adapter", "")),
-            is_suffixed(agents.get(a, {}).get("name", a)),
-            agents.get(a, {}).get("name", a),
-        ))
+    rank = content_rank if is_content_lane(primary) else agentic_rank
+
+    def key(a):
+        info = agents.get(a, {})
+        return (rank(info.get("adapter", "")), is_suffixed(info.get("name", a)), info.get("name", a))
+
+    if primary_id in members:
+        others = sorted((m for m in members if m != primary_id), key=key)
         return [primary_id] + others
-    return order_members(members, agents)
+    return sorted(members, key=key)
 
 
 def lane_chains_for(primary_id: str, member_ids: Iterable[str], agents: dict) -> dict[str, list[str]]:

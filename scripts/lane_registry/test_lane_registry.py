@@ -83,17 +83,36 @@ class TestExpansion(unittest.TestCase):
 
 
 class TestContentOrdering(unittest.TestCase):
-    def test_agentic_lane_unchanged(self):
-        # CEO/engineer lane keeps model-tier order (codex primary -> gemini -> grok)
+    def test_agentic_codex_primary(self):
+        # codex CEO -> next most capable: gemini-pro, then opus, then grok
         agents = {
             "cx": A("codex_local", "GLaD0S-Codex", "ceo"),
             "cl": A("claude_local", "GLaD0S", "ceo"),
             "gm": A("antigravity_local", "GLaD0S-Gemini", "ceo"),
             "hm": A("hermes_local", "GLaD0S-Hermes", "ceo"),
         }
-        # tier order: claude, codex, gemini, grok -> matches the live agentic behavior
         self.assertEqual(lib.order_lane("cx", ["cx", "cl", "gm", "hm"], agents),
-                         ["cl", "cx", "gm", "hm"])
+                         ["cx", "gm", "cl", "hm"])
+
+    def test_agentic_non_codex_primary_fails_up(self):
+        # gemini-pro primary (GrowthSEO) must fail UP to codex (most capable), not down to grok
+        agents = {
+            "gm": A("antigravity_local", "GrowthSEO-Gemini", "engineer"),
+            "cx": A("codex_local", "GrowthSEO-Codex", "engineer"),
+            "hm": A("hermes_local", "GrowthSEO-Hermes", "engineer"),
+        }
+        self.assertEqual(lib.order_lane("gm", ["gm", "cx", "hm"], agents),
+                         ["gm", "cx", "hm"])  # gemini -> codex -> grok
+        self.assertEqual(lib.lane_chains_for("gm", ["gm", "cx", "hm"], agents),
+                         {"gm": ["cx", "hm"], "cx": ["hm"]})
+
+    def test_agentic_grok_primary_fails_up(self):
+        # promoted Capital engineer scenario: a grok primary fails UP to codex
+        agents = {
+            "hm": A("hermes_local", "Engineer", "engineer"),
+            "cx": A("codex_local", "Engineer-Codex", "engineer"),
+        }
+        self.assertEqual(lib.order_lane("hm", ["hm", "cx"], agents), ["hm", "cx"])
 
     def test_content_lane_gemini_before_codex(self):
         # Author (claude content worker): primary first, then gemini-flash, then codex
