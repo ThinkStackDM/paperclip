@@ -9,6 +9,8 @@ import {
   companySecrets,
   companySecretVersions,
   createDb,
+  documentRevisions,
+  documents,
   executionWorkspaces,
   heartbeatRuns,
   issueComments,
@@ -19,6 +21,7 @@ import {
   issues,
   projectWorkspaces,
   projects,
+  routineDocuments,
   routineRuns,
   routines,
   routineTriggers,
@@ -68,6 +71,9 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     await db.delete(routineRuns);
     await db.delete(routineTriggers);
     await db.delete(routines);
+    await db.delete(routineDocuments);
+    await db.delete(documents);
+    await db.delete(documentRevisions);
     await db.delete(companySecretVersions);
     await db.delete(companySecrets);
     await db.delete(heartbeatRuns);
