@@ -64,6 +64,26 @@ describe("paperclip skill utils", () => {
     await expect(fs.access(path.resolve("scripts/paperclip-upload-artifact.sh"))).rejects.toThrow();
   });
 
+  it("tightens the board-escalation gate to credential/account/spend/oauth in the installed Paperclip skill", async () => {
+    const skillBody = await fs.readFile(path.resolve("skills/paperclip/SKILL.md"), "utf8");
+    const normalized = skillBody.replace(/\s+/g, " ");
+
+    // The gate is anchored to rule #1 so agents read it in the same place.
+    expect(skillBody).toContain("Board-escalation gate");
+    expect(normalized).toContain("This sharpens rule #1");
+
+    // Only the four genuine human-only blocker classes carry the board label.
+    expect(skillBody).toMatch(/\*\*Credential \/ secret\*\*/);
+    expect(skillBody).toMatch(/\*\*Account \/ identity\*\*/);
+    expect(skillBody).toMatch(/\*\*Spend \/ money\*\*/);
+    expect(skillBody).toMatch(/\*\*OAuth \/ third-party authorization\*\*/);
+
+    // Agent-doable work must be explicitly excluded from the board path (rule #1 violations).
+    expect(normalized).toContain("agent-doable — do NOT escalate it to a human");
+    expect(normalized).toContain("these are NOT board gates");
+    expect(normalized).toContain("Escalate sideways or up to an _agent_ first");
+  });
+
   it("keeps the create-issue-interaction-ui guide as a maintainer-only skill", async () => {
     const skillPath = path.resolve(".agents/skills/create-issue-interaction-ui/SKILL.md");
     const skillBody = await fs.readFile(skillPath, "utf8");

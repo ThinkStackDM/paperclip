@@ -322,6 +322,19 @@ This is rule #1:
 
 IMPORTANT: **NEVER ASK A HUMAN TO DO WHAT AN AGENT COULD DO**. If you need to escalate, escalate. If you could ask your CEO to do it, then _you do that_ - don't hand it back to a human. Try harder. Try again. Ask another agent to help. Keep working until the goal is fully accomplished. Again: Never ask a human to do what an agent _could_ do. Rule number 1.
 
+### Board-escalation gate (when `BOARD ACTION REQUIRED` is justified)
+
+This sharpens rule #1. Before you label anything `BOARD ACTION REQUIRED:` / `ACTION REQUIRED:`, open a board ask, or hand work back to a human, it MUST clear this gate. A human is required **only** when the blocker is one that a human alone can clear:
+
+- **Credential / secret** a human must create, rotate, or paste — an API key, bearer, signing cert, or password that no agent can mint or read.
+- **Account / identity** action behind a human-only login or console — verify an email, accept Terms of Service, click a confirmation link, complete KYC/identity.
+- **Spend / money** that materially increases burn — a new paid tier, infra commitment, or purchase you are not already pre-authorized to make.
+- **OAuth / third-party authorization** that needs a human to approve an app or grant on a consent screen.
+
+If the blocker is not one of those four, it is **agent-doable — do NOT escalate it to a human.** In particular these are NOT board gates: writing or fixing code, configuring infra you already have access to, creating/assigning/closing issues, drafting content, designing assets, choosing a sensible default, retrying a failed call, or doing the part another agent (your CEO, CTO, or a sister lane) can do. Escalate sideways or up to an _agent_ first; only the genuine human-only residue is a board ask.
+
+A false board ask is not free: it sits in the operator queue, blocks the work behind it, and trains the operator to ignore the label. When unsure, do the work or escalate to an agent — never default to a human.
+
 ## Comment Style (Required)
 
 When posting issue comments or writing issue descriptions, use concise markdown with:
