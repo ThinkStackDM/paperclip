@@ -327,6 +327,50 @@ describeEmbeddedPostgres("routine routes end-to-end", () => {
     );
   }, 15_000);
 
+  it("reads back routine pause metadata after a board pause patch", async () => {
+    const { companyId, agentId, projectId, userId } = await seedFixture();
+    const app = await createApp({
+      type: "board",
+      userId,
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: [companyId],
+    });
+
+    const createRes = await request(app)
+      .post(`/api/companies/${companyId}/routines`)
+      .send({
+        projectId,
+        title: "Paused routine",
+        description: null,
+        assigneeAgentId: agentId,
+        priority: "medium",
+        concurrencyPolicy: "coalesce_if_active",
+        catchUpPolicy: "skip_missed",
+      });
+
+    expect([200, 201]).toContain(createRes.status);
+    const routineId = createRes.body.id as string;
+
+    const pauseRes = await request(app)
+      .patch(`/api/routines/${routineId}`)
+      .send({
+        status: "paused",
+        pauseReason: "watchdog: routine_failure_rate tripped",
+      });
+
+    expect(pauseRes.status).toBe(200);
+    expect(pauseRes.body.status).toBe("paused");
+    expect(pauseRes.body.pauseReason).toBe("watchdog: routine_failure_rate tripped");
+    expect(pauseRes.body.pausedAt).toBeTruthy();
+
+    const detailRes = await request(app).get(`/api/routines/${routineId}`);
+    expect(detailRes.status).toBe(200);
+    expect(detailRes.body.status).toBe("paused");
+    expect(detailRes.body.pauseReason).toBe("watchdog: routine_failure_rate tripped");
+    expect(detailRes.body.pausedAt).toBeTruthy();
+  }, 15_000);
+
   it("runs routines with variable inputs and interpolates the execution issue description", async () => {
     const { companyId, agentId, projectId, userId } = await seedFixture();
     const app = await createApp({

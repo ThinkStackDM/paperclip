@@ -272,6 +272,24 @@ function normalizeDraftRoutineStatus(status: string, assigneeAgentId: string | n
   return status;
 }
 
+function normalizeRoutinePauseState(input: {
+  nextStatus: string;
+  currentPauseReason?: string | null;
+  currentPausedAt?: Date | null;
+  requestedPauseReason?: string | null | undefined;
+  now?: Date;
+}) {
+  if (input.nextStatus !== "paused") {
+    return { pauseReason: null, pausedAt: null };
+  }
+  return {
+    pauseReason: input.requestedPauseReason === undefined
+      ? (input.currentPauseReason ?? null)
+      : input.requestedPauseReason,
+    pausedAt: input.currentPausedAt ?? input.now ?? new Date(),
+  };
+}
+
 function assertRoutineCanEnable(status: string, assigneeAgentId: string | null | undefined) {
   if (statusRequiresDefaultAgent(status) && !assigneeAgentId) {
     throw unprocessable("Default agent required");
@@ -412,6 +430,8 @@ function routineRevisionSnapshotRoutine(routine: RoutineRow): RoutineRevisionSna
     assigneeAgentId: routine.assigneeAgentId,
     priority: routine.priority as RoutineRevisionSnapshotV1["routine"]["priority"],
     status: routine.status as RoutineRevisionSnapshotV1["routine"]["status"],
+    pauseReason: routine.pauseReason ?? null,
+    pausedAt: routine.pausedAt ?? null,
     concurrencyPolicy: routine.concurrencyPolicy as RoutineRevisionSnapshotV1["routine"]["concurrencyPolicy"],
     catchUpPolicy: routine.catchUpPolicy as RoutineRevisionSnapshotV1["routine"]["catchUpPolicy"],
     variables: routine.variables ?? [],
@@ -1585,6 +1605,10 @@ export function routineService(
       );
       assertRoutineVariableDefinitions(variables);
       const status = normalizeDraftRoutineStatus(input.status, input.assigneeAgentId);
+      const pauseState = normalizeRoutinePauseState({
+        nextStatus: status,
+        requestedPauseReason: input.pauseReason,
+      });
       const createdRoutine = await db.transaction(async (tx) => {
         const txDb = tx as unknown as Db;
         const [created] = await txDb
@@ -1599,6 +1623,8 @@ export function routineService(
             assigneeAgentId: input.assigneeAgentId ?? null,
             priority: input.priority,
             status,
+            pauseReason: pauseState.pauseReason,
+            pausedAt: pauseState.pausedAt,
             concurrencyPolicy: input.concurrencyPolicy,
             catchUpPolicy: input.catchUpPolicy,
             variables,
@@ -1647,6 +1673,12 @@ export function routineService(
       const nextStatus = patch.assigneeAgentId === undefined
         ? requestedStatus
         : normalizeDraftRoutineStatus(requestedStatus, nextAssigneeAgentId);
+      const pauseState = normalizeRoutinePauseState({
+        nextStatus,
+        currentPauseReason: existing.pauseReason ?? null,
+        currentPausedAt: existing.pausedAt ?? null,
+        requestedPauseReason: patch.pauseReason,
+      });
       const nextVariables = syncRoutineVariablesWithTemplate(
         [nextTitle, nextDescription],
         patch.variables === undefined ? existing.variables : sanitizeRoutineVariableInputs(patch.variables),
@@ -1699,6 +1731,8 @@ export function routineService(
           assigneeAgentId: nextAssigneeAgentId,
           priority: patch.priority ?? locked.priority,
           status: nextStatus,
+          pauseReason: pauseState.pauseReason,
+          pausedAt: pauseState.pausedAt,
           concurrencyPolicy: patch.concurrencyPolicy ?? locked.concurrencyPolicy,
           catchUpPolicy: patch.catchUpPolicy ?? locked.catchUpPolicy,
           variables: nextVariables,
@@ -1748,6 +1782,8 @@ export function routineService(
             assigneeAgentId: candidate.assigneeAgentId,
             priority: candidate.priority,
             status: candidate.status,
+            pauseReason: candidate.pauseReason,
+            pausedAt: candidate.pausedAt,
             concurrencyPolicy: candidate.concurrencyPolicy,
             catchUpPolicy: candidate.catchUpPolicy,
             variables: candidate.variables,
@@ -2083,6 +2119,8 @@ export function routineService(
             assigneeAgentId: routineSnapshot.assigneeAgentId,
             priority: routineSnapshot.priority,
             status: routineSnapshot.status,
+            pauseReason: routineSnapshot.pauseReason,
+            pausedAt: routineSnapshot.pausedAt,
             concurrencyPolicy: routineSnapshot.concurrencyPolicy,
             catchUpPolicy: routineSnapshot.catchUpPolicy,
             variables: routineSnapshot.variables,

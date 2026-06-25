@@ -6,6 +6,8 @@ export const MONTHLY_RETENTION_PRESETS = [1, 3, 6] as const;
 export const DEFAULT_ISSUE_GRAPH_LIVENESS_AUTO_RECOVERY_LOOKBACK_HOURS = 24;
 export const MIN_ISSUE_GRAPH_LIVENESS_AUTO_RECOVERY_LOOKBACK_HOURS = 1;
 export const MAX_ISSUE_GRAPH_LIVENESS_AUTO_RECOVERY_LOOKBACK_HOURS = 24 * 30;
+export const DEFAULT_TRANSIENT_ADAPTER_OUTAGE_RECOVERY_WINDOW_MINUTES = 30;
+export const DEFAULT_TRANSIENT_ADAPTER_OUTAGE_RECOVERY_MIN_STRANDS = 3;
 
 export interface BackupRetentionPolicy {
   dailyDays: (typeof DAILY_RETENTION_PRESETS)[number];
@@ -33,6 +35,9 @@ export interface InstanceExperimentalSettings {
   enableIssuePlanDecompositions: boolean;
   enableCloudSync: boolean;
   autoRestartDevServerWhenIdle: boolean;
+  enableTransientAdapterOutageRecovery: boolean;
+  transientAdapterOutageRecoveryWindowMinutes: number;
+  transientAdapterOutageRecoveryMinStrands: number;
   enableIssueGraphLivenessAutoRecovery: boolean;
   issueGraphLivenessAutoRecoveryLookbackHours: number;
 }

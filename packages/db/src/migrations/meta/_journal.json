@@ -694,6 +694,20 @@
       "when": 1780534200000,
       "tag": "0098_project_icon",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1780835431453,
+      "tag": "0099_adapter_outage_incidents",
+      "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1781416200000,
+      "tag": "0100_routine_pause_metadata",
+      "breakpoints": true
     }
   ]
 }

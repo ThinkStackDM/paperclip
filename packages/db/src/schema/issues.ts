@@ -101,6 +101,14 @@ export const issues = pgTable(
           and ${table.executionRunId} is not null
           and ${table.status} in ('backlog', 'todo', 'in_progress', 'in_review', 'blocked')`,
       ),
+    activeAdapterOutageIncidentIdx: uniqueIndex("issues_active_adapter_outage_incident_uq")
+      .on(table.companyId, table.originKind, table.originId)
+      .where(
+        sql`${table.originKind} = 'adapter_outage_incident'
+          and ${table.originId} is not null
+          and ${table.hiddenAt} is null
+          and ${table.status} not in ('done', 'cancelled')`,
+      ),
     activeLivenessRecoveryIncidentIdx: uniqueIndex("issues_active_liveness_recovery_incident_uq")
       .on(table.companyId, table.originKind, table.originId)
       .where(

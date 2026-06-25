@@ -6,6 +6,8 @@ import {
   MONTHLY_RETENTION_PRESETS,
   DEFAULT_BACKUP_RETENTION,
   DEFAULT_ISSUE_GRAPH_LIVENESS_AUTO_RECOVERY_LOOKBACK_HOURS,
+  DEFAULT_TRANSIENT_ADAPTER_OUTAGE_RECOVERY_MIN_STRANDS,
+  DEFAULT_TRANSIENT_ADAPTER_OUTAGE_RECOVERY_WINDOW_MINUTES,
   MAX_ISSUE_GRAPH_LIVENESS_AUTO_RECOVERY_LOOKBACK_HOURS,
   MIN_ISSUE_GRAPH_LIVENESS_AUTO_RECOVERY_LOOKBACK_HOURS,
 } from "../types/instance.js";
@@ -42,6 +44,7 @@ export const instanceExperimentalSettingsSchema = z.object({
   enableIssuePlanDecompositions: z.boolean().default(false),
   enableCloudSync: z.boolean().default(false),
   autoRestartDevServerWhenIdle: z.boolean().default(false),
+  enableTransientAdapterOutageRecovery: z.boolean().default(true),
   enableIssueGraphLivenessAutoRecovery: z.boolean().default(false),
   issueGraphLivenessAutoRecoveryLookbackHours: z
     .number()
@@ -49,6 +52,18 @@ export const instanceExperimentalSettingsSchema = z.object({
     .min(MIN_ISSUE_GRAPH_LIVENESS_AUTO_RECOVERY_LOOKBACK_HOURS)
     .max(MAX_ISSUE_GRAPH_LIVENESS_AUTO_RECOVERY_LOOKBACK_HOURS)
     .default(DEFAULT_ISSUE_GRAPH_LIVENESS_AUTO_RECOVERY_LOOKBACK_HOURS),
+  transientAdapterOutageRecoveryWindowMinutes: z
+    .number()
+    .int()
+    .min(1)
+    .max(24 * 60)
+    .default(DEFAULT_TRANSIENT_ADAPTER_OUTAGE_RECOVERY_WINDOW_MINUTES),
+  transientAdapterOutageRecoveryMinStrands: z
+    .number()
+    .int()
+    .min(2)
+    .max(1000)
+    .default(DEFAULT_TRANSIENT_ADAPTER_OUTAGE_RECOVERY_MIN_STRANDS),
 }).strict();
 
 export const patchInstanceExperimentalSettingsSchema = instanceExperimentalSettingsSchema.partial();

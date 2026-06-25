@@ -435,6 +435,32 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     });
   });
 
+  it("persists routine pause metadata on pause and clears it on resume", async () => {
+    const { routine, svc } = await seedFixture();
+
+    const paused = await svc.update(
+      routine.id,
+      {
+        status: "paused",
+        pauseReason: "watchdog: routine_failure_rate tripped",
+      },
+      {},
+    );
+
+    expect(paused?.status).toBe("paused");
+    expect(paused?.pauseReason).toBe("watchdog: routine_failure_rate tripped");
+    expect(paused?.pausedAt).not.toBeNull();
+
+    const detailWhilePaused = await svc.getDetail(routine.id);
+    expect(detailWhilePaused?.pauseReason).toBe("watchdog: routine_failure_rate tripped");
+    expect(detailWhilePaused?.pausedAt).not.toBeNull();
+
+    const resumed = await svc.update(routine.id, { status: "active" }, {});
+    expect(resumed?.status).toBe("active");
+    expect(resumed?.pauseReason).toBeNull();
+    expect(resumed?.pausedAt).toBeNull();
+  });
+
   it("restores an older routine revision append-only and preserves run history", async () => {
     const { routine, svc } = await seedFixture();
     const revision1Id = routine.latestRevisionId!;

@@ -1,4 +1,5 @@
 export const RECOVERY_ORIGIN_KINDS = {
+  adapterOutageIncident: "adapter_outage_incident",
   issueGraphLivenessEscalation: "harness_liveness_escalation",
   issueProductivityReview: "issue_productivity_review",
   strandedIssueRecovery: "stranded_issue_recovery",
@@ -10,6 +11,7 @@ export const RECOVERY_REASON_KINDS = {
 } as const;
 
 export const RECOVERY_KEY_PREFIXES = {
+  adapterOutageIncident: "adapter_outage",
   issueGraphLivenessIncident: "harness_liveness",
   issueGraphLivenessLeaf: "harness_liveness_leaf",
 } as const;
@@ -20,6 +22,28 @@ export type RecoveryKeyPrefix = typeof RECOVERY_KEY_PREFIXES[keyof typeof RECOVE
 
 export function isStrandedIssueRecoveryOriginKind(originKind: string | null | undefined) {
   return originKind === RECOVERY_ORIGIN_KINDS.strandedIssueRecovery;
+}
+
+export function buildAdapterOutageIncidentKey(input: {
+  companyId: string;
+  adapterType: string;
+  windowStart: string;
+}) {
+  return [
+    RECOVERY_KEY_PREFIXES.adapterOutageIncident,
+    input.companyId,
+    input.adapterType,
+    input.windowStart,
+  ].join(":");
+}
+
+export function parseAdapterOutageIncidentKey(incidentKey: string | null | undefined) {
+  if (!incidentKey) return null;
+  const parts = incidentKey.split(":");
+  if (parts.length !== 4 || parts[0] !== RECOVERY_KEY_PREFIXES.adapterOutageIncident) return null;
+  const [, companyId, adapterType, windowStart] = parts;
+  if (!companyId || !adapterType || !windowStart) return null;
+  return { companyId, adapterType, windowStart };
 }
 
 export function buildIssueGraphLivenessIncidentKey(input: {

@@ -48,8 +48,10 @@ import {
 } from "./successful-run-handoff.js";
 import {
   RECOVERY_ORIGIN_KINDS,
+  buildAdapterOutageIncidentKey,
   buildIssueGraphLivenessLeafKey,
   isStrandedIssueRecoveryOriginKind,
+  parseAdapterOutageIncidentKey,
   parseIssueGraphLivenessIncidentKey,
 } from "./origins.js";
 import {
@@ -99,7 +101,7 @@ type RecoveryWakeup = (
 
 type LatestIssueRun = Pick<
   typeof heartbeatRuns.$inferSelect,
-  "id" | "agentId" | "status" | "error" | "errorCode" | "contextSnapshot" | "livenessState"
+  "id" | "agentId" | "status" | "error" | "errorCode" | "contextSnapshot" | "livenessState" | "finishedAt" | "createdAt"
 > | null;
 type SuccessfulLatestIssueRun = NonNullable<LatestIssueRun> & { status: "succeeded" };
 
@@ -182,6 +184,7 @@ const NON_RETRYABLE_CONTINUATION_ERROR_CODES = new Set<string>([
 const CONTINUATION_RECOVERY_TRANSIENT_MAX_ATTEMPTS = 3;
 const CONTINUATION_RECOVERY_DEFAULT_MAX_ATTEMPTS = 1;
 const CONTINUATION_RECOVERY_TRANSIENT_BASE_BACKOFF_MS = 60_000;
+const ADAPTER_OUTAGE_INCIDENT_ORIGIN_KIND = RECOVERY_ORIGIN_KINDS.adapterOutageIncident;
 
 type ContinuationRetryClassification = {
   kind: "transient_infra" | "non_retryable" | "default";
@@ -396,6 +399,17 @@ function isUniqueLivenessRecoveryConflict(error: unknown) {
     );
 }
 
+function isUniqueAdapterOutageIncidentConflict(error: unknown) {
+  const maybe = unwrapDatabaseConflictError(error);
+  if (!maybe) return false;
+  return maybe.code === "23505" &&
+    (
+      maybe.constraint === "issues_active_adapter_outage_incident_uq" ||
+      maybe.constraint_name === "issues_active_adapter_outage_incident_uq" ||
+      typeof maybe.message === "string" && maybe.message.includes("issues_active_adapter_outage_incident_uq")
+    );
+}
+
 function formatDependencyPath(finding: IssueLivenessFinding) {
   return finding.dependencyPath
     .map((entry) => entry.identifier ?? entry.issueId)
@@ -477,6 +491,8 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
         errorCode: heartbeatRuns.errorCode,
         contextSnapshot: heartbeatRuns.contextSnapshot,
         livenessState: heartbeatRuns.livenessState,
+        finishedAt: heartbeatRuns.finishedAt,
+        createdAt: heartbeatRuns.createdAt,
       })
       .from(heartbeatRuns)
       .where(
@@ -2286,6 +2302,285 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
       .then((rows) => rows.map((row) => row.blockerIssueId));
   }
 
+  function adapterOutageWindowStartKey(at: Date, windowMinutes: number) {
+    const windowMs = windowMinutes * 60 * 1000;
+    return String(Math.floor(at.getTime() / windowMs) * windowMs);
+  }
+
+  async function findOpenAdapterOutageIncident(companyId: string, incidentKey: string) {
+    return db
+      .select()
+      .from(issues)
+      .where(
+        and(
+          eq(issues.companyId, companyId),
+          eq(issues.originKind, ADAPTER_OUTAGE_INCIDENT_ORIGIN_KIND),
+          eq(issues.originId, incidentKey),
+          notInArray(issues.status, ["done", "cancelled"]),
+        ),
+      )
+      .orderBy(desc(issues.createdAt))
+      .limit(1)
+      .then((rows) => rows[0] ?? null);
+  }
+
+  async function recentTransientAdapterFailureIssueIds(input: {
+    companyId: string;
+    adapterType: string;
+    since: Date;
+  }) {
+    const rows = await db
+      .select({
+        issueId: sql<string | null>`${heartbeatRuns.contextSnapshot} ->> 'issueId'`,
+      })
+      .from(heartbeatRuns)
+      .innerJoin(agents, eq(agents.id, heartbeatRuns.agentId))
+      .where(
+        and(
+          eq(heartbeatRuns.companyId, input.companyId),
+          eq(agents.adapterType, input.adapterType),
+          inArray(heartbeatRuns.status, [...UNSUCCESSFUL_HEARTBEAT_RUN_TERMINAL_STATUSES]),
+          inArray(heartbeatRuns.errorCode, [...TRANSIENT_INFRA_CONTINUATION_ERROR_CODES]),
+          sql`coalesce(${heartbeatRuns.finishedAt}, ${heartbeatRuns.createdAt}) >= ${input.since.toISOString()}::timestamptz`,
+        ),
+      );
+    return [...new Set(rows.map((row) => row.issueId).filter((issueId): issueId is string => Boolean(issueId)))];
+  }
+
+  function buildAdapterOutageIncidentDescription(input: {
+    adapterType: string;
+    affectedIssueIds: string[];
+    sourceIssue: typeof issues.$inferSelect;
+    prefix: string;
+    windowMinutes: number;
+    minStrands: number;
+    latestRun: LatestIssueRun;
+  }) {
+    return [
+      "Paperclip detected a correlated transient adapter outage and bounded per-strand recovery.",
+      "",
+      `- Adapter: \`${input.adapterType}\``,
+      `- Classifier: transient error + sessioned adapter + ${input.affectedIssueIds.length} distinct stranded issues in ${input.windowMinutes}m (threshold ${input.minStrands})`,
+      `- Latest run: \`${input.latestRun?.id ?? "unknown"}\``,
+      `- Latest error code: \`${input.latestRun?.errorCode ?? "unknown"}\``,
+      `- First bounded source: ${issueUiLink(input.sourceIssue, input.prefix)}`,
+      "",
+      "Recovery behavior:",
+      "- Ephemeral `routine_execution` strands are cancelled; the next routine fire can recreate work.",
+      "- Durable strands are blocked in place with their original assignee preserved and this incident as the blocker.",
+      "- Isolated or non-adapter strands continue using the normal human escalation path.",
+      "",
+      "Next action: fix or wait out the adapter/session outage, then mark this incident `done` so durable blocked issues can resume.",
+    ].join("\n");
+  }
+
+  async function ensureAdapterOutageIncident(input: {
+    issue: typeof issues.$inferSelect;
+    latestRun: LatestIssueRun;
+    adapterType: string;
+    affectedIssueIds: string[];
+    windowMinutes: number;
+    minStrands: number;
+    incidentKey: string;
+  }) {
+    const existing = await findOpenAdapterOutageIncident(input.issue.companyId, input.incidentKey);
+    if (existing) return { incident: existing, created: false };
+
+    const ownerAgentId = await resolveStrandedIssueRecoveryOwnerAgentId(input.issue);
+    const prefix = await getCompanyIssuePrefix(input.issue.companyId);
+    try {
+      const incident = await issuesSvc.create(input.issue.companyId, {
+        title: `Adapter outage incident: ${input.adapterType}`,
+        description: buildAdapterOutageIncidentDescription({
+          adapterType: input.adapterType,
+          affectedIssueIds: input.affectedIssueIds,
+          sourceIssue: input.issue,
+          prefix,
+          windowMinutes: input.windowMinutes,
+          minStrands: input.minStrands,
+          latestRun: input.latestRun,
+        }),
+        status: "todo",
+        priority: "high",
+        projectId: input.issue.projectId,
+        goalId: input.issue.goalId,
+        assigneeAgentId: ownerAgentId,
+        assigneeAdapterOverrides: ownerAgentId ? recoveryAssigneeAdapterOverrides("status_only") : undefined,
+        originKind: ADAPTER_OUTAGE_INCIDENT_ORIGIN_KIND,
+        originId: input.incidentKey,
+        originRunId: input.latestRun?.id ?? null,
+        originFingerprint: [
+          ADAPTER_OUTAGE_INCIDENT_ORIGIN_KIND,
+          input.issue.companyId,
+          input.adapterType,
+          input.latestRun?.errorCode ?? "unknown",
+        ].join(":"),
+        billingCode: input.issue.billingCode,
+      });
+      if (ownerAgentId) {
+        await deps.enqueueWakeup(ownerAgentId, {
+          source: "assignment",
+          triggerDetail: "system",
+          reason: "issue_assigned",
+          idempotencyKey: `adapter_outage_incident:${incident.id}`,
+          payload: withRecoveryModelProfileHint({
+            issueId: incident.id,
+            boundedSourceIssueId: input.issue.id,
+            adapterType: input.adapterType,
+            incidentKey: input.incidentKey,
+          }, "status_only"),
+          requestedByActorType: "system",
+          requestedByActorId: null,
+          contextSnapshot: withRecoveryModelProfileHint({
+            issueId: incident.id,
+            taskId: incident.id,
+            wakeReason: "issue_assigned",
+            source: ADAPTER_OUTAGE_INCIDENT_ORIGIN_KIND,
+            boundedSourceIssueId: input.issue.id,
+            adapterType: input.adapterType,
+            incidentKey: input.incidentKey,
+          }, "status_only"),
+        });
+      }
+      return { incident, created: true };
+    } catch (error) {
+      if (!isUniqueAdapterOutageIncidentConflict(error)) throw error;
+      const raced = await findOpenAdapterOutageIncident(input.issue.companyId, input.incidentKey);
+      if (!raced) throw error;
+      return { incident: raced, created: false };
+    }
+  }
+
+  async function maybeBoundTransientAdapterOutageStrand(input: {
+    issue: typeof issues.$inferSelect;
+    previousStatus: "todo" | "in_progress";
+    latestRun: LatestIssueRun;
+  }) {
+    const experimentalSettings = await instanceSettings.getExperimental();
+    if (!experimentalSettings.enableTransientAdapterOutageRecovery) return null;
+
+    const errorCode = readNonEmptyString(input.latestRun?.errorCode);
+    if (!errorCode || !TRANSIENT_INFRA_CONTINUATION_ERROR_CODES.has(errorCode)) return null;
+
+    const runAgent = input.latestRun?.agentId ? await getAgent(input.latestRun.agentId) : null;
+    const adapterType = readNonEmptyString(runAgent?.adapterType) ?? null;
+    if (!adapterType || !SESSIONED_LOCAL_ADAPTERS.has(adapterType)) return null;
+
+    const windowMinutes = experimentalSettings.transientAdapterOutageRecoveryWindowMinutes;
+    const minStrands = experimentalSettings.transientAdapterOutageRecoveryMinStrands;
+    const latestAt = input.latestRun?.finishedAt ?? input.latestRun?.createdAt ?? new Date();
+    const since = new Date(latestAt.getTime() - windowMinutes * 60 * 1000);
+    const affectedIssueIds = await recentTransientAdapterFailureIssueIds({
+      companyId: input.issue.companyId,
+      adapterType,
+      since,
+    });
+    if (affectedIssueIds.length < minStrands) return null;
+
+    const incidentKey = buildAdapterOutageIncidentKey({
+      companyId: input.issue.companyId,
+      adapterType,
+      windowStart: adapterOutageWindowStartKey(latestAt, windowMinutes),
+    });
+    const { incident } = await ensureAdapterOutageIncident({
+      issue: input.issue,
+      latestRun: input.latestRun,
+      adapterType,
+      affectedIssueIds,
+      windowMinutes,
+      minStrands,
+      incidentKey,
+    });
+
+    const blockerIds = await existingUnresolvedBlockerIssueIds(input.issue.companyId, input.issue.id);
+    const nextBlockerIds = input.issue.originKind === "routine_execution"
+      ? blockerIds
+      : [...new Set([...blockerIds, incident.id])];
+    const updated = await issuesSvc.update(input.issue.id, {
+      status: input.issue.originKind === "routine_execution" ? "cancelled" : "blocked",
+      blockedByIssueIds: nextBlockerIds,
+      assigneeAgentId: input.issue.assigneeAgentId,
+      checkoutRunId: input.issue.originKind === "routine_execution" ? null : input.issue.checkoutRunId,
+      executionRunId: input.issue.originKind === "routine_execution" ? null : input.issue.executionRunId,
+    });
+    if (!updated) return null;
+
+    await logActivity(db, {
+      companyId: input.issue.companyId,
+      actorType: "system",
+      actorId: "system",
+      agentId: null,
+      runId: null,
+      action: input.issue.originKind === "routine_execution"
+        ? "issue.adapter_outage_routine_execution_cancelled"
+        : "issue.adapter_outage_strand_blocked",
+      entityType: "issue",
+      entityId: input.issue.id,
+      details: {
+        identifier: input.issue.identifier,
+        status: updated.status,
+        previousStatus: input.previousStatus,
+        source: "recovery.bound_transient_adapter_outage",
+        adapterType,
+        incidentIssueId: incident.id,
+        incidentIdentifier: incident.identifier,
+        incidentKey,
+        latestRunId: input.latestRun?.id ?? null,
+        latestRunErrorCode: errorCode,
+        affectedDistinctStrands: affectedIssueIds.length,
+        windowMinutes,
+        minStrands,
+      },
+    });
+
+    return updated;
+  }
+
+  async function retireRecoveredAdapterOutageIncidents() {
+    const openIncidents = await db
+      .select()
+      .from(issues)
+      .where(
+        and(
+          eq(issues.originKind, ADAPTER_OUTAGE_INCIDENT_ORIGIN_KIND),
+          notInArray(issues.status, ["done", "cancelled"]),
+        ),
+      );
+
+    for (const incident of openIncidents) {
+      const parsed = parseAdapterOutageIncidentKey(incident.originId);
+      if (!parsed) continue;
+      const successfulRun = await db
+        .select({ id: heartbeatRuns.id })
+        .from(heartbeatRuns)
+        .innerJoin(agents, eq(agents.id, heartbeatRuns.agentId))
+        .where(
+          and(
+            eq(heartbeatRuns.companyId, incident.companyId),
+            eq(agents.adapterType, parsed.adapterType),
+            eq(heartbeatRuns.status, "succeeded"),
+            sql`coalesce(${heartbeatRuns.finishedAt}, ${heartbeatRuns.createdAt}) > ${incident.createdAt.toISOString()}::timestamptz`,
+          ),
+        )
+        .orderBy(desc(heartbeatRuns.createdAt))
+        .limit(1)
+        .then((rows) => rows[0] ?? null);
+      if (!successfulRun) continue;
+      await issuesSvc.update(incident.id, { status: "done" });
+      await issuesSvc.addComment(
+        incident.id,
+        [
+          "Adapter outage incident auto-resolved.",
+          "",
+          `- Adapter: \`${parsed.adapterType}\``,
+          `- Recovery evidence: succeeded run \`${successfulRun.id}\` after the incident opened.`,
+        ].join("\n"),
+        {},
+        { authorType: "system" },
+      );
+    }
+  }
+
   async function escalateStrandedAssignedIssue(input: {
     issue: typeof issues.$inferSelect;
     previousStatus: "todo" | "in_progress";
@@ -2303,6 +2598,15 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
     }
 
     const recoveryCause = input.recoveryCause ?? "stranded_assigned_issue";
+    if (recoveryCause === "stranded_assigned_issue") {
+      const boundedOutageUpdate = await maybeBoundTransientAdapterOutageStrand({
+        issue: input.issue,
+        previousStatus: input.previousStatus,
+        latestRun: input.latestRun,
+      });
+      if (boundedOutageUpdate) return boundedOutageUpdate;
+    }
+
     const recoveryAction = await ensureSourceScopedStrandedRecoveryAction({
       issue: input.issue,
       previousStatus: input.previousStatus,
@@ -2455,6 +2759,8 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
   }
 
   async function reconcileStrandedAssignedIssues() {
+    await retireRecoveredAdapterOutageIncidents();
+
     const candidates = await db
       .select()
       .from(issues)

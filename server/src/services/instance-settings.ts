@@ -4,6 +4,8 @@ import {
   DEFAULT_FEEDBACK_DATA_SHARING_PREFERENCE,
   DEFAULT_BACKUP_RETENTION,
   DEFAULT_ISSUE_GRAPH_LIVENESS_AUTO_RECOVERY_LOOKBACK_HOURS,
+  DEFAULT_TRANSIENT_ADAPTER_OUTAGE_RECOVERY_MIN_STRANDS,
+  DEFAULT_TRANSIENT_ADAPTER_OUTAGE_RECOVERY_WINDOW_MINUTES,
   instanceGeneralSettingsSchema,
   type InstanceGeneralSettings,
   instanceExperimentalSettingsSchema,
@@ -47,10 +49,17 @@ export function normalizeExperimentalSettings(raw: unknown): InstanceExperimenta
       enableIssuePlanDecompositions: parsed.data.enableIssuePlanDecompositions ?? false,
       enableCloudSync: parsed.data.enableCloudSync ?? false,
       autoRestartDevServerWhenIdle: parsed.data.autoRestartDevServerWhenIdle ?? false,
+      enableTransientAdapterOutageRecovery: parsed.data.enableTransientAdapterOutageRecovery ?? true,
       enableIssueGraphLivenessAutoRecovery: parsed.data.enableIssueGraphLivenessAutoRecovery ?? false,
       issueGraphLivenessAutoRecoveryLookbackHours:
         parsed.data.issueGraphLivenessAutoRecoveryLookbackHours ??
         DEFAULT_ISSUE_GRAPH_LIVENESS_AUTO_RECOVERY_LOOKBACK_HOURS,
+      transientAdapterOutageRecoveryWindowMinutes:
+        parsed.data.transientAdapterOutageRecoveryWindowMinutes ??
+        DEFAULT_TRANSIENT_ADAPTER_OUTAGE_RECOVERY_WINDOW_MINUTES,
+      transientAdapterOutageRecoveryMinStrands:
+        parsed.data.transientAdapterOutageRecoveryMinStrands ??
+        DEFAULT_TRANSIENT_ADAPTER_OUTAGE_RECOVERY_MIN_STRANDS,
     };
   }
   return {
@@ -60,9 +69,14 @@ export function normalizeExperimentalSettings(raw: unknown): InstanceExperimenta
     enableIssuePlanDecompositions: false,
     enableCloudSync: false,
     autoRestartDevServerWhenIdle: false,
+    enableTransientAdapterOutageRecovery: true,
     enableIssueGraphLivenessAutoRecovery: false,
     issueGraphLivenessAutoRecoveryLookbackHours:
       DEFAULT_ISSUE_GRAPH_LIVENESS_AUTO_RECOVERY_LOOKBACK_HOURS,
+    transientAdapterOutageRecoveryWindowMinutes:
+      DEFAULT_TRANSIENT_ADAPTER_OUTAGE_RECOVERY_WINDOW_MINUTES,
+    transientAdapterOutageRecoveryMinStrands:
+      DEFAULT_TRANSIENT_ADAPTER_OUTAGE_RECOVERY_MIN_STRANDS,
   };
 }
 

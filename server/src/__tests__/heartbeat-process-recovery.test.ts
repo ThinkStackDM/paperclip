@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
-import { and, eq, or, inArray } from "drizzle-orm";
+import { and, asc, eq, or, inArray } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   activityLog,
@@ -680,6 +680,104 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     }
 
     return { companyId, agentId, runId, wakeupRequestId, issueId, rootIssueId };
+  }
+
+  async function seedTransientAdapterOutageStrandsFixture() {
+    const companyId = randomUUID();
+    const managerId = randomUUID();
+    const agentId = randomUUID();
+    const issuePrefix = `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`;
+    const now = new Date("2026-06-03T08:00:00.000Z");
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix,
+      requireBoardApprovalForNewAgents: false,
+    });
+    await db.insert(agents).values([
+      {
+        id: managerId,
+        companyId,
+        name: "CTO",
+        role: "cto",
+        status: "idle",
+        adapterType: "codex_local",
+        adapterConfig: {},
+        runtimeConfig: {},
+        permissions: {},
+      },
+      {
+        id: agentId,
+        companyId,
+        name: "ClaudeCoder",
+        role: "engineer",
+        status: "idle",
+        reportsTo: managerId,
+        adapterType: "claude_local",
+        adapterConfig: {},
+        runtimeConfig: {},
+        permissions: {},
+      },
+    ]);
+
+    const strands = [
+      { issueId: randomUUID(), runId: randomUUID(), wakeupRequestId: randomUUID(), originKind: "routine_execution" },
+      { issueId: randomUUID(), runId: randomUUID(), wakeupRequestId: randomUUID(), originKind: "routine_execution" },
+      { issueId: randomUUID(), runId: randomUUID(), wakeupRequestId: randomUUID(), originKind: "manual" },
+    ];
+    await db.insert(issues).values(strands.map((strand, index) => ({
+      id: strand.issueId,
+      companyId,
+      title: index < 2 ? `Routine execution ${index + 1}` : "Durable implementation work",
+      status: "todo",
+      priority: "medium",
+      assigneeAgentId: agentId,
+      issueNumber: index + 1,
+      identifier: `${issuePrefix}-${index + 1}`,
+      originKind: strand.originKind,
+      originId: strand.originKind === "routine_execution" ? `routine-${index + 1}` : null,
+      originFingerprint: strand.originKind === "routine_execution" ? `fire-${index + 1}` : "default",
+      createdAt: new Date(now.getTime() + index * 60_000),
+      updatedAt: new Date(now.getTime() + index * 60_000),
+    })));
+    await db.insert(agentWakeupRequests).values(strands.map((strand, index) => ({
+      id: strand.wakeupRequestId,
+      companyId,
+      agentId,
+      source: "assignment",
+      triggerDetail: "system",
+      reason: "issue_assignment_recovery",
+      payload: { issueId: strand.issueId },
+      status: "failed",
+      runId: strand.runId,
+      claimedAt: new Date(now.getTime() + index * 60_000),
+      finishedAt: new Date(now.getTime() + index * 60_000 + 15_000),
+      error: "Claude local session authentication failed",
+    })));
+    await db.insert(heartbeatRuns).values(strands.map((strand, index) => ({
+      id: strand.runId,
+      companyId,
+      agentId,
+      invocationSource: "assignment",
+      triggerDetail: "system",
+      status: "failed",
+      wakeupRequestId: strand.wakeupRequestId,
+      contextSnapshot: {
+        issueId: strand.issueId,
+        taskId: strand.issueId,
+        wakeReason: "issue_assignment_recovery",
+        retryReason: "assignment_recovery",
+        source: "issue.assignment_recovery",
+      },
+      startedAt: new Date(now.getTime() + index * 60_000),
+      finishedAt: new Date(now.getTime() + index * 60_000 + 15_000),
+      createdAt: new Date(now.getTime() + index * 60_000),
+      updatedAt: new Date(now.getTime() + index * 60_000 + 15_000),
+      errorCode: "adapter_failed",
+      error: "Claude local session authentication failed",
+    })));
+
+    return { companyId, managerId, agentId, strands };
   }
 
   async function seedAssignedTodoNoRunFixture(input?: {
@@ -2749,6 +2847,56 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     expect(comments[0]?.body).toContain("retried continuation");
     expect(comments[0]?.body).toContain("3× attempts");
     expect(comments[0]?.body).toContain("Latest cause: `adapter_failed`");
+  });
+
+  it("bounds correlated transient adapter_failed strands with one outage incident", async () => {
+    const { companyId, managerId, agentId, strands } = await seedTransientAdapterOutageStrandsFixture();
+    const heartbeat = heartbeatService(db);
+
+    const result = await heartbeat.reconcileStrandedAssignedIssues();
+    expect(result.issueIds).toEqual(strands.map((strand) => strand.issueId));
+
+    const sourceIssues = await db
+      .select()
+      .from(issues)
+      .where(inArray(issues.id, strands.map((strand) => strand.issueId)))
+      .orderBy(asc(issues.issueNumber));
+    expect(sourceIssues.map((issue) => issue.status)).toEqual(["cancelled", "cancelled", "blocked"]);
+    expect(sourceIssues.map((issue) => issue.assigneeAgentId)).toEqual([agentId, agentId, agentId]);
+
+    const incidents = await db
+      .select()
+      .from(issues)
+      .where(and(eq(issues.companyId, companyId), eq(issues.originKind, "adapter_outage_incident")));
+    expect(incidents).toHaveLength(1);
+    expect(incidents[0]).toMatchObject({
+      assigneeAgentId: managerId,
+      priority: "high",
+    });
+    expect(incidents[0]?.description).toContain("3 distinct stranded issues in 30m");
+
+    const durableBlockers = await sourceBlockerIssueIds(companyId, strands[2]!.issueId);
+    expect(durableBlockers).toEqual([incidents[0]!.id]);
+
+    const recoveryActions = await db.select().from(issueRecoveryActions);
+    expect(recoveryActions).toHaveLength(0);
+    const strandedRecoveryIssues = await db
+      .select()
+      .from(issues)
+      .where(and(eq(issues.companyId, companyId), eq(issues.originKind, "stranded_issue_recovery")));
+    expect(strandedRecoveryIssues).toHaveLength(0);
+
+    const managerWakeups = await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.agentId, managerId));
+    expect(managerWakeups).toHaveLength(1);
+    expect(managerWakeups[0]).toMatchObject({
+      reason: "issue_assigned",
+      source: "assignment",
+    });
+    expect(managerWakeups[0]?.payload as Record<string, unknown>).toMatchObject({
+      issueId: incidents[0]!.id,
+      boundedSourceIssueId: strands[0]!.issueId,
+      adapterType: "claude_local",
+    });
   });
 
   it("does not count mixed-cause continuation failures toward the transient cap", async () => {
