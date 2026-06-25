@@ -564,6 +564,10 @@ describe.sequential("agent skill routes", () => {
 
   it("accepts Hermes bare preload skills during sync", async () => {
     mockAgentService.getById.mockResolvedValue(makeAgent("hermes_local"));
+    mockAgentService.update.mockImplementationOnce(async (_id: string, patch: Record<string, unknown>) => ({
+      ...makeAgent("hermes_local"),
+      adapterConfig: patch.adapterConfig ?? {},
+    }));
     mockAdapter.listSkills.mockResolvedValue({
       adapterType: "hermes_local",
       supported: true,
@@ -638,6 +642,10 @@ describe.sequential("agent skill routes", () => {
 
   it("accepts Hermes bare preload skills in raw paperclipSkillSync patches", async () => {
     mockAgentService.getById.mockResolvedValue(makeAgent("hermes_local"));
+    mockAgentService.update.mockImplementationOnce(async (_id: string, patch: Record<string, unknown>) => ({
+      ...makeAgent("hermes_local"),
+      adapterConfig: patch.adapterConfig ?? {},
+    }));
     mockAdapter.listSkills.mockResolvedValue({
       adapterType: "hermes_local",
       supported: true,
