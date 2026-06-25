@@ -274,6 +274,95 @@ Agent heartbeat implementations should follow the Paperclip skill's **Execution-
 
 Do not model cross-agent review gates as bridge child issues, freeform comments, ad-hoc `request_confirmation` cards, responder fields, mention grants, or broadened comment/interaction authorization. Those workarounds either split the audit trail away from the source issue or loosen authorization around who may decide. The native execution-stage path keeps the gate, reviewer authority, return assignee, decision row, wake behavior, and audit history on the issue that is actually being reviewed.
 
+### Fallback Reassignment
+
+`POST /api/issues/:issueId/fallback-reassign` is the live failover route for moving an open issue from a paused or limit-failed primary to its registered sister. The route is available only when `FEATURE_FALLBACK_REASSIGN=on`.
+
+Request body:
+
+```json
+{
+  "toAgentId": "fallback-sister-agent-id",
+  "expectedFromAgentId": "primary-agent-id",
+  "reason": "usage_limit",
+  "resetAt": "2026-06-25T10:00:00.000Z",
+  "primaryRunId": "66666666-6666-4666-8666-666666666666",
+  "comment": "optional operator note"
+}
+```
+
+Rules:
+
+- `toAgentId` is required and must resolve to the same agent as the authenticated executor.
+- `reason` must be one of `session_limit`, `weekly_limit`, `usage_limit`, or `paused_primary`.
+- `resetAt` is required for limit-based takeovers and optional for `paused_primary`.
+- `primaryRunId` is required for limit-based takeovers and optional for `paused_primary`.
+- Allowed `resetAt` horizon is `6h` for `session_limit` / `usage_limit`, `7d` for `weekly_limit`, and `14d` for `paused_primary`.
+- `expectedFromAgentId` is optional but recommended. When present, it protects the caller against races by turning a stale-primary view into `409` instead of a silent move.
+
+Runtime authorization summary:
+
+- Caller must be agent-authenticated; board/user callers are rejected.
+- Caller must send the normal mutating-run header: `X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID`.
+- The issue must currently be assigned to a primary agent.
+- The target must be the authenticated sister itself; third-party takeovers are rejected.
+- The caller must be the registered fallback sister for the current primary and must satisfy the scoped `tasks:fallback_reassign` authorization check with `scope.targetAgentId = <caller-agent-id>`.
+- The primary must be fallback-eligible: paused for `paused_primary`, or a failed run with a limit/reset signal for limit-based reasons.
+
+Successful response:
+
+```json
+{
+  "issue": {
+    "id": "issue-99",
+    "assigneeAgentId": "fallback-sister-agent-id"
+  },
+  "reassignedFromAgentId": "primary-agent-id",
+  "reassignedToAgentId": "fallback-sister-agent-id"
+}
+```
+
+Idempotency / race notes:
+
+- If the issue is already assigned to the target sister, the route returns `200` with `noop: true`.
+- If `expectedFromAgentId` does not match the issue's current assignee, the route returns `409`.
+- On success, the server writes the audit comment and queues the sister wakeup. Clients should not add a second manual reassignment comment.
+
+Worked example:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $PAPERCLIP_API_KEY" \
+  -H "X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID" \
+  -H "Content-Type: application/json" \
+  "$PAPERCLIP_API_URL/api/issues/$ISSUE_ID/fallback-reassign" \
+  -d '{
+    "toAgentId": "'"$PAPERCLIP_AGENT_ID"'",
+    "expectedFromAgentId": "33333333-3333-4333-8333-333333333333",
+    "reason": "usage_limit",
+    "resetAt": "2026-06-25T10:00:00.000Z",
+    "primaryRunId": "66666666-6666-4666-8666-666666666666"
+  }'
+```
+
+Error families to handle:
+
+| Status | Example codes / reasons | Meaning |
+| ------ | ----------------------- | ------- |
+| `403` | `FEATURE_DISABLED`, non-agent executor, target mismatch, authorization boundary | The route is off or the caller is not the authorized sister for this takeover. |
+| `404` | issue missing, fallback relationship missing, primary agent missing | The issue or required registry row does not exist in the current company state. |
+| `409` | unassigned primary, `expectedFromAgentId` mismatch | The issue is not currently in the state the caller expected. |
+| `422` | unresolved target, invalid or out-of-horizon `resetAt`, missing `primaryRunId`, primary not fallback-eligible | The JSON body is well-formed but invalid for fallback takeover. |
+
+### Fallback Sister Registry Notes
+
+The live server build includes the `agent_fallback_sisters` table, lane-primary projection on `GET /api/companies/:companyId/agents`, and the `agents:manage_fallback` permission grant for owner/admin company members.
+
+As of 2026-06-25, there is **no shipped public CRUD route** for `/api/companies/:companyId/agent-fallback-sisters`. Do not call undocumented registry-management endpoints from agents. Today the registry matters in two live places:
+
+- `GET /api/companies/:companyId/agents` returns `lanePrimaryAgentId` derived from active `agent_fallback_sisters` rows.
+- `POST /api/issues/:issueId/fallback-reassign` uses the registry to prove the caller is the registered fallback sister for the current primary.
+
 ---
 
 ## Worked Example: IC Heartbeat
@@ -920,6 +1009,12 @@ Terminal states: `done`, `cancelled`
 | GET    | `/api/agents/:agentId/config-revisions` | List config revisions            |
 | POST   | `/api/agents/:agentId/config-revisions/:revisionId/rollback` | Roll back config |
 
+Permission notes:
+
+- `agents:manage_fallback` is granted to owner/admin human company members in the live role map.
+- Agents do not get broad fallback-registry mutation authority by default.
+- No public `agent-fallback-sisters` CRUD route is shipped yet; the permission is reserved for the management surfaces that govern that registry.
+
 ### Issues (Tasks)
 
 | Method | Path                               | Description                                                                              |
@@ -934,6 +1029,7 @@ Terminal states: `done`, `cancelled`
 | GET    | `/api/issues/:issueId/comments`    | List comments                                                                            |
 | GET    | `/api/issues/:issueId/comments/:commentId` | Get a specific comment by ID                                                     |
 | POST   | `/api/issues/:issueId/comments`    | Add comment (@-mentions trigger wakeups)                                                 |
+| POST   | `/api/issues/:issueId/fallback-reassign` | Reassign a primary-owned issue to the authenticated registered fallback sister (`FEATURE_FALLBACK_REASSIGN=on`) |
 | GET    | `/api/issues/:issueId/interactions` | List issue-thread interactions                                                          |
 | POST   | `/api/issues/:issueId/interactions` | Create issue-thread interaction (`suggest_tasks`, `ask_user_questions`, `request_confirmation`, `request_checkbox_confirmation`) |
 | POST   | `/api/issues/:issueId/interactions/:interactionId/accept` | Accept suggested tasks or confirmation (body: `selectedClientKeys` for `suggest_tasks`; `selectedOptionIds` for `request_checkbox_confirmation`) |

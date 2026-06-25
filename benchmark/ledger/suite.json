@@ -1,0 +1,214 @@
+{
+  "role": "ledger",
+  "description": "FinOps/analytics judgment for ThinkStack/Paperclip's finance role: token-as-cost accounting under subscription billing (cache token fields MUST be counted or you undercount), the quality-per-1k-output-token efficiency metric, per-agent model/token strategy, P&L and contribution margin, breakeven, burn/runway, fixed-vs-variable cost classification, and catching a cost anomaly with the right root cause. Mostly deterministic math, so most tasks have exact numeric anchors; the strict blind judge grades reasoning and whether the trap (undercounting, picking high-quality-but-token-hungry, blaming workload instead of a model switch, etc.) was avoided. Every task is failable: the naive/trap answer scores clearly below the correct one.",
+  "tasks": [
+    {
+      "id": "ledger-cache-token-undercount",
+      "title": "Catch the cache-token undercount in the agent scorecard",
+      "prompt": "Paperclip runs on subscription billing, so cost_cents is always 0 and TOKENS are the only cost proxy. A single agent run reports this usage_json:\n\n  {\"inputTokens\": 8000, \"outputTokens\": 2000, \"cacheReadInputTokens\": 14000, \"cacheCreationInputTokens\": 6000}\n\nThe current scorecard computes total cost-tokens as inputTokens + outputTokens only, ignoring the two cache fields. Cache tokens are real billed prompt tokens.\n\nCompute the CORRECT total cost-tokens (counting all four fields) and how many tokens the current scorecard UNDERCOUNTS for this run. Return ONLY JSON: {\"correctTotalTokens\": number, \"undercountTokens\": number, \"why\": string}. `why` <=35 words, must say why cache fields belong in the cost total.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "correctTotalTokens", "value": 30000, "weight": 4 },
+          { "type": "json_path_equals", "path": "undercountTokens", "value": 20000, "weight": 4 },
+          { "type": "max_words", "value": 40, "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "correctness", "weight": 2, "guidance": "Total = 8000+2000+14000+6000 = 30000; undercount = 14000+6000 = 20000. The why must state that cacheReadInputTokens and cacheCreationInputTokens are real billed prompt tokens that must be in the cost total under token-as-cost-proxy accounting. Penalize any answer that totals 10000 (the naive input+output), that counts only one cache field, or whose why implies cache tokens are free/negligible." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ledger-q-per-1k-out",
+      "title": "Pick the more cost-efficient agent on quality-per-1k-output-tokens",
+      "prompt": "Paperclip's primary value metric is q/1k-out = quality per 1,000 OUTPUT tokens (output tokens are the marginal generation cost; total tokens are ~95% fixed CLI overhead and are NOT the metric). Two agents did the SAME task:\n\n- AgentA: quality 0.90, output 1500 tokens.\n- AgentB: quality 0.84, output 600 tokens.\n\nCompute q/1k-out for each and pick the more cost-efficient agent. Return ONLY JSON: {\"qPer1kA\": number, \"qPer1kB\": number, \"pick\": \"A\"|\"B\", \"why\": string}. `why` <=30 words.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "qPer1kA", "value": 0.6, "weight": 3 },
+          { "type": "json_path_equals", "path": "qPer1kB", "value": 1.4, "weight": 3 },
+          { "type": "json_path_equals", "path": "pick", "value": "B", "weight": 4 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "reasoning", "weight": 2, "guidance": "q/1k-out A = 0.90/1.5 = 0.60; B = 0.84/0.6 = 1.40; pick B — it delivers far more quality per output token despite lower raw quality. Heavily penalize picking A by reading raw quality (0.90>0.84) instead of efficiency — that is the exact trap. Penalize dividing by total tokens or by input tokens instead of output." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ledger-breakeven-runs",
+      "title": "Compute the breakeven run count for a product line",
+      "prompt": "A ThinkStack OpCo product line carries a FIXED $200/month tooling cost. Each completed run generates $1.10 in revenue and incurs $0.40 in marginal (variable) cost. Compute how many runs per month are needed to BREAK EVEN (cover the fixed cost) — runs must be a whole number, and a partial run does not count, so round UP to the next whole run. Return ONLY JSON: {\"contributionPerRun\": number, \"breakevenRuns\": number, \"why\": string}. `why` <=30 words.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "contributionPerRun", "value": 0.7, "weight": 3 },
+          { "type": "json_path_equals", "path": "breakevenRuns", "value": 286, "weight": 5 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "correctness", "weight": 2, "guidance": "Contribution per run = 1.10-0.40 = $0.70; breakeven = 200/0.70 = 285.7, round UP to 286 runs. Penalize using revenue $1.10 (ignoring variable cost) as the denominator (would give ~182), and penalize truncating/rounding-down to 285 — you are not broken even at 285." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ledger-burn-runway",
+      "title": "Compute runway and make a spend call",
+      "prompt": "A ThinkStack OpCo has $4,800 cash and a net burn of $1,600/month (all-in, already net of revenue). A teammate wants to add a new paid API costing $900/month that has no revenue path for at least 4 months. Compute current runway in months, then decide whether to approve the new spend. Return ONLY JSON: {\"runwayMonths\": number, \"decision\": \"approve\"|\"reject\", \"why\": string}. `why` <=35 words and must reference the runway impact.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "runwayMonths", "value": 3, "weight": 4 },
+          { "type": "json_path_equals", "path": "decision", "value": "reject", "weight": 3 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "judgment", "weight": 3, "guidance": "Runway = 4800/1600 = 3.0 months. Reject: adding $900/mo (burn -> $2,500/mo) cuts runway to ~1.9 months for a spend with no revenue for 4+ months — it would run out before any payoff. Penalize approving, penalize a runway other than 3, and penalize a why that ignores that the new cost outlives the runway." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ledger-cost-anomaly-rootcause",
+      "title": "Spot the cost-spiked agent and name the real root cause",
+      "prompt": "You monitor per-agent daily OUTPUT-token spend (the cost proxy). For one agent the last six days are: 1200, 1150, 1300, 1250, 1180, then 9100. Workload (number of runs/day) was FLAT across all six days. The only change logged on day six: this agent's lane was switched from codex (terse) to a verbose claude config; its q/1k-out fell sharply.\n\nIdentify the anomaly and its root cause. Return ONLY JSON: {\"anomalyDay\": number, \"approxBaselineOutput\": number, \"spikeMultiple\": number, \"rootCause\": string}. `rootCause` <=30 words. spikeMultiple = spike / baseline, one decimal ok.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_path_equals", "path": "anomalyDay", "value": 6, "weight": 3 },
+          { "type": "json_valid", "weight": 2 },
+          { "type": "contains_any", "values": ["lane", "model", "switch", "claude", "codex", "verbose", "config"], "weight": 3 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "rootcause", "weight": 3, "guidance": "Identifies day 6 as the anomaly (~7.5x the ~1216 baseline) and attributes the cost spike to the lane/model SWITCH to a verbose config, NOT to more workload (the prompt says workload was flat). Strong answers note the worse q/1k-out means the spend bought less quality. Penalize blaming higher traffic/workload, blaming a one-off, or proposing 'just monitor' without naming the model switch." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ledger-fixed-vs-variable",
+      "title": "Classify and split fixed vs variable monthly cost",
+      "prompt": "Classify this OpCo's monthly costs as FIXED (does not scale with run volume) or VARIABLE (scales with runs), then total each bucket. Costs: (a) $200 SaaS tooling subscription (flat), (b) $50 fixed model-provider seat (flat regardless of usage), (c) marginal token cost of $0.0009 per run x 3000 runs this month. Return ONLY JSON: {\"fixedTotal\": number, \"variableTotal\": number, \"dominantBucket\": \"fixed\"|\"variable\", \"why\": string}. variableTotal may be rounded to 2 decimals. `why` <=30 words.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "fixedTotal", "value": 250, "weight": 4 },
+          { "type": "json_path_equals", "path": "dominantBucket", "value": "fixed", "weight": 3 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "correctness", "weight": 2, "guidance": "Fixed = 200+50 = $250 (SaaS + seat). Variable = 0.0009*3000 = $2.70 (token cost). Dominant bucket is fixed (~99% of the $252.70 total). Penalize miscategorizing the seat as variable (it is flat regardless of usage), miscomputing 0.0009*3000, or calling variable dominant. The why should note nearly all cost is fixed, so cost-cutting must target the subscriptions, not per-run tokens." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ledger-pnl-line",
+      "title": "Compute the P&L for a subscription product line",
+      "prompt": "A subscription product line this month: 120 paying subscribers at $19/subscriber, fully-loaded cost-to-serve of $7/subscriber, plus a fixed $400/month overhead for the line. Compute contribution margin per subscriber, total monthly profit (revenue minus all costs), and a continue/fix call. Return ONLY JSON: {\"contributionPerSub\": number, \"monthlyProfit\": number, \"decision\": \"continue\"|\"fix_or_kill\", \"why\": string}. `why` <=30 words.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "contributionPerSub", "value": 12, "weight": 3 },
+          { "type": "json_path_equals", "path": "monthlyProfit", "value": 1040, "weight": 4 },
+          { "type": "json_path_equals", "path": "decision", "value": "continue", "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "reasoning", "weight": 2, "guidance": "Contribution/sub = 19-7 = $12; profit = 120*12 - 400 = $1040 (profitable). Decision = continue, ideally noting headroom to scale. Penalize forgetting the $400 fixed overhead (would give $1440), subtracting it per-subscriber, or deciding fix_or_kill on a profitable line." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ledger-quality-per-token-floor",
+      "title": "Pick the model on q/1k-out subject to a quality floor",
+      "prompt": "Choose which model to tier a role onto. The rule: among models that meet the quality FLOOR of 0.90, pick the one with the best q/1k-out (quality per 1,000 output tokens). Candidates (same task):\n- A: quality 0.97, output 2400 tokens.\n- B: quality 0.93, output 700 tokens.\n- C: quality 0.88, output 500 tokens.\n\nReturn ONLY JSON: {\"pick\": \"A\"|\"B\"|\"C\", \"qPer1kPick\": number, \"why\": string}. `why` <=35 words. qPer1kPick may be rounded to 2-3 decimals.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "pick", "value": "B", "weight": 5 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "reasoning", "weight": 3, "guidance": "C has the best raw q/1k-out (0.88/0.5 = 1.76) but is DISQUALIFIED by the 0.90 floor — that is the trap. Among the eligible (A=0.97/2.4=0.404, B=0.93/0.7=1.329), B wins. Pick must be B with qPer1kPick ~1.33. Heavily penalize picking C (ignored the floor) and penalize picking A (best quality but worst efficiency among the eligible)." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ledger-blended-token-cost",
+      "title": "Compute output-weighted blended token cost per run across two lanes",
+      "prompt": "Compute the blended cost-token weight per run across a fleet using two lanes this month. Because output tokens are the marginal cost, weight each run as inputTokens*1 + outputTokens*5.\n\n- claude lane: 400 runs, averaging 25000 input + 450 output tokens per run.\n- codex lane: 600 runs, averaging 10000 input + 150 output tokens per run.\n\nReturn ONLY JSON: {\"claudeWeightPerRun\": number, \"codexWeightPerRun\": number, \"blendedWeightPerRun\": number, \"why\": string}. Compute the run-count-weighted (not simple) average for blended. `why` <=30 words.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "claudeWeightPerRun", "value": 27250, "weight": 3 },
+          { "type": "json_path_equals", "path": "codexWeightPerRun", "value": 10750, "weight": 3 },
+          { "type": "json_path_equals", "path": "blendedWeightPerRun", "value": 17350, "weight": 4 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "correctness", "weight": 2, "guidance": "claude weight = 25000 + 450*5 = 27250; codex = 10000 + 150*5 = 10750; blended = (400*27250 + 600*10750)/1000 = 17350. Penalize a simple (unweighted) average of the two lane weights (= 19000, the trap of ignoring run counts), forgetting the 5x output multiplier, or arithmetic errors." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ledger-fixed-cost-allocation",
+      "title": "Allocate a shared fixed cost by usage",
+      "prompt": "Two products share one $300/month fixed model-provider seat. Allocate that $300 across them in proportion to their run volume this month (a usage-based allocation). Product X did 2000 runs; Product Y did 6000 runs. Return ONLY JSON: {\"allocX\": number, \"allocY\": number, \"why\": string}. The two allocations must sum to exactly 300. `why` <=30 words.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "allocX", "value": 75, "weight": 4 },
+          { "type": "json_path_equals", "path": "allocY", "value": 225, "weight": 4 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "correctness", "weight": 2, "guidance": "Total runs = 8000; X share = 2000/8000 = 25% -> $75; Y = 6000/8000 = 75% -> $225; sums to $300. Penalize a 50/50 split (the trap of ignoring usage), allocations that don't sum to 300, or swapping X and Y." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ledger-cost-line-classify",
+      "title": "Classify cost behavior including a semi-variable trap line",
+      "prompt": "Classify each cost line by its COST BEHAVIOR with respect to run/usage volume, using exactly one of: \"fixed\" (total does not change as run volume changes), \"variable\" (total scales roughly proportionally with each run), or \"mixed\" (a fixed component PLUS a usage-driven component). Classify by ECONOMIC behavior, not by how the invoice is labeled or worded.\n\n- s1: a model-provider plan billed at a flat $300/month that includes the first 50,000 runs, then charges $0.002 for every run beyond 50,000. The OpCo regularly exceeds 50,000 runs/month.\n- s2: a $1,200 annual tooling license, prepaid once and amortized at $100/month; the OpCo is locked in for the year and the amount owed does not change no matter how many runs happen. (Do not be fooled by it being charged 'per month'.)\n- s3: pure per-run output-token generation cost with no fixed component, billed only for runs actually executed.\n\nReturn ONLY JSON: {\"s1\": \"fixed\"|\"variable\"|\"mixed\", \"s2\": \"fixed\"|\"variable\"|\"mixed\", \"s3\": \"fixed\"|\"variable\"|\"mixed\", \"why_s1\": string}. No other prose. `why_s1` <=25 words.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "s1", "value": "mixed", "weight": 4 },
+          { "type": "json_path_equals", "path": "s2", "value": "fixed", "weight": 3 },
+          { "type": "json_path_equals", "path": "s3", "value": "variable", "weight": 3 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "correctness", "weight": 3, "guidance": "s1 is MIXED (semi-variable): a fixed $300 base PLUS a per-run overage above 50k that the OpCo regularly incurs — calling it purely 'fixed' (ignoring the overage it actually pays) or purely 'variable' (ignoring the flat base) is the trap. s2 is FIXED: a locked-in annual license whose total never moves with run volume — calling it 'variable' or 'mixed' because it is charged monthly/'per' is the trap. s3 is VARIABLE: pure per-run cost, no fixed component. why_s1 must name BOTH the fixed base and the per-run overage. Heavily penalize s1=fixed or s1=variable, penalize s2 anything but fixed, and penalize a why_s1 that mentions only one component." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ledger-spend-spike-disposition",
+      "title": "Decide what to do about a quality-negative spend spike",
+      "prompt": "An agent's monthly output-token spend tripled month-over-month. Investigation shows: run volume was unchanged, the agent was moved to a more expensive verbose lane, and its q/1k-out (quality per 1,000 output tokens) DROPPED — so the extra spend bought LESS quality per token, not more. The board has not authorized higher spend for this role.\n\nDecide the disposition. Return ONLY JSON: {\"action\": \"revert_lane\"|\"approve_higher_spend\"|\"ignore\", \"reason\": string, \"nextStep\": string}. `reason` <=35 words and must cite the q/1k-out drop. `nextStep` should make the change durable, not just a one-off.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "action", "value": "revert_lane", "weight": 5 },
+          { "type": "contains_any", "values": ["q/1k", "q/1k-out", "per token", "per-token", "efficiency", "quality per"], "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "judgment", "weight": 3, "guidance": "Revert the lane: spend tripled while q/1k-out fell, so the costlier lane is strictly worse on the value metric for unchanged workload, and the spend was unauthorized. nextStep makes it durable (e.g. pin the cheaper lane / add a q/1k-out + spend regression alert). Penalize approving higher spend (the value metric got worse), penalize 'ignore', and penalize a reason that fixates on raw quality instead of quality-per-token." }
+          ]
+        }
+      }
+    }
+  ]
+}

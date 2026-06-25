@@ -1,0 +1,101 @@
+{
+  "_comment": "#17 config-variant matrix. Per role: a representative PRODUCTION agent's current AGENTS.md (the 'current' variant), a minimal stub, and the company runtime skills dir (the 'all skills' variant). onboarding is cross-role (run via bench.py base + skillbench), paperclip is the agentic lane \u2014 neither is in this matrix.",
+  "roles": {
+    "ceo": {
+      "representativeAgent": "GLaD0S (TSMC)",
+      "currentAgentFile": "/Users/glad0s/.paperclip/instances/default/companies/e6361895-a6a4-438d-bb76-b17a0ad026cb/agents/391be1fe-4dac-4944-b6c7-16576ca51579/instructions/AGENTS.md",
+      "minimalAgentFile": "variants/minimal/ceo.md",
+      "skillsDir": "/Users/glad0s/.paperclip/instances/default/skills/e6361895-a6a4-438d-bb76-b17a0ad026cb/__runtime__"
+    },
+    "cto": {
+      "representativeAgent": "Astra (TSMC)",
+      "currentAgentFile": "/Users/glad0s/.paperclip/instances/default/companies/e6361895-a6a4-438d-bb76-b17a0ad026cb/agents/3733fb01-0791-442c-83d0-eb69a5c6602b/instructions/AGENTS.md",
+      "minimalAgentFile": "variants/minimal/cto.md",
+      "skillsDir": "/Users/glad0s/.paperclip/instances/default/skills/e6361895-a6a4-438d-bb76-b17a0ad026cb/__runtime__"
+    },
+    "engineer": {
+      "representativeAgent": "CodexEngineer (TSMC)",
+      "currentAgentFile": "/Users/glad0s/.paperclip/instances/default/companies/e6361895-a6a4-438d-bb76-b17a0ad026cb/agents/7349cc4f-460f-4f39-9eed-ab9a0c188cfa/instructions/AGENTS.md",
+      "minimalAgentFile": "variants/minimal/engineer.md",
+      "skillsDir": "/Users/glad0s/.paperclip/instances/default/skills/e6361895-a6a4-438d-bb76-b17a0ad026cb/__runtime__"
+    },
+    "auditor": {
+      "representativeAgent": "Auditor (TSMC)",
+      "currentAgentFile": "/Users/glad0s/.paperclip/instances/default/companies/e6361895-a6a4-438d-bb76-b17a0ad026cb/agents/0e1099b3-b75b-4b4e-bc55-bf3e8efc8d70/instructions/AGENTS.md",
+      "minimalAgentFile": "variants/minimal/auditor.md",
+      "skillsDir": "/Users/glad0s/.paperclip/instances/default/skills/e6361895-a6a4-438d-bb76-b17a0ad026cb/__runtime__"
+    },
+    "ledger": {
+      "representativeAgent": "Ledger (TSMC)",
+      "currentAgentFile": "/Users/glad0s/.paperclip/instances/default/companies/e6361895-a6a4-438d-bb76-b17a0ad026cb/agents/4a9e1889-d079-4f07-820d-e77327e2ee4b/instructions/AGENTS.md",
+      "minimalAgentFile": "variants/minimal/ledger.md",
+      "skillsDir": "/Users/glad0s/.paperclip/instances/default/skills/e6361895-a6a4-438d-bb76-b17a0ad026cb/__runtime__"
+    },
+    "designer": {
+      "representativeAgent": "BrandDesigner (DP)",
+      "currentAgentFile": "/Users/glad0s/.paperclip/instances/default/companies/e7507bfa-ecfd-4dde-bd2a-7b19947ffdde/agents/f8a8b4ad-70ea-4a55-ab08-59a0c46af34c/instructions/AGENTS.md",
+      "minimalAgentFile": "variants/minimal/designer.md",
+      "skillsDir": "/Users/glad0s/.paperclip/instances/default/skills/e7507bfa-ecfd-4dde-bd2a-7b19947ffdde/__runtime__"
+    },
+    "intake": {
+      "representativeAgent": "RoutingPA (DP)",
+      "currentAgentFile": "/Users/glad0s/.paperclip/instances/default/companies/e7507bfa-ecfd-4dde-bd2a-7b19947ffdde/agents/96b982ed-1cf8-4018-b37d-718de1c276a6/instructions/AGENTS.md",
+      "minimalAgentFile": "variants/minimal/intake.md",
+      "skillsDir": "/Users/glad0s/.paperclip/instances/default/skills/e7507bfa-ecfd-4dde-bd2a-7b19947ffdde/__runtime__"
+    },
+    "researcher": {
+      "representativeAgent": "ResearchAnalyst (DP)",
+      "currentAgentFile": "/Users/glad0s/.paperclip/instances/default/companies/e7507bfa-ecfd-4dde-bd2a-7b19947ffdde/agents/e5b217ae-20a6-473e-ad83-3495d34a2830/instructions/AGENTS.md",
+      "minimalAgentFile": "variants/minimal/researcher.md",
+      "skillsDir": "/Users/glad0s/.paperclip/instances/default/skills/e7507bfa-ecfd-4dde-bd2a-7b19947ffdde/__runtime__"
+    },
+    "content": {
+      "representativeAgent": "Author (Books)",
+      "currentAgentFile": "/Users/glad0s/.paperclip/instances/default/companies/baba1235-7f5b-4555-aed8-c06efa095125/agents/e227412a-267f-4905-987c-4dc179867b17/instructions/AGENTS.md",
+      "minimalAgentFile": "variants/minimal/content.md",
+      "skillsDir": "/Users/glad0s/.paperclip/instances/default/skills/baba1235-7f5b-4555-aed8-c06efa095125/__runtime__"
+    },
+    "ops": {
+      "representativeAgent": "TSB Compiler (Books)",
+      "currentAgentFile": "/Users/glad0s/.paperclip/instances/default/companies/baba1235-7f5b-4555-aed8-c06efa095125/agents/4984170a-f593-404d-bd46-6c1fc48b20ab/instructions/AGENTS.md",
+      "minimalAgentFile": "variants/minimal/ops.md",
+      "skillsDir": "/Users/glad0s/.paperclip/instances/default/skills/baba1235-7f5b-4555-aed8-c06efa095125/__runtime__"
+    },
+    "cmo": {
+      "representativeAgent": "ContentStrategist (Media)",
+      "currentAgentFile": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/agents/f6d985f3-403a-471a-b6f0-0586349041b5/instructions/AGENTS.md",
+      "minimalAgentFile": "variants/minimal/cmo.md",
+      "skillsDir": "/Users/glad0s/.paperclip/instances/default/skills/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/__runtime__"
+    },
+    "quant": {
+      "representativeAgent": "MIDAS (Capital)",
+      "currentAgentFile": "/Users/glad0s/.paperclip/instances/default/companies/211e0f96-ecd2-4fe0-81f8-72059bc6ed46/agents/dabed502-577e-405f-954c-0780b6eef1f7/instructions/AGENTS.md",
+      "minimalAgentFile": "variants/minimal/quant.md",
+      "skillsDir": "/Users/glad0s/.paperclip/instances/default/skills/211e0f96-ecd2-4fe0-81f8-72059bc6ed46/__runtime__"
+    },
+    "recruiter": {
+      "representativeAgent": "RecruitmentManager (Recruit)",
+      "currentAgentFile": "/Users/glad0s/.paperclip/instances/default/companies/cefbbf68-0ca7-4383-967e-03bc1b037ae7/agents/8ea6b227-07aa-4874-8d1e-a919d2436a34/instructions/AGENTS.md",
+      "minimalAgentFile": "variants/minimal/recruiter.md",
+      "skillsDir": "/Users/glad0s/.paperclip/instances/default/skills/cefbbf68-0ca7-4383-967e-03bc1b037ae7/__runtime__"
+    },
+    "seo": {
+      "representativeAgent": "GrowthSEO (KISS)",
+      "currentAgentFile": "/Users/glad0s/.paperclip/instances/default/companies/6d2c1656-dabd-4aa1-b45a-0f5aedea3092/agents/f3bee9b7-0a66-49c5-badc-de8af0da2304/instructions/AGENTS.md",
+      "minimalAgentFile": "variants/minimal/seo.md",
+      "skillsDir": "/Users/glad0s/.paperclip/instances/default/skills/6d2c1656-dabd-4aa1-b45a-0f5aedea3092/__runtime__"
+    },
+    "cv-review": {
+      "representativeAgent": "(synthetic refreshed config \u2014 production task)",
+      "currentAgentFile": "/Users/glad0s/paperclip/benchmark/variants/agentfiles/cv-review.md",
+      "minimalAgentFile": "variants/minimal/cv-review.md",
+      "skillsDir": "/Users/glad0s/paperclip/benchmark/variants/skills/cv-review"
+    },
+    "book-chapter": {
+      "representativeAgent": "(synthetic config \u2014 production task)",
+      "currentAgentFile": "/Users/glad0s/paperclip/benchmark/variants/agentfiles/book-chapter.md",
+      "minimalAgentFile": "variants/minimal/book-chapter.md",
+      "skillsDir": "/Users/glad0s/paperclip/benchmark/variants/skills/book-chapter"
+    }
+  }
+}

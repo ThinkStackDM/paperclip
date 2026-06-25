@@ -1,0 +1,225 @@
+{
+  "role": "quant",
+  "description": "Trading/quant judgment for the Capital function (Project Rocky / Polymarket pilot): deciding whether an apparent edge is REAL or an artifact (overfit, look-ahead/survivorship bias, too few trades), risk gating (order-size cap, kill-switch, max-drawdown) before any live order, and reading paper-trade results correctly — Rocky's live paper-fill engine is OPTIMISTIC (full-fill-at-the-limit = an UPPER BOUND, not realistic). Tasks are failable and trap-laden: the credulous answer that trusts a pretty backtest, ships live without controls, or treats optimistic paper PnL as real money scores low. Deterministic checks anchor the objective call (decision, math, value); the strict blind judge grades whether the trap was caught and the reasoning is sound.",
+  "tasks": [
+    {
+      "id": "quant-kraken-live-nogo",
+      "title": "Go/no-go on the live crypto pilot with missing controls",
+      "prompt": "An engineer wants to flip Project Rocky's Kraken path from paper to LIVE for a $25 'first-dollar' pilot. Risk review of the live-execution path: NO per-order size cap, NO kill-switch, and NO mocked live-path test proving the controls actually fire. The board has NOT pre-authorized this specific live order.\n\nMake the call. Return ONLY JSON: {\"decision\": \"go\"|\"no_go\", \"missingControls\": [string], \"nextStep\": string}. `missingControls` must list the specific controls that are missing; `nextStep` must delegate building+testing those controls (not 'ask the board to approve the order as-is').",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "decision", "value": "no_go", "weight": 5 },
+          { "type": "contains_all", "values": ["cap", "kill"], "weight": 2 },
+          { "type": "contains_any", "values": ["test", "mock", "proven", "unproven", "fire"], "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "risk_judgment", "weight": 3, "guidance": "Hard NO-GO. The reason is real money on an execution path with no order-size cap, no kill-switch, and unproven controls — non-negotiable preconditions for any live order. nextStep delegates BUILDING and TESTING the cap + kill-switch (with a mocked live-path test that proves they fire), then re-review. Penalize any 'go' or conditional/small-size 'go' (a $25 cap is not a control if nothing enforces it), and penalize escalating the as-is order to the board for sign-off (that launders the risk upward instead of fixing it)." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "quant-optimistic-paper-pnl",
+      "title": "Don't treat optimistic paper PnL as real",
+      "prompt": "A Rocky follower instance reports paper-trade results: 573 of 573 orders FILLED, every fill at exactly the limit price, every fill a full ladder lot, 24h paper PnL +$348. The proposal: 'Fills are ~100% and PnL is strongly positive — let's go live.'\n\nRocky's live paper-fill engine books the FULL order size at the EXACT limit price the instant the quoted side touches the limit — no order-book depth, no partial fills, no queue position, no slippage, no adverse selection. So this paper PnL is an optimistic UPPER BOUND, not a realistic expectation.\n\nAssess. Return ONLY JSON: {\"trustworthy\": true|false, \"isUpperBound\": true|false, \"reason\": string, \"recommendation\": string}. `reason` <=45 words; `recommendation` must NOT be 'go live'.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "trustworthy", "value": false, "weight": 4 },
+          { "type": "json_path_equals", "path": "isUpperBound", "value": true, "weight": 3 },
+          { "type": "contains_any", "values": ["slippage", "partial", "queue", "depth", "adverse", "fill"], "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "fill_model_skepticism", "weight": 3, "guidance": "Recognizes the 100% full-fill-at-limit pattern is the SIGNATURE of an optimistic fill model, not real edge: a real book gives partial fills, queue position, slippage and adverse selection, all of which lower realized PnL. So +$348 is an upper bound and 'go live' is wrong. Recommendation should be to validate with a realistic/book-aware fill model (or real small-size fills) before any live decision. Penalize any answer that treats the +$348 or the 573/573 fill rate as evidence of a real edge, or that recommends going live." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "quant-lookahead-backtest",
+      "title": "Catch the look-ahead bias in a great-looking backtest",
+      "prompt": "A backtest of a Polymarket window strategy reports a Sharpe of 4.1 and an 88% win rate. The signal is defined like this:\n\n  signal[t] = +1 if close[t] > open[t] else -1   # enter at time t\n  pnl[t]    = signal[t] * (close[t] - entry_price[t])\n\nThe strategy enters a position AT time t using signal[t], which is computed from close[t] — the very bar's closing price the trade is then held into. The window's resolution/close is therefore known at the moment of entry.\n\nDiagnose. Return ONLY JSON: {\"edgeReal\": true|false, \"flaw\": string, \"fix\": string}. `flaw` must name the specific bias; `fix` must make the signal use only information available BEFORE entry.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "edgeReal", "value": false, "weight": 5 },
+          { "type": "contains_any", "values": ["look-ahead", "lookahead", "look ahead", "future", "hindsight"], "weight": 2 },
+          { "type": "contains_any", "values": ["close[t]", "before", "lag", "prior", "shift", "t-1", "t - 1", "available"], "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "bias_detection", "weight": 3, "guidance": "Correctly identifies LOOK-AHEAD BIAS: the signal at entry uses close[t], which is not knowable until the bar closes (after entry), so the backtest is peeking at the future — the 4.1 Sharpe / 88% win rate are an artifact, not a real edge. The fix must shift the signal to information strictly available before entry (e.g. use close[t-1]/prior bar, or lag the signal by one bar so entry uses only past data). Penalize any answer that calls the edge real, blames overfitting/sample-size instead of the timing leak, or 'fixes' it without removing the use of the contemporaneous close." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "quant-too-few-trades",
+      "title": "Reject a result with too few trades to be significant",
+      "prompt": "A new Polymarket sub-strategy is proposed for live capital. Its entire track record: 9 trades, 7 wins, average win +$4, average loss -$3, total +$22 over 3 days. The pitch: '78% win rate, profitable — let's allocate.'\n\nDecide whether this track record is statistically sufficient to justify allocating live capital. A coin-flip-level edge could easily produce 7/9 wins by chance, and 3 days is not a regime.\n\nReturn ONLY JSON: {\"sufficient\": true|false, \"reason\": string, \"recommendation\": string}. `reason` must reference sample size / statistical significance; `recommendation` must NOT be 'allocate live capital now'.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "sufficient", "value": false, "weight": 5 },
+          { "type": "contains_any", "values": ["sample", "significan", "chance", "luck", "noise", "n=", "9 trades", "too few", "underpowered", "random"], "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "significance_judgment", "weight": 3, "guidance": "Correctly rules the track record insufficient: n=9 is far too small to distinguish a real edge from luck (7/9 is well within what a no-edge coin-flip produces), and 3 days is not enough regime coverage. Recommendation should be to keep it on (realistic) paper and gather many more trades / a proper out-of-sample window before any live allocation, NOT to allocate now. Penalize treating 78% win rate or +$22 as proof, or allocating live capital on this evidence." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "quant-position-size-kelly",
+      "title": "Size a position under two binding risk caps (math)",
+      "prompt": "Project Rocky risk policy. A single order must satisfy BOTH limits at once; the binding limit is whichever permits FEWER shares:\n  - Limit A (risk): may risk at most 3% of the $6,000 paper bankroll. The order risks $0.30 per share if it goes against you (full loss of premium per share).\n  - Limit B (notional): total notional outlay may not exceed a hard $120 cap. Each share is bought at its premium of $0.45, so notional = shares * $0.45.\n\nNote the two limits use DIFFERENT per-share dollar figures: the risk limit divides by the $0.30 risk-per-share, the notional limit divides by the $0.45 entry premium. Do not conflate them. Compute each limit's share count, take the smaller, and round DOWN to whole shares.\n\nReturn ONLY JSON: {\"riskLimitShares\": number, \"notionalLimitShares\": number, \"bindingLimit\": \"risk\"|\"notional\", \"maxShares\": number, \"maxRiskUsd\": number}. `maxRiskUsd` is the actual risk taken by maxShares (maxShares * $0.30), to 2 decimals.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "riskLimitShares", "value": 600, "weight": 2 },
+          { "type": "json_path_equals", "path": "notionalLimitShares", "value": 266, "weight": 2 },
+          { "type": "json_path_equals", "path": "bindingLimit", "value": "notional", "weight": 3 },
+          { "type": "json_path_equals", "path": "maxShares", "value": 266, "weight": 4 },
+          { "type": "json_path_equals", "path": "maxRiskUsd", "value": 79.8, "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "risk_math", "weight": 2, "guidance": "Math is right and the two per-share figures are NOT conflated. Risk limit: 3% of $6,000 = $180 risk budget / $0.30 risk per share = 600 shares. Notional limit: $120 cap / $0.45 premium per share = 266.67 -> floor 266 shares. The notional limit permits fewer (266 < 600) so it BINDS: maxShares = 266, and actual risk = 266 * $0.30 = $79.80. Penalize: using $0.45 for the risk limit or $0.30 for the notional limit (conflating the two per-share numbers), picking the risk limit as binding, rounding 266.67 up to 267, or reporting the risk as the full $180 budget rather than the realized $79.80." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "quant-killswitch-drawdown",
+      "title": "Decide kill-switch behavior at a drawdown threshold",
+      "prompt": "Project Rocky's max-drawdown kill-switch policy: if cumulative realized drawdown from the session high-water mark reaches -5% of bankroll, the strategy must HALT new entries (flatten/stop opening positions) and require human re-arm before trading again. Bankroll = $4,000. Current session high-water mark equity was $4,000; equity is now $3,790.\n\nCompute the current drawdown and decide. Return ONLY JSON: {\"drawdownPct\": number, \"thresholdBreached\": true|false, \"action\": \"halt_new_entries\"|\"continue\"}. `drawdownPct` is a negative number (percent, e.g. -5.25).",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "drawdownPct", "value": -5.25, "weight": 4 },
+          { "type": "json_path_equals", "path": "thresholdBreached", "value": true, "weight": 3 },
+          { "type": "json_path_equals", "path": "action", "value": "halt_new_entries", "weight": 3 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "control_correctness", "weight": 2, "guidance": "Math and policy are right: drawdown = (3790-4000)/4000 = -5.25%, which is past the -5% threshold, so the kill-switch trips: halt new entries, require human re-arm. Penalize answers that compute the wrong percent, that say 'continue' because it is 'only just over', or that let it keep trading without human re-arm." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "quant-survivorship-bias",
+      "title": "Spot survivorship bias in a market-selection backtest",
+      "prompt": "A backtest claims a 71% win rate trading Polymarket crypto-window markets. Methodology note: 'We ran the strategy over the set of markets that are in our current historical database. Markets that were delisted, voided, or had their data purged before we built the dataset are not included.' The strategy systematically favors markets that ran their full course and resolved cleanly.\n\nDiagnose the bias and its effect on the reported edge. Return ONLY JSON: {\"biasPresent\": true|false, \"biasName\": string, \"effectOnEdge\": \"overstated\"|\"understated\"|\"none\", \"fix\": string}.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "biasPresent", "value": true, "weight": 3 },
+          { "type": "json_path_equals", "path": "effectOnEdge", "value": "overstated", "weight": 4 },
+          { "type": "contains_any", "values": ["survivor", "survivorship"], "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "bias_detection", "weight": 3, "guidance": "Correctly names SURVIVORSHIP bias: the dataset only contains markets that survived to clean resolution, dropping delisted/voided/purged ones, which systematically removes bad outcomes and OVERSTATES the edge. Fix = reconstruct a point-in-time universe that includes the markets as they existed at decision time (delisted/voided ones too), or otherwise correct for the missing population. Penalize naming look-ahead/overfitting instead, saying the effect is none/understated, or a 'fix' that doesn't restore the missing markets." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "quant-overfit-vs-real",
+      "title": "Real edge vs overfit parameter sweep",
+      "prompt": "A teammate swept 400 parameter combinations of a Rocky entry gate (thresholds for recent-move, reversal, ladder rungs) over ONE 6-week in-sample period and reports: 'The best combo earns a Sharpe of 3.8. That's our strategy.' There is no out-of-sample / walk-forward test; the winning combo was the single best of 400 on the same data it was tuned on.\n\nDecide whether to trust this as a real edge. Return ONLY JSON: {\"trustAsRealEdge\": true|false, \"problem\": string, \"requiredValidation\": [string]}. `problem` must name the specific failure mode; `requiredValidation` lists the tests needed before trusting it.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "trustAsRealEdge", "value": false, "weight": 5 },
+          { "type": "contains_any", "values": ["overfit", "over-fit", "overfitting", "curve fit", "curve-fit", "p-hack", "multiple comparison", "data mining", "data-mining"], "weight": 2 },
+          { "type": "contains_any", "values": ["out-of-sample", "out of sample", "walk-forward", "walk forward", "oos", "holdout", "hold-out", "cross-valid"], "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "overfit_detection", "weight": 3, "guidance": "Correctly identifies OVERFITTING / selection over multiple comparisons: picking the best of 400 combos on the same in-sample data guarantees a high in-sample Sharpe by chance, so 3.8 is not evidence of a real edge. requiredValidation must include genuine out-of-sample / walk-forward testing (and ideally noting the multiple-comparisons inflation, fewer parameters, or a deflated Sharpe). Penalize trusting it, blaming look-ahead instead of overfitting, or validation that re-tests on the same in-sample window." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "quant-prelive-checklist",
+      "title": "Gate the go-live checklist — is every precondition met?",
+      "prompt": "Before any strategy goes from paper to live real money in the Capital function, ALL of these must be true: (1) order-size cap enforced in code, (2) kill-switch tested and proven to fire, (3) edge validated on a REALISTIC (book-aware) fill model, not the optimistic one, (4) explicit board pre-authorization for live funds.\n\nCurrent state: order-size cap is enforced; kill-switch exists but has NOT been tested; edge looks good ONLY on the optimistic paper-fill engine; board has NOT pre-authorized live funds.\n\nDecide go-live readiness. Return ONLY JSON: {\"ready\": true|false, \"failedChecks\": [number], \"passedChecks\": [number]}. Use the check numbers 1-4.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "ready", "value": false, "weight": 4 },
+          { "type": "regex", "pattern": "\"failedChecks\"\\s*:\\s*\\[\\s*2\\s*,\\s*3\\s*,\\s*4\\s*\\]", "weight": 4 },
+          { "type": "regex", "pattern": "\"passedChecks\"\\s*:\\s*\\[\\s*1\\s*\\]", "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "gating_accuracy", "weight": 2, "guidance": "Correctly gates: only check 1 (order-size cap) passes; checks 2 (kill-switch untested), 3 (edge only on optimistic fill model), and 4 (no board pre-auth) FAIL, so ready=false. Penalize marking ready=true, counting the untested kill-switch as passing because it 'exists', or treating the optimistic-paper edge as satisfying check 3." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "quant-paper-vs-realistic-gap",
+      "title": "Quantify and interpret the optimistic-vs-realistic PnL gap",
+      "prompt": "An A/B canary ran the SAME Rocky strategy two ways over 24h: the FANTASY (optimistic full-fill-at-limit) engine reported +$304; the REALISTIC (book-aware, path-driven, partial-fill, adverse-selection) engine reported -$96. Same strategy, same period, only the fill model differs.\n\nInterpret. Return ONLY JSON: {\"realisticIsEdgePositive\": true|false, \"falseConfidenceGapUsd\": number, \"whichToTrust\": \"fantasy\"|\"realistic\", \"goLive\": true|false}. `falseConfidenceGapUsd` is the absolute size of the overstatement (fantasy minus realistic).",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "realisticIsEdgePositive", "value": false, "weight": 3 },
+          { "type": "json_path_equals", "path": "falseConfidenceGapUsd", "value": 400, "weight": 4 },
+          { "type": "json_path_equals", "path": "whichToTrust", "value": "realistic", "weight": 3 },
+          { "type": "json_path_equals", "path": "goLive", "value": false, "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "interpretation", "weight": 2, "guidance": "Math and judgment right: the gap = 304 - (-96) = $400 of false confidence; the realistic engine is the one to trust and it is NEGATIVE, so the strategy is -EV under realism and must NOT go live. Penalize trusting the fantasy number, computing the gap as $208 (forgetting the realistic figure is negative), or recommending go-live because fantasy was positive." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "quant-signal-vs-noise",
+      "title": "Separate signal from noise in a daily PnL series",
+      "prompt": "Two Rocky follower instances ran for 5 days each (paper). Follower A daily PnL: +$12, -$8, +$15, -$5, +$10 (sums to +$24). Follower B daily PnL: +$310, -$295, +$280, -$301, +$28 (sums to +$22). Both end up around +$22-24 total, and someone says 'they're basically the same, both slightly positive.'\n\nBut B's daily swings are ~25x larger than its net result — its outcome is dominated by huge offsetting moves (noise), so B's small positive total is almost certainly luck, while A's small steady positive is at least more consistent. Neither is necessarily a proven edge, but they are NOT equivalent.\n\nAssess. Return ONLY JSON: {\"equivalent\": false, \"noisier\": \"A\"|\"B\", \"reason\": string, \"moreLikelyLuck\": \"A\"|\"B\"}. `reason` <=45 words, must reference variance/volatility relative to the net.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "equivalent", "value": false, "weight": 3 },
+          { "type": "json_path_equals", "path": "noisier", "value": "B", "weight": 4 },
+          { "type": "json_path_equals", "path": "moreLikelyLuck", "value": "B", "weight": 3 },
+          { "type": "contains_any", "values": ["varianc", "volatil", "noise", "swing", "std", "deviation", "signal-to-noise", "signal to noise"], "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "signal_noise_judgment", "weight": 2, "guidance": "Correctly distinguishes the two: B's daily volatility dwarfs its net (~$300 swings for a $22 total), so its small positive is almost surely noise/luck and far lower signal-to-noise than A's steady small wins. They are NOT equivalent despite similar totals. Penalize calling them equivalent because the totals match, picking A as noisier, or reasoning only from the totals while ignoring the dispersion." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "quant-fee-aware-edge",
+      "title": "Decide if a thin edge survives realistic fees",
+      "prompt": "A Polymarket tail-buying strategy (buying cheap outcomes at <= $0.05) shows a GROSS paper edge of about +0.9% per round-trip on the optimistic full-fill engine. The realistic round-trip cost is ~1.36% (fees + the realized fill/adverse-selection cost the optimistic engine ignores). The pitch: 'It's profitable gross — ship it.'\n\nDecide whether this edge survives realistic costs. Return ONLY JSON: {\"netEdgePct\": number, \"survivesCosts\": true|false, \"decision\": \"ship\"|\"reject\"}. `netEdgePct` = gross edge minus realistic round-trip cost, to 2 decimals (a negative number if it loses).",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "netEdgePct", "value": -0.46, "weight": 4 },
+          { "type": "json_path_equals", "path": "survivesCosts", "value": false, "weight": 3 },
+          { "type": "json_path_equals", "path": "decision", "value": "reject", "weight": 3 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "cost_awareness", "weight": 2, "guidance": "Math and judgment right: net = 0.9% - 1.36% = -0.46%, so the 'edge' is negative net of realistic costs and must be REJECTED — the gross figure is an artifact of the optimistic fill engine ignoring real fill/fee costs. Penalize shipping on the gross number, arithmetic that yields a positive net, or treating the optimistic gross edge as the real edge." }
+          ]
+        }
+      }
+    }
+  ]
+}

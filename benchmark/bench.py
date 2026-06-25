@@ -101,6 +101,17 @@ def plan_summary(cells, models, judge_id):
     return "\n".join(lines)
 
 
+def _power_limits():
+    """Read TSBC power mode (.tsbc-power.json) -> (maxWorkersCap|None, heavyTasksAllowed, paused).
+    Absent/unreadable = unconstrained, so non-TSBC use of bench.py is unaffected."""
+    try:
+        import json as _j, os as _o
+        p = _j.load(open(_o.path.join(_o.path.dirname(_o.path.abspath(__file__)), ".tsbc-power.json")))
+        return p.get("maxWorkers"), p.get("heavyTasksAllowed", True), p.get("paused", False)
+    except Exception:
+        return None, True, False
+
+
 def execute(cells, cfg, run_dir):
     raw_dir = run_dir / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
@@ -124,6 +135,35 @@ def execute(cells, cfg, run_dir):
     else:
         timeout = cfg["run"]["timeout_sec"]
         workers = cfg["run"].get("max_workers", 4)
+
+    # --- TSBC power mode: shared-Mac safety (cap concurrency, gate heavy tasks, sleep) ---
+    cap, heavy_ok, paused = _power_limits()
+    if paused:
+        print("  TSBC SLEEP (paused) — not running this sweep.", flush=True)
+        return []
+    if cap is not None:
+        workers = min(workers, cap)
+    if has_agentic and not heavy_ok:
+        ag = set(cfg.get("agentic_roles", []))
+        dropped = [c for c in cells if c["role"] in ag]
+        cells = [c for c in cells if c["role"] not in ag]
+        print(f"  TSBC low-power: heavy agentic disabled — skipped {len(dropped)} agentic cell(s), "
+              f"running {len(cells)} single-pass cell(s) at {workers} worker(s).", flush=True)
+        if not cells:
+            return []
+    # interleave cells across adapters so concurrent workers rarely double-hit one
+    # adapter/sub (the 'one model per adapter at a time' intent)
+    from collections import defaultdict, deque
+    _by_lane = defaultdict(deque)
+    for c in cells:
+        _by_lane[c["model"]["lane"]].append(c)
+    _interleaved = []
+    while any(_by_lane.values()):
+        for lane in list(_by_lane):
+            if _by_lane[lane]:
+                _interleaved.append(_by_lane[lane].popleft())
+    cells = _interleaved
+
     total = len(cells)
     done = [0]
     runs = []
@@ -211,7 +251,11 @@ def cmd_all(args, cfg):
     if args.dry_run:
         log("\n(dry run — nothing executed)")
         return
-    log(f"\nrunning {len(cells)} cells with {cfg['run'].get('max_workers',4)} workers "
+    _cap, _heavy_ok, _paused = _power_limits()
+    _base = cfg['run'].get('max_workers', 4)
+    _eff = min(_base, _cap) if _cap is not None else _base
+    _pm = f" [TSBC power: {_cap} cap]" if _cap is not None and _cap < _base else ""
+    log(f"\nrunning {len(cells)} cells with {_eff} worker(s){_pm} "
         f"(timeout {cfg['run']['timeout_sec']}s each)…\n")
 
     started = now_iso()

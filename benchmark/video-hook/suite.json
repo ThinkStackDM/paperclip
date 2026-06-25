@@ -1,0 +1,135 @@
+{
+  "role": "video-hook",
+  "description": "Production task (Media workflow-start): write the opening hook (first line / first 5 seconds) for a short-form video. Hooks have huge quality variance — generic/cliché vs a sharp curiosity-gap — so the strict judge discriminates hard. Tasks include hard constraints (no question form, exact length, banned clichés), a calibration/tone trap (a serious topic where clickbait is wrong), a platform-fit task, and a rewrite-a-weak-hook task. Deterministic checks anchor the objective constraints (length, banned words, format); the judge grades hook craft: curiosity/tension, specificity, honesty (no empty clickbait), and constraint adherence.",
+  "tasks": [
+    {
+      "id": "hook-curiosity-gap",
+      "title": "One-line hook with a real curiosity gap",
+      "prompt": "Write the opening hook (one line, <=15 words) for a 60-second video titled \"Why your savings account is quietly losing you money.\" It must open a curiosity/stakes gap that makes a saver keep watching — concrete, not a generic intro. Return ONLY the hook line, nothing else.",
+      "rubric": {
+        "deterministic": [
+          { "type": "max_words", "value": 16, "weight": 2 },
+          { "type": "not_contains", "value": "in this video", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "hook_craft", "weight": 3, "guidance": "Opens a genuine curiosity or stakes gap a saver feels personally (e.g. names the hidden loss, contradicts a comfortable assumption), specific and punchy. Penalize generic openers ('Did you know savings accounts...'), restating the title, vague 'let's talk about money', or anything that doesn't create a reason to keep watching." },
+            { "name": "concision", "weight": 1, "guidance": "Tight, <=15 words, one line, no preamble." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "hook-no-question-constraint",
+      "title": "Hook that must NOT be a question (constraint trap)",
+      "prompt": "Write the opening hook (one line, <=14 words) for a video \"3 budgeting mistakes that keep you broke.\" Hard constraint: the hook must be a STATEMENT, not a question (no '?'). Cheap hooks default to a question — resist it. Return ONLY the hook line.",
+      "rubric": {
+        "deterministic": [
+          { "type": "not_contains", "value": "?", "weight": 4 },
+          { "type": "max_words", "value": 15, "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "statement_hook", "weight": 3, "guidance": "A compelling declarative hook (a bold claim, a stakes statement, a counterintuitive fact) — NOT a question, and not a question reworded with a period. It should still create tension/curiosity. Penalize any interrogative phrasing, weak generic statements, or restating the title." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "hook-no-cliche",
+      "title": "Hook avoiding banned clichés",
+      "prompt": "Write the opening hook (one line, <=16 words) for a video \"How I learned Spanish in 4 months.\" Hard constraint: do NOT use any of these cliché openers: \"In this video\", \"Did you know\", \"Let's dive in\", \"Have you ever\", \"Today I'm going to\". Return ONLY the hook line.",
+      "rubric": {
+        "deterministic": [
+          { "type": "not_regex", "pattern": "in this video|did you know|let'?s dive in|have you ever|today i'?m going to", "weight": 4 },
+          { "type": "max_words", "value": 17, "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "freshness", "weight": 3, "guidance": "A fresh, specific hook that earns attention (a surprising method, a concrete result, a contrarian take) without any banned cliché or a thin paraphrase of one. Penalize formulaic openers, vagueness, or restating the title." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "hook-sensitive-tone",
+      "title": "Calibration trap: serious topic, no exploitative clickbait",
+      "prompt": "Write the opening hook (one line, <=18 words) for a video \"Talking to your parents about their end-of-life wishes.\" It must be compelling enough to retain viewers BUT respectful and non-exploitative — no fear-baiting or sensational clickbait on a grief-adjacent topic. Return ONLY the hook line.",
+      "rubric": {
+        "deterministic": [
+          { "type": "max_words", "value": 19, "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "tone_calibration", "weight": 3, "guidance": "Draws the viewer in through genuine relevance/empathy (the hard-but-important conversation, the cost of avoiding it) while staying respectful. HEAVILY penalize exploitative fear-bait, sensationalism, or morbid clickbait ('This will happen to your parents...'), and also penalize a hook so bland it gives no reason to watch. This tests whether the model calibrates tone to a sensitive topic." },
+            { "name": "compelling", "weight": 1, "guidance": "Still creates a real reason to keep watching, not a flat PSA." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "hook-platform-fit-linkedin",
+      "title": "Platform-fit: a LinkedIn hook (not TikTok energy)",
+      "prompt": "Write the opening hook (one line, <=20 words) for a LinkedIn video aimed at B2B founders: \"The hiring mistake that cost us six months.\" Match LinkedIn register — credible, professional, insight-led — NOT TikTok hype or emoji-bait. Return ONLY the hook line.",
+      "rubric": {
+        "deterministic": [
+          { "type": "max_words", "value": 21, "weight": 1 },
+          { "type": "not_regex", "pattern": "[\\U0001F300-\\U0001FAFF\\u2600-\\u27BF\\u2B00-\\u2BFF]", "weight": 1, "ci": false }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "platform_register", "weight": 3, "guidance": "Reads as a credible, insight-led LinkedIn hook for founders (a specific costly lesson, a concrete claim, professional voice that promises a takeaway). Penalize TikTok-style hype, emoji-bait, vague motivational fluff, or a register mismatch. Should still be a genuine hook, not a dry title." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "hook-exact-two-line-structure",
+      "title": "Exact structure: 2-line hook (tension then promise)",
+      "prompt": "Write a TWO-LINE hook for a video \"I quit caffeine for 30 days.\" Exact structure: line 1 sets the tension/stakes, line 2 delivers the promise of what they'll learn. Two lines only, each <=12 words. Return ONLY the two lines separated by a newline.",
+      "rubric": {
+        "deterministic": [
+          { "type": "regex", "pattern": "^.+\\n.+$", "weight": 2, "dotall": false },
+          { "type": "not_regex", "pattern": "\\n.*\\n.*\\n", "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "structure_and_craft", "weight": 3, "guidance": "Exactly two lines: line 1 establishes tension/stakes, line 2 the payoff/promise — both tight (<=12 words). The two lines should work together as an escalating hook. Penalize a single line, three+ lines, both lines doing the same job, or generic/weak content." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "hook-specific-over-vague",
+      "title": "Specificity beats vague hype",
+      "prompt": "Write the opening hook (one line, <=15 words) for a video \"How a small Etsy shop hit $10k/month.\" Use the concrete specifics (small shop, $10k/month) to create the hook — avoid vague hype like 'this changed everything' or 'you won't believe'. Return ONLY the hook line.",
+      "rubric": {
+        "deterministic": [
+          { "type": "not_regex", "pattern": "you won'?t believe|this changed everything|mind-?blowing|secret to success", "weight": 2 },
+          { "type": "max_words", "value": 16, "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "specificity", "weight": 3, "guidance": "Leads with the concrete, credible specifics (a small/solo shop reaching $10k/month, the surprising lever) to create the hook. Penalize vague hype, empty superlatives, clickbait that doesn't deliver, or dropping the concrete numbers that make it believable and intriguing." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "hook-rewrite-weak",
+      "title": "Rewrite a weak hook into a strong one",
+      "prompt": "This hook is weak: \"In this video, I'm going to talk about some tips for saving money on groceries.\" Rewrite it as a single strong hook line (<=15 words) that creates curiosity and is specific — for the same grocery-savings video. Return ONLY the rewritten hook line.",
+      "rubric": {
+        "deterministic": [
+          { "type": "not_regex", "pattern": "in this video|going to talk about|some tips", "weight": 2 },
+          { "type": "max_words", "value": 16, "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "improvement", "weight": 3, "guidance": "A clearly stronger hook than the original: specific, curiosity-creating, removes the throat-clearing ('in this video', 'going to talk about', 'some tips'). It should name a concrete angle (a surprising amount saved, a counterintuitive method). Penalize a rewrite that's still generic, keeps the filler, or doesn't materially improve on the weak original." }
+          ]
+        }
+      }
+    }
+  ]
+}

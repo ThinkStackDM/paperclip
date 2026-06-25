@@ -1,0 +1,126 @@
+{
+  "role": "summarize-extract",
+  "description": "Production task (cross-company, high-volume workflow-start): summarize or extract structured data from messy input. The single most common tier-to-cheap deliverable across every company. Discriminates on FAITHFULNESS (no added/invented facts), the don't-fabricate-missing-fields trap (return null/not-found instead of guessing), preserving a critical caveat a lazy summary drops, structure adherence (valid JSON, length caps), and clean classification. Deterministic checks anchor the objective parts (valid JSON, required fields, length, banned fabrications); the strict judge grades faithfulness and completeness.",
+  "tasks": [
+    {
+      "id": "sum-faithful-tldr",
+      "title": "One-sentence summary, no added facts",
+      "prompt": "Summarize this in ONE sentence (<=25 words), using ONLY information stated. Do not add facts, figures, causes, or implications that are not present.\n\nText: \"Our Q3 webinar drew 412 registrants, up from 280 in Q2. Live attendance was 61%. The team plans a follow-up series in Q4 focused on onboarding.\"\n\nReturn ONLY the summary sentence.",
+      "rubric": {
+        "deterministic": [
+          { "type": "max_words", "value": 28, "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "faithful_summary", "weight": 3, "guidance": "Accurately captures the core (registrations grew Q2->Q3 and a Q4 onboarding follow-up is planned) in one tight sentence, using ONLY stated facts. HEAVILY penalize any invented detail — a made-up cause ('due to better marketing'), a fabricated metric, a projection, or an implication not in the text. Penalize dropping the main point or exceeding one sentence." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "extract-missing-field-null",
+      "title": "Extract fields — null for missing (don't invent)",
+      "prompt": "Extract structured fields from this email. If a field is NOT present, use null — do NOT guess or infer one.\n\nEmail: \"Hi, this is Dana Okafor. I'd like to book the venue for our event. Our budget is around £4,000. Looking forward to hearing back.\"\n\nReturn ONLY JSON: {\"name\": string|null, \"eventDate\": string|null, \"budget\": string|null}.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 1 },
+          { "type": "json_path_equals", "path": "eventDate", "value": null, "weight": 3 },
+          { "type": "contains", "value": "Okafor", "weight": 1 },
+          { "type": "contains", "value": "4,000", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "no_fabrication", "weight": 2, "guidance": "name=Dana Okafor and budget captures £4,000; eventDate MUST be null because no date is stated. HEAVILY penalize inventing a date or any value not in the email. Reward correct nulling of the absent field." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "extract-action-items",
+      "title": "Extract only the action items",
+      "prompt": "From these meeting notes, list ONLY the concrete action items (who will do what). Exclude general discussion and chatter.\n\nNotes: \"We discussed the slow checkout flow. Marco will profile the API by Friday. There was some debate about whether to add caching. Priya agreed to draft the pricing email next week. Overall a long meeting.\"\n\nReturn ONLY a JSON array of short strings.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 1 },
+          { "type": "contains_all", "values": ["Marco", "Priya"], "weight": 2 },
+          { "type": "not_regex", "pattern": "long meeting|some debate|discussed the slow", "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "action_items_only", "weight": 3, "guidance": "Exactly the two real action items (Marco profiles the API by Friday; Priya drafts the pricing email next week), with owners. Penalize including discussion/chatter ('debate about caching', 'long meeting'), inventing action items, or missing one of the two." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "extract-notfound-trap",
+      "title": "Answer 'not found' rather than fabricate",
+      "prompt": "From the text, what is the customer's phone number? If it is not stated, answer EXACTLY 'not found'. Do not invent or infer a number.\n\nText: \"Customer Jane Lee emailed about a refund for order #5512. She prefers to be contacted by email.\"\n\nReturn ONLY the phone number, or 'not found'.",
+      "rubric": {
+        "deterministic": [
+          { "type": "contains", "value": "not found", "weight": 3 },
+          { "type": "not_regex", "pattern": "\\d{3}[\\s.-]?\\d{3,4}[\\s.-]?\\d{0,4}", "weight": 2 }
+        ]
+      }
+    },
+    {
+      "id": "summarize-keep-caveat",
+      "title": "Summary must preserve the critical caveat",
+      "prompt": "Summarize this refund policy in <=30 words for a customer.\n\nText: \"Refunds are available within 30 days of purchase. However, digital downloads and personalized items are non-refundable.\"\n\nReturn ONLY the summary.",
+      "rubric": {
+        "deterministic": [
+          { "type": "max_words", "value": 35, "weight": 1 },
+          { "type": "contains_any", "values": ["non-refundable", "not refundable", "cannot be refunded", "except", "exclud"], "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "keeps_exception", "weight": 3, "guidance": "States the 30-day refund window AND preserves the critical exception (digital downloads / personalized items are non-refundable). HEAVILY penalize a summary that gives only the 30-day rule and drops the exception — that is the trap; a customer relying on it would be misled." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "classify-support-ticket",
+      "title": "Classify a support message",
+      "prompt": "Classify this support message into exactly one category. Message: \"I was charged twice for my subscription this month.\"\n\nReturn ONLY JSON: {\"category\": \"bug\"|\"billing\"|\"feature_request\"|\"other\"}.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 1 },
+          { "type": "json_path_equals", "path": "category", "value": "billing", "weight": 4 }
+        ]
+      }
+    },
+    {
+      "id": "summarize-key-points",
+      "title": "Extract the main points (omit minor details)",
+      "prompt": "Extract the THREE most important points from this update as a JSON array of at most 3 short strings. Omit minor details.\n\nText: \"The app v2.3 shipped Tuesday. The big change is offline mode, which users have requested for a year. We also fixed a login bug and updated the help icon's color. Early feedback on offline mode is strongly positive, and we're seeing a 12% bump in daily active users. The office coffee machine was also repaired.\"\n\nReturn ONLY a JSON array.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 1 },
+          { "type": "not_regex", "pattern": "coffee|help icon|icon's color", "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "right_priorities", "weight": 3, "guidance": "The three points should be the material ones: v2.3 shipped with offline mode (the headline), strong positive feedback / 12% DAU bump, and (login bug fix as the third, lesser). Penalize including trivia (coffee machine, help-icon color) as a 'main' point, listing more than 3, or missing the offline-mode headline." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "summarize-no-padding",
+      "title": "Tighten a verbose update (no filler)",
+      "prompt": "Rewrite this as a tight summary of AT MOST 20 words, with no filler or repetition.\n\nText: \"So basically what happened is that, at the end of the day, the deployment that we did, which was the one for the new feature, it actually went really really well, and there were essentially no issues at all to speak of, none whatsoever.\"\n\nReturn ONLY the summary.",
+      "rubric": {
+        "deterministic": [
+          { "type": "max_words", "value": 22, "weight": 3 },
+          { "type": "not_regex", "pattern": "basically|at the end of the day|really really|to speak of", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "tight_and_complete", "weight": 3, "guidance": "Conveys the essence (the new-feature deployment went well with no issues) in <=20 crisp words, stripping all the filler. Penalize keeping verbal padding, exceeding the limit, or losing the meaning." }
+          ]
+        }
+      }
+    }
+  ]
+}

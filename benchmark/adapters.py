@@ -259,6 +259,64 @@ def _run_antigravity(prompt, model_arg, extra, timeout_sec):
         return r
 
 
+# agy quota/auth-failure signatures — when these show up the lane is rate-limited or the
+# weekly Gemini quota is spent, so the caller should STOP rather than keep burning attempts.
+_AGY_QUOTA_RE = re.compile(
+    r"quota|rate[ _-]?limit|ineligible\s*tier|ineligibletier|resource[ _-]?exhausted|"
+    r"too many requests|429|unauthenticated|unauthorized|permission denied|\b401\b|\b403\b",
+    re.IGNORECASE,
+)
+
+
+def antigravity_is_quota_error(text):
+    """True if agy stderr/stdout looks like a quota/rate-limit/auth failure (lane should pause)."""
+    return bool(_AGY_QUOTA_RE.search(text or ""))
+
+
+def run_antigravity_agentic(prompt, model_arg, extra, timeout_sec, cwd, skip_permissions=True):
+    """Antigravity AGENTIC frame — the production-faithful path (mirrors the live
+    antigravity_local adapter, packages/adapters/antigravity-local/src/server/execute.ts).
+
+    Unlike _run_antigravity (single-shot, fresh empty cwd, no tools), this runs agy in a
+    PREPARED `cwd` where the caller has already staged the role's skills as files under
+    .paperclip/skills/<name>/, and passes --dangerously-skip-permissions so unattended
+    tool use does not block on the headless permission gate. The prompt is SMALL (agent-file
+    + a 'skills are in .paperclip/skills' note + the task), so the agent reads the skill files
+    on demand instead of being fed ~65k chars of concatenated skill bodies — which is what
+    hangs agy print mode. Tokens are estimated (print mode emits no usage JSON) and flagged.
+
+    Sets r['quotaError']=True when the failure looks like a quota/rate-limit/auth problem, so
+    the orchestrator can halt the lane instead of hammering a spent weekly Gemini quota."""
+    r = benchlib.empty_result()
+    with _AGY_SEM:
+        cmd = ["agy", "-p", prompt]
+        if model_arg:
+            cmd += ["--model", model_arg]
+        if skip_permissions:
+            cmd += ["--dangerously-skip-permissions"]
+        cmd += list(extra)
+        r["cmd"] = (["agy", "-p", "<prompt>"]
+                    + (["--dangerously-skip-permissions"] if skip_permissions else [])
+                    + (["--model", model_arg] if model_arg else []))
+        rc, out, err, wall, timed_out = _exec(cmd, timeout_sec, cwd)
+        r["wallMs"] = wall
+        r["stderrTail"] = _tail(err)
+        r["output"] = (out or "").strip()
+        if timed_out:
+            r["error"] = "timeout"
+        elif rc not in (0, None) and not r["output"]:
+            r["error"] = f"agy: rc={rc}: {_tail(err, 160)}"
+        if r["error"] and antigravity_is_quota_error((err or "") + (out or "")):
+            r["quotaError"] = True
+        r["model"] = model_arg
+        r["inputTokens"] = benchlib.estimate_tokens(prompt)
+        r["outputTokens"] = benchlib.estimate_tokens(r["output"])
+        r["tokensEstimated"] = True
+        r["totalTokens"] = (r["inputTokens"] or 0) + (r["outputTokens"] or 0) or None
+        r["ok"] = bool(r["output"]) and not r["error"]
+        return r
+
+
 # --------------------------------------------------------------------------
 # gemini
 # --------------------------------------------------------------------------

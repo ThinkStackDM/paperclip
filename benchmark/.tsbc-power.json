@@ -1,0 +1,12 @@
+{
+  "maxWorkers": 1,
+  "runsPerSample": 5,
+  "oneModelPerAdapter": true,
+  "heavyTasksAllowed": false,
+  "mode": "low",
+  "dream": false,
+  "sleep": false,
+  "paused": false,
+  "reason": "ThinkStack Media sprint 16-20",
+  "updatedAt": "2026-06-25T18:01:05+01:00"
+}

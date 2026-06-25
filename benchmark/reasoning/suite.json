@@ -1,0 +1,136 @@
+{
+  "role": "reasoning",
+  "description": "Hard, trap-laden, DETERMINISTIC-answer reasoning problems designed to DISCRIMINATE reasoning models from cheap models. Each has a unique correct answer and a tempting plausible-but-wrong shortcut; scoring is purely deterministic (quality = did it reach the right answer), so a model cannot bluff a judge — reasoning shows up objectively. Spans multi-step arithmetic, logic deduction, constraint satisfaction, dependency ordering, code reasoning, probability, date/rate reasoning, and formal logic. Cheap models should trip the traps; reasoning models should work them through — revealing where reasoning earns its cost.",
+  "tasks": [
+    {
+      "id": "reason-compound-percent",
+      "title": "Sequential percentages (net-zero trap)",
+      "prompt": "A product costs $80. The price is first increased by 25%, then a 25% discount is applied to that new price, then 8% sales tax is added. What is the final price? Return ONLY the final number rounded to 2 decimals (just the number, no $).",
+      "rubric": {
+        "deterministic": [
+          { "type": "contains", "value": "81.00", "weight": 3 },
+          { "type": "not_regex", "pattern": "86\\.40|86\\.4\\b", "weight": 2 }
+        ]
+      }
+    },
+    {
+      "id": "reason-knights-knaves",
+      "title": "Knights and knaves deduction",
+      "prompt": "On an island, knights always tell the truth and knaves always lie. A says: 'B is a knave.' B says: 'A and I are the same type.' Determine each one's type. Return ONLY JSON: {\"A\": \"knight\"|\"knave\", \"B\": \"knight\"|\"knave\"}.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 1 },
+          { "type": "json_path_equals", "path": "A", "value": "knight", "weight": 2 },
+          { "type": "json_path_equals", "path": "B", "value": "knave", "weight": 2 }
+        ]
+      }
+    },
+    {
+      "id": "reason-dependency-order",
+      "title": "Valid dependency (topological) ordering",
+      "prompt": "Tasks and their prerequisites: A has none; B needs A; C needs A; D needs B and C; E needs D. Give one valid execution order of all five. Return ONLY a comma-separated list of the letters (e.g. 'A, B, C, D, E').",
+      "rubric": {
+        "deterministic": [
+          { "type": "regex", "pattern": "^\\s*A,\\s*B,\\s*C,\\s*D,\\s*E\\s*$|^\\s*A,\\s*C,\\s*B,\\s*D,\\s*E\\s*$", "weight": 4 }
+        ]
+      }
+    },
+    {
+      "id": "reason-prime-bug",
+      "title": "Subtle off-by-one in a prime check",
+      "prompt": "This function is meant to test primality:\n\n    def is_prime(n):\n        for i in range(2, int(n**0.5)):\n            if n % i == 0:\n                return False\n        return True\n\nAssuming n >= 2, what is the SMALLEST n that this function wrongly classifies as prime? Return ONLY JSON: {\"smallestWrong\": <integer>}.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 1 },
+          { "type": "json_path_equals", "path": "smallestWrong", "value": 4, "weight": 4 }
+        ]
+      }
+    },
+    {
+      "id": "reason-expected-value",
+      "title": "Expected value (forgets the loss outcomes)",
+      "prompt": "A game: you roll one fair 6-sided die. If it shows a 6 you win $30; on any other result you lose $5. What is the expected value of one play, in dollars? Return ONLY the number rounded to 2 decimals (a negative sign if it's a loss).",
+      "rubric": {
+        "deterministic": [
+          { "type": "contains", "value": "0.83", "weight": 4 }
+        ]
+      }
+    },
+    {
+      "id": "reason-machines-widgets",
+      "title": "Rate problem (the classic scaling trap)",
+      "prompt": "If 3 machines make 3 widgets in 3 minutes, how many minutes do 100 machines take to make 100 widgets (same rate per machine)? Return ONLY JSON: {\"minutes\": <number>}.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 1 },
+          { "type": "json_path_equals", "path": "minutes", "value": 3, "weight": 4 }
+        ]
+      }
+    },
+    {
+      "id": "reason-car-distance",
+      "title": "Proportional distance (unit care)",
+      "prompt": "A car travels 60 km in 45 minutes at constant speed. At that same speed, how many km does it travel in 1 hour and 15 minutes? Return ONLY the number of km.",
+      "rubric": {
+        "deterministic": [
+          { "type": "contains", "value": "100", "weight": 4 }
+        ]
+      }
+    },
+    {
+      "id": "reason-business-days",
+      "title": "Business-day date reasoning",
+      "prompt": "A task starts on Monday, June 1, and takes 7 business days to complete (work happens Monday-Friday only; weekends don't count). On what calendar date is the 7th business day? Return ONLY the date in the form 'June D' (e.g. 'June 9').",
+      "rubric": {
+        "deterministic": [
+          { "type": "regex", "pattern": "[Jj]une\\s*0?9\\b", "weight": 3 },
+          { "type": "not_regex", "pattern": "[Jj]une\\s*0?8\\b|[Jj]une\\s*0?7\\b", "weight": 1 }
+        ]
+      }
+    },
+    {
+      "id": "reason-modus-tollens",
+      "title": "Conditional logic (denying the consequent)",
+      "prompt": "It is TRUE that: 'If it rains, the game is cancelled.' You are told the game was NOT cancelled. What can you validly conclude about whether it rained? Return ONLY JSON: {\"conclusion\": \"it did not rain\"|\"it rained\"|\"cannot tell\"}.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 1 },
+          { "type": "json_path_equals", "path": "conclusion", "value": "it did not rain", "weight": 4 }
+        ]
+      }
+    },
+    {
+      "id": "reason-pets-constraint",
+      "title": "Constraint satisfaction (unique assignment)",
+      "prompt": "Ann, Bob, and Cal each own exactly one distinct pet from {cat, dog, fish}. Clues: Ann does not own the dog. Bob owns neither the cat nor the dog. Determine who owns what. Return ONLY JSON: {\"Ann\": \"cat\"|\"dog\"|\"fish\", \"Bob\": ..., \"Cal\": ...}.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 1 },
+          { "type": "json_path_equals", "path": "Ann", "value": "cat", "weight": 2 },
+          { "type": "json_path_equals", "path": "Bob", "value": "fish", "weight": 2 },
+          { "type": "json_path_equals", "path": "Cal", "value": "dog", "weight": 2 }
+        ]
+      }
+    },
+    {
+      "id": "reason-sequence",
+      "title": "Number sequence (non-constant difference)",
+      "prompt": "What is the next number in the sequence: 2, 6, 12, 20, 30, ? Return ONLY the number.",
+      "rubric": {
+        "deterministic": [
+          { "type": "contains", "value": "42", "weight": 4 }
+        ]
+      }
+    },
+    {
+      "id": "reason-overlap-set",
+      "title": "Set reasoning (inclusion-exclusion)",
+      "prompt": "In a group of 30 people, 18 like tea, 15 like coffee, and 5 like neither. How many like BOTH tea and coffee? Return ONLY the number.",
+      "rubric": {
+        "deterministic": [
+          { "type": "regex", "pattern": "\\b8\\b", "weight": 4 }
+        ]
+      }
+    }
+  ]
+}

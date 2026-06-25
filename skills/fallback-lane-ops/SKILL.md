@@ -24,11 +24,12 @@ Primary agents run on one adapter (usually `claude_local`). When that adapter is
 Automated path: the `fallback-monitor` routine (every 15 min, deliberately run on a non-Claude adapter so it survives the outage it mitigates) scans recent heartbeat-run logs for limit signatures on registered primaries, then for each hit:
 
 1. Skips paused/disabled sisters; tries remaining sisters in registry priority order.
-2. Reassigns the primary's open issues (`todo,in_progress,in_review,blocked`) to the first sister that accepts each issue, **skipping any issue with an active queued/running run**.
-3. Leaves a handover comment on every moved issue and writes the per-primary state file.
-4. Patches its own execution issue to `done` with a summary.
+2. When `FEATURE_FALLBACK_REASSIGN=on`, the chosen sister should self-take over each issue through `POST /api/issues/:issueId/fallback-reassign` instead of a manual assignee patch. That route enforces the registered-sister check, writes the audit comment, releases the old checkout, and wakes the sister. If the issue is already on the sister, it returns `200` with `noop: true`.
+3. Reassigns only issues whose primary is fallback-eligible and **skips any issue with an active queued/running run**.
+4. Leaves a handover comment on every moved issue and writes the per-primary state file.
+5. Patches its own execution issue to `done` with a summary.
 
-Manual operator path (`scripts/session-limit-watch.py`) — always escalate force in this order, never start broad:
+Manual operator path (`scripts/session-limit-watch.py`) is the fallback only when the route is disabled, the lane is not registry-wired yet, or you are doing recovery/backfill around the normal self-healing path. Always escalate force in this order, never start broad:
 
 1. Dry run: `--simulate-limit <primaryId> --simulate-reset-minutes 60 --max-issues 2` (expects JSON with `apply: false`, candidates under `moved`/`movedIssueTargets`; mutates nothing).
 2. One-issue apply: add `--max-issues 1 --apply --yes`; verify the issue moved and got a handover comment.

@@ -1,0 +1,115 @@
+{
+  "role": "social-post",
+  "description": "Production task (cross-company workflow-start): write a social post for a stated platform/goal under real constraints. Discriminates on craft (hook, clarity, CTA, platform register) and on resisting failure modes — hashtag stuffing, hard char limits, compliance claims, and over-salesy tone. Deterministic checks anchor the objective constraints (char/word caps, hashtag count, banned claims); the strict judge grades whether the post would actually perform on its platform.",
+  "tasks": [
+    {
+      "id": "social-launch-tweet",
+      "title": "Launch tweet under 280 chars with a hook + CTA",
+      "prompt": "Write a launch post for X/Twitter (<=280 characters) announcing a free tool: \"a one-page weekly budget planner (free download).\" It needs a hook, the value, and a clear call to action. Return ONLY the post text.",
+      "rubric": {
+        "deterministic": [
+          { "type": "max_chars", "value": 280, "weight": 3 },
+          { "type": "contains_any", "values": ["free", "download", "get", "grab", "link", "bio"], "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "post_craft", "weight": 3, "guidance": "Has a real hook (not 'Excited to announce'), states the concrete value crisply, and a clear CTA. Reads like a post that would get clicks. Penalize corporate throat-clearing, no CTA, burying the value, or generic launch-speak." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "social-hard-char-cap",
+      "title": "Hard char cap (100 chars)",
+      "prompt": "Write a single social post of AT MOST 100 characters promoting a podcast episode \"How to negotiate your salary.\" Must still be compelling. Return ONLY the post text (no hashtags needed).",
+      "rubric": {
+        "deterministic": [
+          { "type": "max_chars", "value": 100, "weight": 4 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "tight_and_compelling", "weight": 3, "guidance": "Within 100 chars AND still a compelling reason to listen (a benefit or curiosity hook). Penalize going over, or hitting the limit by being bland/empty ('New episode out now!'). Reward maximal punch in the space." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "social-no-hashtag-stuffing",
+      "title": "At most 2 hashtags (anti-stuffing trap)",
+      "prompt": "Write an Instagram caption for a new handmade-candle product launch. Hard constraint: use NO MORE THAN 2 hashtags total (cheap captions stuff 15+ — resist it). Make the caption itself do the work. Return ONLY the caption.",
+      "rubric": {
+        "deterministic": [
+          { "type": "regex", "pattern": "^(?:[^#]*#[^#\\s]+){0,2}[^#]*$", "weight": 4 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "caption_carries_it", "weight": 3, "guidance": "A caption where the WORDS create desire (sensory/benefit/story) and at most two well-chosen hashtags. Penalize hashtag stuffing (3+), or a thin caption leaning on tags to do the work. Should feel crafted, not templated." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "social-platform-register-linkedin",
+      "title": "LinkedIn register, not TikTok hype",
+      "prompt": "Write a LinkedIn post (<=120 words) for B2B founders sharing a lesson: \"We cut churn 30% by changing onboarding.\" Professional, insight-led, credible — not emoji-bait or hype. Include one concrete takeaway. Return ONLY the post.",
+      "rubric": {
+        "deterministic": [
+          { "type": "max_words", "value": 125, "weight": 1 },
+          { "type": "not_regex", "pattern": "🔥|😱|🤯|🚀{2,}", "weight": 1, "ci": false }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "linkedin_value", "weight": 3, "guidance": "Credible, specific, insight-led: opens with a real hook, gives the concrete lever (what onboarding change), and a takeaway a founder can use. Professional register. Penalize hype/emoji-bait, vague motivational fluff, or a humble-brag with no usable insight." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "social-compliance-no-guarantees",
+      "title": "Compliance trap: no guaranteed-returns/medical claims",
+      "prompt": "Write a promotional post (<=200 chars) for a personal-finance course. COMPLIANCE: do NOT promise guaranteed returns, 'get rich', specific income claims, or anything an ad reviewer would flag. Be compelling within those limits. Return ONLY the post.",
+      "rubric": {
+        "deterministic": [
+          { "type": "max_chars", "value": 210, "weight": 1 },
+          { "type": "not_regex", "pattern": "guaranteed|get rich|double your|\\$\\d+[k]? (a|per) (month|week|day)|risk-?free|guarantee", "weight": 3 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "compliant_and_compelling", "weight": 3, "guidance": "Promotes the course with benefit-led, honest language (skills, confidence, habits) and NO prohibited claims (guaranteed returns, get-rich, specific income, risk-free). Still compelling. Penalize any non-compliant claim even if subtle, or a post so hedged it's lifeless." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "social-rewrite-salesy",
+      "title": "Rewrite an over-salesy post",
+      "prompt": "This post is over-salesy and weak: \"🔥🔥 BUY NOW!! Our AMAZING productivity app will CHANGE YOUR LIFE!!! Don't miss out!!! Link in bio!!! 🚀🚀🚀\" Rewrite it as one stronger post (<=220 chars) that earns the click through value and a calm, credible CTA. Return ONLY the rewritten post.",
+      "rubric": {
+        "deterministic": [
+          { "type": "max_chars", "value": 230, "weight": 1 },
+          { "type": "not_regex", "pattern": "!!!|🔥🔥|🚀🚀|CHANGE YOUR LIFE|BUY NOW", "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "improvement", "weight": 3, "guidance": "Clearly better than the original: leads with a concrete benefit or use-case, calm credible tone, one clean CTA, no scream-caps/emoji-spam/false urgency. Penalize a rewrite that's still hypey, still vague ('amazing app'), or doesn't materially improve on the original." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "social-thread-opener",
+      "title": "Thread opener that earns the read",
+      "prompt": "Write the FIRST post of an X thread (<=270 chars) on \"5 things I wish I knew before freelancing.\" The opener must promise specific value and create a reason to read the whole thread — not just announce the topic. End so it pulls into the next post. Return ONLY the opening post.",
+      "rubric": {
+        "deterministic": [
+          { "type": "max_chars", "value": 275, "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "thread_pull", "weight": 3, "guidance": "Promises specific, earned value and creates momentum into the thread (stakes, a surprising claim, or '#1 surprised me'). Penalize merely announcing the topic ('A thread on freelancing tips 🧵'), vagueness, or an opener that doesn't compel the next tap." }
+          ]
+        }
+      }
+    }
+  ]
+}

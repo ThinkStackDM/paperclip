@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
-claude-window-flip — keep each company's CEO/CTO on Claude only during an 8h window
-(sprint window ± 2h), and on their codex sister otherwise. This frees Claude slots so
-ad-hoc tasks to DORMANT companies hit the cheap codex lane instead of tying up Claude
-for the company that's actually sprinting.
+claude-window-flip — windows ONLY the claude CTO sprint lane. (2026-06-21: the CEO is now
+PERMANENTLY on its codex/gpt-5.4 sister — gpt-5.4 ties opus on CEO judgment, so a claude CEO buys
+no quality; parking it saves the thin Claude sub. opus DOES win CTO, so the claude CTO still gets
+the windowed sprint overlay.) Codex sister stays the 24/7 always-on ops lane (routines live there).
 
-Per company (non-TSMC): claude window = [startHour-2, endHour+2] (mod 24).
-  in window  -> resume claude CEO/CTO   (codex sister untouched: always-on ops lane)
-  out window -> pause  claude CEO/CTO   (codex sister untouched: always-on ops lane)
-TSMC (always-on, no window) -> claude CEO/CTO always active.
+Per company: claude CTO window = [startHour-2, endHour+2] (mod 24).
+  CEO: pause claude permanently -> codex sister (gpt-5.4) is primary (claude = resumable fallback).
+  CTO: in window -> resume claude (opus);  out window -> pause (codex covers).
+  agent with no codex sister -> left on Claude (logged).
+TSMC (always-on) -> claude CTO always active; claude CEO still parked (codex primary).
 
 The codex sister is the 24/7 always-on OPS lane (routines live here; Hermes-backed
 session-limit failover owns its pause/resume). window-flip governs ONLY the Claude
@@ -29,6 +30,10 @@ from zoneinfo import ZoneInfo
 BASE = "http://127.0.0.1:3100"
 PG = ["/opt/homebrew/bin/psql", "-h127.0.0.1", "-p54329", "-U", "paperclip", "-d", "paperclip", "-tA", "-F", "\t"]
 APPLY = "--apply" in sys.argv
+# Ad-hoc sprints (scripts/adhoc-sprint.sh) drop a <cid>.json flag here; while
+# present we keep that company's claude CTO (and CEO if claudeCeo) active for the
+# whole sprint — no mid-sprint park/swap. The revert clears the flag.
+SPRINT_DIR = "/Users/glad0s/paperclip/scripts/.adhoc-sprint"
 
 def q(sql):
     r = subprocess.run(PG + ["-c", sql], env={**os.environ, "PGPASSWORD": "paperclip"}, capture_output=True, text=True)
@@ -46,6 +51,24 @@ def api(path, method="POST", body=None):
         return e.code, e.read().decode()[:120]
     except Exception as e:
         return 0, str(e)[:120]
+
+def load_sprints():
+    """cid -> sprint state dict, for any ad-hoc sprint currently in flight."""
+    out = {}
+    try:
+        for fn in os.listdir(SPRINT_DIR):
+            if not fn.endswith(".json"):
+                continue
+            try:
+                with open(os.path.join(SPRINT_DIR, fn)) as f:
+                    d = json.load(f)
+                if d.get("cid"):
+                    out[d["cid"]] = d
+            except Exception:
+                pass
+    except FileNotFoundError:
+        pass
+    return out
 
 def in_claude_window(h, start, end):
     cs = (start - 2) % 24
@@ -91,12 +114,17 @@ def main():
         elif desired == "paused" and not is_paused:
             actions.append(("pause", agent))
 
+    sprints = load_sprints()
+
     for cid, comp in companies.items():
         roles = fleet.get(cid, {})
         win = comp["win"]
         always_on = win is None  # TSMC
         in_win = True if always_on else in_claude_window(h, int(win["startHour"]), int(win["endHour"]))
+        sprint = sprints.get(cid)
         wlabel = "always-on" if always_on else f"sprint {win['startHour']:02d}-{win['endHour']:02d} → claude-window {'OPEN' if in_win else 'closed'}"
+        if sprint:
+            wlabel += f"  [AD-HOC SPRINT: claude CTO{' + CEO' if sprint.get('claudeCeo') else ''} active]"
         print(f"\n[{comp['name']}] {wlabel}")
         for role in ("ceo", "cto"):
             r = roles.get(role)
@@ -104,17 +132,31 @@ def main():
                 continue
             claude = r["claude"]
             sister = (r.get("codex_by_base") or {}).get(claude["name"])
+            # Ad-hoc sprint override: keep the claude sprint lane(s) active for the
+            # whole sprint (CTO always; CEO only if the sprint opted its claude in).
+            if sprint and (role == "cto" or (role == "ceo" and sprint.get("claudeCeo"))):
+                print(f"  {role}: claude {claude['name']}[{claude['status']}] ACTIVE (ad-hoc sprint override)")
+                want(claude, "active")
+                continue
             if not sister:
                 print(f"  {role}: {claude['name']} (claude) — NO codex sister, leaving on Claude")
                 want(claude, "active")
                 continue
             # Codex sister is the always-on ops lane — NOT pause/resumed here (owned by
             # session-limit-watch failover). window-flip only moves the Claude sprint lane.
-            if in_win:
-                print(f"  {role}: claude {claude['name']}[{claude['status']}] ACTIVE | codex {sister['name']}[{sister['status']}] always-on (untouched)")
+            # CEO: gpt-5.4 TIES opus on CEO judgment (0.97 vs 0.98, within noise) — a claude CEO
+            # buys no quality, so park it PERMANENTLY and run CEO on the codex sister (gpt-5.4),
+            # saving the thin Claude sub. Claude CEO stays a resumable fallback.
+            # CTO: opus has a REAL CTO edge (0.986 vs 0.965), so keep the windowed claude-opus
+            # sprint overlay — spend Claude exactly when CTO work peaks, codex covers off-window.
+            if role == "ceo":
+                print(f"  ceo: claude {claude['name']}[{claude['status']}] PARK (codex {sister['name']} = permanent primary)")
+                want(claude, "paused")
+            elif in_win:
+                print(f"  cto: claude {claude['name']}[{claude['status']}] ACTIVE (sprint window) | codex {sister['name']} covers off-window")
                 want(claude, "active")
             else:
-                print(f"  {role}: claude {claude['name']}[{claude['status']}] PAUSE | codex {sister['name']}[{sister['status']}] always-on (untouched)")
+                print(f"  cto: claude {claude['name']}[{claude['status']}] PAUSE (off-window) | codex {sister['name']} covers")
                 want(claude, "paused")
 
     print(f"\n=== {len(actions)} action(s) {'to apply' if APPLY else 'planned (dry-run)'} ===")

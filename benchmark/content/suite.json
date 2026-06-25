@@ -122,6 +122,110 @@
           ]
         }
       }
+    },
+    {
+      "id": "content-cta-char-cap",
+      "title": "CTA button + subline under a hard character cap",
+      "prompt": "Write microcopy for the primary call-to-action on the ThinkStack OpCo pricing page. The product is \"Ledger\", a menu-bar app that tracks remaining AI-subscription quota; it is free during beta.\n\nReturn ONLY JSON: {\"button\": string, \"subline\": string}.\n\nHARD CONSTRAINTS (these are strict caps, count every character including spaces):\n- \"button\" is at most 20 characters.\n- \"subline\" is at most 50 characters.\n- The button must be an action verb phrase (e.g. starts with a verb like \"Start\", \"Get\", \"Try\"), NOT a noun label like \"Pricing\" or \"Features\".\n- The subline must reassure on cost or risk (free / no card / beta), not just repeat the button.\n\nNo markdown, no preamble.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "regex", "pattern": "\"button\"\\s*:\\s*\"[^\"]{1,20}\"", "weight": 3 },
+          { "type": "regex", "pattern": "\"subline\"\\s*:\\s*\"[^\"]{1,50}\"", "weight": 3 },
+          { "type": "contains_any", "values": ["free", "no card", "no credit", "beta", "$0", "without"], "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "cta_quality", "weight": 2, "guidance": "Button is a crisp action verb phrase that fits a real button (e.g. 'Start free', 'Get Ledger'), NOT a noun/section label ('Pricing', 'Plans', 'Features'). Penalize a button that is a noun label, that exceeds 20 chars, or that is vague ('Click here', 'Learn more' for a buy CTA)." },
+            { "name": "subline_value", "weight": 2, "guidance": "Subline removes a purchase objection by reassuring on cost/risk (free during beta / no card needed) and does not merely restate the button. Penalize sublines that just repeat the button, exceed 50 chars, or add no new reassurance." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "content-tone-shift-rewrite",
+      "title": "Tone-shift rewrite: same facts, new audience (engineers -> CFOs)",
+      "prompt": "Rewrite the following engineer-facing changelog note for a NON-technical audience: the finance/operations leaders (CFOs) who pay for the ThinkStack platform. KEEP every fact true and unchanged; only shift the tone, framing, and vocabulary to what a CFO cares about (cost, risk, reliability), and strip the jargon.\n\nORIGINAL (engineer-facing):\n\"Migrated heartbeat_runs token accounting to COALESCE the cacheReadInputTokens and cacheCreationInputTokens fields into the input sum; the old query null-dropped cache tokens so per-run cost was undercounted ~30% on cache-heavy agents.\"\n\nHARD CONSTRAINTS:\n- 55 words MAXIMUM.\n- Must NOT contain any of these jargon terms: \"COALESCE\", \"heartbeat_runs\", \"cacheReadInputTokens\", \"cacheCreationInputTokens\", \"null\", \"query\", \"field\".\n- Must preserve the concrete ~30% undercount fact.\n\nReturn ONLY the rewritten note. No preamble.",
+      "rubric": {
+        "deterministic": [
+          { "type": "max_words", "value": 55, "weight": 3 },
+          { "type": "not_contains", "value": "COALESCE", "weight": 1 },
+          { "type": "not_contains", "value": "heartbeat_runs", "weight": 1 },
+          { "type": "not_contains", "value": "cacheReadInputTokens", "weight": 1 },
+          { "type": "not_contains", "value": "cacheCreationInputTokens", "weight": 1 },
+          { "type": "not_contains", "value": "null", "weight": 1 },
+          { "type": "not_contains", "value": "query", "weight": 1 },
+          { "type": "contains_any", "values": ["30%", "30 percent", "~30", "a third", "third"], "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "audience_fit", "weight": 2, "guidance": "Reframed for a CFO: leads with the money/risk angle (costs were understated, now accurate so budgeting/billing is trustworthy), in plain business English. Penalize copy that still reads like an engineering note, that buries the cost impact, or that adds corporate fluff." },
+            { "name": "fidelity", "weight": 2, "guidance": "All facts preserved and TRUE: cost was undercounted by ~30%, the cause was uncounted cached usage, it is now fixed/accurate. Penalize any invented benefit, dropped ~30% figure, or distortion (e.g. claiming it SAVES money rather than corrects an undercount)." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "content-compliance-no-claims",
+      "title": "Compliance trap: ad copy with no guaranteed-returns or medical claims",
+      "prompt": "Write promotional copy (2-3 sentences) for \"Cadence\", a ThinkStack OpCo habit-tracking app that helps users build daily routines. Marketing/legal compliance is mandatory.\n\nHARD COMPLIANCE RULES (a single violation makes the copy unusable):\n- Make NO guaranteed-outcome or financial-returns claims (do not promise results, do not use \"guarantee\"/\"guaranteed\", \"risk-free\", \"proven to\", \"results guaranteed\", or any promise of a specific outcome).\n- Make NO health/medical claims (do not claim it treats, cures, heals, prevents, or diagnoses anything; avoid \"clinically\", \"medically\", \"cure\", \"treat\", \"heal\", \"anxiety\", \"depression\", \"disease\").\n- Use hedged, honest language about what the app DOES (helps you track, makes it easier to stick to routines), not what it WILL achieve for the user.\n\nReturn ONLY the copy. No preamble, no disclaimer.",
+      "rubric": {
+        "deterministic": [
+          { "type": "not_contains", "value": "guarantee", "weight": 2 },
+          { "type": "not_contains", "value": "risk-free", "weight": 1 },
+          { "type": "not_contains", "value": "proven to", "weight": 1 },
+          { "type": "not_contains", "value": "cure", "weight": 1 },
+          { "type": "not_contains", "value": "clinically", "weight": 1 },
+          { "type": "not_contains", "value": "medically", "weight": 1 },
+          { "type": "not_regex", "pattern": "\\b(treat|treats|heal|heals|cures)\\b", "weight": 1 },
+          { "type": "not_regex", "pattern": "\\b(anxiety|depression|disease)\\b", "weight": 1 },
+          { "type": "min_words", "value": 15, "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "compliance", "weight": 3, "guidance": "Makes NO guaranteed-outcome, financial-returns, or health/medical claim, even implicitly. Treat as a violation any promise of a specific result ('you WILL build the habit', 'transform your life', 'never miss a day again'), any implied therapeutic benefit (reduces stress, improves wellbeing, fixes your focus), or weasel-worded guarantees. Reward honest, hedged framing of what the app DOES (helps you track / makes routines easier to keep) rather than what it WILL do for the user. A single implicit outcome/medical claim should score this low." },
+            { "name": "quality", "weight": 1, "guidance": "Despite the constraints, reads as appealing, concrete copy for a habit-tracking app — not bland legalese." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "content-headlines-with-rationale",
+      "title": "Three headlines with a stated one-line rationale each",
+      "prompt": "Generate a headline set for the launch of \"Pulse\", a ThinkStack OpCo status-page tool that posts incident updates automatically so teams stop fielding 'is it down?' pings.\n\nReturn ONLY JSON of this exact shape:\n{\"headlines\": [{\"text\": string, \"angle\": string, \"rationale\": string}, {\"text\": string, \"angle\": string, \"rationale\": string}, {\"text\": string, \"angle\": string, \"rationale\": string}]}\n\nHARD CONSTRAINTS:\n- EXACTLY 3 headline objects.\n- Each \"text\" (the headline) is at most 9 words.\n- The three \"angle\" values must be DISTINCT (e.g. pain-relief, speed/automation, trust/transparency) — no two headlines may use the same angle.\n- Each \"rationale\" is ONE sentence explaining WHY that headline works for this audience (who it targets / what it leverages), not a restatement of the headline.\n\nNo preamble, no markdown.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_exists", "path": "headlines.0.text", "weight": 1 },
+          { "type": "json_path_exists", "path": "headlines.1.angle", "weight": 1 },
+          { "type": "json_path_exists", "path": "headlines.2.rationale", "weight": 1 },
+          { "type": "not_regex", "pattern": "\"headlines\"\\s*:\\s*\\[(?:[^\\]]*?\\{[^}]*\\}){4,}", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "distinct_angles", "weight": 2, "guidance": "Exactly 3 headlines, each <=9 words, and the three angles are genuinely DISTINCT marketing approaches (not three rewordings of the same idea). Penalize duplicate/overlapping angles, any headline over 9 words, or more/fewer than 3." },
+            { "name": "rationale_quality", "weight": 2, "guidance": "Each rationale is a real one-sentence justification — names the target reader or the lever it pulls (e.g. 'speaks to on-call engineers tired of status pings') — NOT a paraphrase of the headline. Penalize rationales that merely restate the headline, are empty, or are generic ('this is catchy')." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "content-meta-description-exact-length",
+      "title": "SEO meta description landing inside a tight character band",
+      "prompt": "Write the SEO meta description for the ThinkStack landing page for \"Tally\", a self-hosted, privacy-first web-analytics tool (no cookies, you own your data).\n\nReturn ONLY the meta description as plain text — no quotes, no label, no markdown, no preamble.\n\nHARD CONSTRAINTS:\n- Length MUST be between 140 and 156 characters INCLUSIVE (this is the search-snippet window; under 140 wastes space, over 156 gets truncated). Count every character including spaces.\n- Must mention BOTH \"self-hosted\" and \"privacy\" (or \"private\").\n- Must read as one or two natural sentences, not a keyword list.\n- Must contain a soft call-to-action or value hook, not just a description.",
+      "rubric": {
+        "deterministic": [
+          { "type": "min_chars", "value": 140, "weight": 3 },
+          { "type": "max_chars", "value": 156, "weight": 4 },
+          { "type": "contains", "value": "self-hosted", "weight": 1 },
+          { "type": "contains_any", "values": ["privacy", "private"], "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "meta_quality", "weight": 2, "guidance": "Reads as a natural, compelling search snippet (one or two sentences) for a self-hosted, privacy-first analytics tool, with a value hook or soft CTA — not a comma-separated keyword dump. Penalize keyword stuffing, awkward padding clearly added just to hit the character count, or a flat description with no hook." }
+          ]
+        }
+      }
     }
   ]
 }

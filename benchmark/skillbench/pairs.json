@@ -1,23 +1,65 @@
 {
-  "_comment": "Each pair tests whether a candidate skill lifts performance on a deliberately UNDER-SPECIFIED task — one whose bare prompt does NOT spell out the methodology the skill teaches (enumerate ALL compounding defects, hold the three liveness invariants, frame as a product rule, no code). The rubric rewards exactly that methodology, so a skill that actually conveys it should raise quality vs the bare baseline. Same scoring engine + blind judge as #15.",
+  "_comment": "Each pair tests whether a candidate skill lifts performance on a deliberately UNDER-SPECIFIED task \u2014 one whose bare prompt does NOT spell out the methodology the skill teaches (enumerate ALL compounding defects, hold the three liveness invariants, frame as a product rule, no code). The rubric rewards exactly that methodology, so a skill that actually conveys it should raise quality vs the bare baseline. Same scoring engine + blind judge as #15.",
   "pairs": [
     {
       "id": "ops-restart-race",
       "skill": "candidate-skills/ops-liveness-forensics.md",
       "task": {
         "id": "restart-race-bare",
-        "prompt": "Something keeps going wrong when our server restarts. Diagnose the root cause and propose fixes (no code — a written root cause and plan).\n\nEvidence gathered:\n1. The process supervisor is set to keep-alive with a short throttle, so it re-launches the start script the instant the dev server exits — but the OLD embedded-Postgres postmaster and a detached worker on port 13100 are still alive, causing \"postmaster.pid already exists\" / \"port 13100 in use\". The start script only frees the main port (3100) and has no single-instance lock.\n2. The SIGTERM handler doesn't drain in-flight jobs or kill detached child processes before exiting.\n3. On startup, the orphan-reaper is called with no stale-threshold (it defaults to 0), so every still-'running' job is immediately marked lost.\n\nGive your diagnosis and your recommended fixes.",
+        "prompt": "Something keeps going wrong when our server restarts. Diagnose the root cause and propose fixes (no code \u2014 a written root cause and plan).\n\nEvidence gathered:\n1. The process supervisor is set to keep-alive with a short throttle, so it re-launches the start script the instant the dev server exits \u2014 but the OLD embedded-Postgres postmaster and a detached worker on port 13100 are still alive, causing \"postmaster.pid already exists\" / \"port 13100 in use\". The start script only frees the main port (3100) and has no single-instance lock.\n2. The SIGTERM handler doesn't drain in-flight jobs or kill detached child processes before exiting.\n3. On startup, the orphan-reaper is called with no stale-threshold (it defaults to 0), so every still-'running' job is immediately marked lost.\n\nGive your diagnosis and your recommended fixes.",
         "rubric": {
           "deterministic": [
-            { "type": "contains_any", "values": ["lock", "flock", "single-instance", "postmaster", "13100"], "weight": 2 },
-            { "type": "contains_any", "values": ["SIGTERM", "drain", "teardown", "children", "graceful"], "weight": 2 },
-            { "type": "contains_any", "values": ["threshold", "grace", "reap", "default", "0"], "weight": 2 }
+            {
+              "type": "contains_any",
+              "values": [
+                "lock",
+                "flock",
+                "single-instance",
+                "postmaster",
+                "13100"
+              ],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "SIGTERM",
+                "drain",
+                "teardown",
+                "children",
+                "graceful"
+              ],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "threshold",
+                "grace",
+                "reap",
+                "default",
+                "0"
+              ],
+              "weight": 2
+            }
           ],
           "judge": {
             "criteria": [
-              { "name": "all_three", "weight": 3, "guidance": "Identifies ALL THREE distinct defects as separate compounding causes: (a) no single-instance lock / stale postmaster+port-13100 not reaped before relaunch, (b) SIGTERM doesn't drain jobs or kill detached children, (c) orphan-reaper default-0 threshold instantly fails live jobs. Deduct heavily for each missed defect or for collapsing them into one." },
-              { "name": "fixes_and_invariants", "weight": 2, "guidance": "Gives a correct specific fix per defect AND frames recovery so it stays bounded and doesn't silently drop work (the liveness invariants: work continues, only real blockers stop it, no infinite loops). Vague 'add error handling' scores low." },
-              { "name": "no_code", "weight": 1, "guidance": "Delivers a root cause + plan, not code." }
+              {
+                "name": "all_three",
+                "weight": 3,
+                "guidance": "Identifies ALL THREE distinct defects as separate compounding causes: (a) no single-instance lock / stale postmaster+port-13100 not reaped before relaunch, (b) SIGTERM doesn't drain jobs or kill detached children, (c) orphan-reaper default-0 threshold instantly fails live jobs. Deduct heavily for each missed defect or for collapsing them into one."
+              },
+              {
+                "name": "fixes_and_invariants",
+                "weight": 2,
+                "guidance": "Gives a correct specific fix per defect AND frames recovery so it stays bounded and doesn't silently drop work (the liveness invariants: work continues, only real blockers stop it, no infinite loops). Vague 'add error handling' scores low."
+              },
+              {
+                "name": "no_code",
+                "weight": 1,
+                "guidance": "Delivers a root cause + plan, not code."
+              }
             ]
           }
         }
@@ -28,17 +70,45 @@
       "skill": "candidate-skills/ops-liveness-forensics.md",
       "task": {
         "id": "recovery-loop-bare",
-        "prompt": "A recovery routine in our system fires about 110 times an hour. 986 of those per day fail with \"Agent is not invokable (paused)\". The agents it keeps trying to re-invoke are 13 that we DELIBERATELY paused (they hit a weekly rate limit and resume on a fixed date). Diagnose the root cause and propose a fix (no code — a written root cause and plan).",
+        "prompt": "A recovery routine in our system fires about 110 times an hour. 986 of those per day fail with \"Agent is not invokable (paused)\". The agents it keeps trying to re-invoke are 13 that we DELIBERATELY paused (they hit a weekly rate limit and resume on a fixed date). Diagnose the root cause and propose a fix (no code \u2014 a written root cause and plan).",
         "rubric": {
           "deterministic": [
-            { "type": "contains_any", "values": ["paused", "pause"], "weight": 2 },
-            { "type": "contains_any", "values": ["skip", "exclude", "filter", "guard"], "weight": 2 }
+            {
+              "type": "contains_any",
+              "values": [
+                "paused",
+                "pause"
+              ],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "skip",
+                "exclude",
+                "filter",
+                "guard"
+              ],
+              "weight": 2
+            }
           ],
           "judge": {
             "criteria": [
-              { "name": "correctness", "weight": 3, "guidance": "Roots the cause in recovery re-invoking deliberately-paused agents; the fix is to skip/exclude paused agents from the recovery sweep — NOT to unpause them or just add backoff." },
-              { "name": "invariants", "weight": 2, "guidance": "Frames the fix so work still proceeds (paused is a real wait, not a silent stop), only real blockers stop work, and the loop becomes bounded — even though the bare prompt never mentioned these. Reward an answer that surfaces this discipline on its own." },
-              { "name": "actionability", "weight": 1, "guidance": "One concrete product rule, not a vague gesture." }
+              {
+                "name": "correctness",
+                "weight": 3,
+                "guidance": "Roots the cause in recovery re-invoking deliberately-paused agents; the fix is to skip/exclude paused agents from the recovery sweep \u2014 NOT to unpause them or just add backoff."
+              },
+              {
+                "name": "invariants",
+                "weight": 2,
+                "guidance": "Frames the fix so work still proceeds (paused is a real wait, not a silent stop), only real blockers stop work, and the loop becomes bounded \u2014 even though the bare prompt never mentioned these. Reward an answer that surfaces this discipline on its own."
+              },
+              {
+                "name": "actionability",
+                "weight": 1,
+                "guidance": "One concrete product rule, not a vague gesture."
+              }
             ]
           }
         }
@@ -52,20 +122,64 @@
         "prompt": "Write a short promo blurb for \"Beacon\", an uptime-monitoring tool. Hard requirements: exactly 2 sentences; between 25 and 45 words total; must include the words \"uptime\" and \"alert\"; must NOT use any of \"seamless\", \"powerful\", \"next-gen\", \"leverage\"; must end with a question mark. Return ONLY the blurb, no preamble.",
         "rubric": {
           "deterministic": [
-            { "type": "min_words", "value": 25, "weight": 1 },
-            { "type": "max_words", "value": 45, "weight": 2 },
-            { "type": "contains", "value": "uptime", "weight": 1 },
-            { "type": "contains", "value": "alert", "weight": 1 },
-            { "type": "not_contains", "value": "seamless", "weight": 1 },
-            { "type": "not_contains", "value": "powerful", "weight": 1 },
-            { "type": "not_contains", "value": "next-gen", "weight": 1 },
-            { "type": "not_contains", "value": "leverage", "weight": 1 },
-            { "type": "regex", "pattern": "\\?\\s*$", "weight": 2 },
-            { "type": "regex", "pattern": "^[^.!?]*[.!?][^.!?]*[.!?]\\s*$", "weight": 2 }
+            {
+              "type": "min_words",
+              "value": 25,
+              "weight": 1
+            },
+            {
+              "type": "max_words",
+              "value": 45,
+              "weight": 2
+            },
+            {
+              "type": "contains",
+              "value": "uptime",
+              "weight": 1
+            },
+            {
+              "type": "contains",
+              "value": "alert",
+              "weight": 1
+            },
+            {
+              "type": "not_contains",
+              "value": "seamless",
+              "weight": 1
+            },
+            {
+              "type": "not_contains",
+              "value": "powerful",
+              "weight": 1
+            },
+            {
+              "type": "not_contains",
+              "value": "next-gen",
+              "weight": 1
+            },
+            {
+              "type": "not_contains",
+              "value": "leverage",
+              "weight": 1
+            },
+            {
+              "type": "regex",
+              "pattern": "\\?\\s*$",
+              "weight": 2
+            },
+            {
+              "type": "regex",
+              "pattern": "^[^.!?]*[.!?][^.!?]*[.!?]\\s*$",
+              "weight": 2
+            }
           ],
           "judge": {
             "criteria": [
-              { "name": "quality", "weight": 2, "guidance": "Reads as a genuine, appealing promo for an uptime/alerting tool despite the constraints; not stilted, padded, or nonsensical." }
+              {
+                "name": "quality",
+                "weight": 2,
+                "guidance": "Reads as a genuine, appealing promo for an uptime/alerting tool despite the constraints; not stilted, padded, or nonsensical."
+              }
             ]
           }
         }
@@ -79,12 +193,34 @@
         "prompt": "This TypeScript runs slowly under load. Diagnose the root cause and give the fix (you may sketch code). Under 130 words.\n\n  async function loadAgentCards(agentIds: string[]) {\n    const cards = [];\n    for (const id of agentIds) {\n      const agent = await db.query.agents.findFirst({ where: eq(agents.id, id) });\n      const runs = await db.query.runs.findMany({ where: eq(runs.agentId, id), limit: 5 });\n      cards.push({ agent, runs });\n    }\n    return cards;\n  }",
         "rubric": {
           "deterministic": [
-            { "type": "contains_any", "values": ["N+1", "n+1", "per-item", "per item", "in a loop", "per iteration", "inArray", "IN (", "batch"], "weight": 3 },
-            { "type": "max_words", "value": 160, "weight": 1 }
+            {
+              "type": "contains_any",
+              "values": [
+                "N+1",
+                "n+1",
+                "per-item",
+                "per item",
+                "in a loop",
+                "per iteration",
+                "inArray",
+                "IN (",
+                "batch"
+              ],
+              "weight": 3
+            },
+            {
+              "type": "max_words",
+              "value": 160,
+              "weight": 1
+            }
           ],
           "judge": {
             "criteria": [
-              { "name": "correctness", "weight": 3, "guidance": "Identifies the N+1 / per-iteration query pattern (a query per agent inside the loop -> ~2N queries) and the fix is to BATCH with inArray/IN + group in memory (2 queries instead of 2N). Penalize caching/index-only answers or keeping the loop." }
+              {
+                "name": "correctness",
+                "weight": 3,
+                "guidance": "Identifies the N+1 / per-iteration query pattern (a query per agent inside the loop -> ~2N queries) and the fix is to BATCH with inArray/IN + group in memory (2 queries instead of 2N). Penalize caching/index-only answers or keeping the loop."
+              }
             ]
           }
         }
@@ -98,20 +234,248 @@
         "prompt": "Write the opening of Chapter 1 of a practical guide titled \"The Calm Inbox: Email Systems for People Who Hate Email.\" Audience: busy professionals who feel buried by email. Roughly 150-220 words. Return only the prose, no headings or notes.",
         "rubric": {
           "deterministic": [
-            { "type": "min_words", "value": 120, "weight": 1 },
-            { "type": "max_words", "value": 270, "weight": 1 },
-            { "type": "not_contains", "value": "fast-paced world", "weight": 1 },
-            { "type": "not_contains", "value": "important to note", "weight": 1 },
-            { "type": "not_contains", "value": "delve", "weight": 1 },
-            { "type": "not_contains", "value": "tapestry", "weight": 1 },
-            { "type": "not_contains", "value": "This chapter will", "weight": 1 }
+            {
+              "type": "min_words",
+              "value": 120,
+              "weight": 1
+            },
+            {
+              "type": "max_words",
+              "value": 270,
+              "weight": 1
+            },
+            {
+              "type": "not_contains",
+              "value": "fast-paced world",
+              "weight": 1
+            },
+            {
+              "type": "not_contains",
+              "value": "important to note",
+              "weight": 1
+            },
+            {
+              "type": "not_contains",
+              "value": "delve",
+              "weight": 1
+            },
+            {
+              "type": "not_contains",
+              "value": "tapestry",
+              "weight": 1
+            },
+            {
+              "type": "not_contains",
+              "value": "This chapter will",
+              "weight": 1
+            }
           ],
           "judge": {
             "criteria": [
-              { "name": "hook", "weight": 3, "guidance": "Opens on something concrete and immediate -- a specific moment, tension, image, or sharp claim that pulls the reader in. Penalize heavily a generic scene-set ('In today's world...', 'Email has become...') or a definition / throat-clearing intro ('This chapter will explore...')." },
-              { "name": "craft", "weight": 3, "guidance": "Uses concrete, specific, sensory or situational detail instead of abstract claims (a real number, a named scenario, a physical beat). Sentence rhythm varies; active voice; reads like a published book, not generic AI filler. Penalize vague, interchangeable prose that could open any book on any topic." },
-              { "name": "voice_and_pull", "weight": 2, "guidance": "Consistent voice aimed at the stated audience; ends with forward momentum (a turn, a promise, a question) rather than a recap. No padding or filler paragraphs." },
-              { "name": "no_ai_tells", "weight": 1, "guidance": "Free of cliche AI phrasing and empty hedges; nothing that reads as boilerplate." }
+              {
+                "name": "hook",
+                "weight": 3,
+                "guidance": "Opens on something concrete and immediate -- a specific moment, tension, image, or sharp claim that pulls the reader in. Penalize heavily a generic scene-set ('In today's world...', 'Email has become...') or a definition / throat-clearing intro ('This chapter will explore...')."
+              },
+              {
+                "name": "craft",
+                "weight": 3,
+                "guidance": "Uses concrete, specific, sensory or situational detail instead of abstract claims (a real number, a named scenario, a physical beat). Sentence rhythm varies; active voice; reads like a published book, not generic AI filler. Penalize vague, interchangeable prose that could open any book on any topic."
+              },
+              {
+                "name": "voice_and_pull",
+                "weight": 2,
+                "guidance": "Consistent voice aimed at the stated audience; ends with forward momentum (a turn, a promise, a question) rather than a recap. No padding or filler paragraphs."
+              },
+              {
+                "name": "no_ai_tells",
+                "weight": 1,
+                "guidance": "Free of cliche AI phrasing and empty hedges; nothing that reads as boilerplate."
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "youtube-script-content-ops",
+      "skill": "candidate-skills/content-production-ops-script.md",
+      "task": {
+        "id": "youtube-script-segment-bare",
+        "prompt": "Write the opening segment of a faceless YouTube script for Stack Lab, roughly 190-260 words. Topic: most solo builders think AI-tool cost is the problem, but the real workflow killer is hitting hidden subscription caps across ChatGPT, Claude, Gemini, and Grok mid-task. Audience: operators and solo founders. Goal: make them keep watching for the fix. Return ONLY the script prose, no headings, no stage directions, no bullet points.",
+        "rubric": {
+          "deterministic": [
+            {
+              "type": "min_words",
+              "value": 170,
+              "weight": 1
+            },
+            {
+              "type": "max_words",
+              "value": 290,
+              "weight": 1
+            },
+            {
+              "type": "not_contains",
+              "value": "In this video",
+              "weight": 1
+            },
+            {
+              "type": "not_regex",
+              "pattern": "smash (that )?subscribe|drop a like|like and subscribe",
+              "weight": 1
+            }
+          ],
+          "judge": {
+            "criteria": [
+              {
+                "name": "hook_and_retention",
+                "weight": 3,
+                "guidance": "The first lines create immediate tension or curiosity around a concrete operator pain, and the segment pulls the viewer toward the next beat. Penalize generic creator-intro throat-clearing, flat explanation dumps, or weak stakes."
+              },
+              {
+                "name": "specificity",
+                "weight": 3,
+                "guidance": "Uses concrete workflow detail -- named tools, a realistic failure moment, a precise scenario or cost/cap consequence. Penalize vague 'AI is changing everything' filler that could fit any channel."
+              },
+              {
+                "name": "channel_fit",
+                "weight": 2,
+                "guidance": "Feels like Stack Lab: practical, tool/workflow-driven, plain-spoken, useful to solo builders. Penalize hype, finance-advice drift, or abstract AI philosophy."
+              },
+              {
+                "name": "forward_promise",
+                "weight": 1,
+                "guidance": "Clearly signals the payoff to come without fully cashing it out yet."
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "etsy-listing-seo",
+      "skill": "candidate-skills/etsy-seo-pricing-photography.md",
+      "task": {
+        "id": "etsy-listing-pack-bare",
+        "prompt": "Draft an Etsy listing pack for a DIGITAL DOWNLOAD wall-art product. Product: a printable abstract landscape set in sage green and terracotta for a neutral living room. Style: boho-minimal, giftable, instant download. Return ONLY JSON: {\"title\": string, \"tags\": [string, string, string, string, string, string, string, string, string, string, string, string, string], \"price\": number, \"heroAngle\": string}. No markdown.",
+        "rubric": {
+          "deterministic": [
+            {
+              "type": "json_valid",
+              "weight": 2
+            },
+            {
+              "type": "json_path_exists",
+              "path": "title",
+              "weight": 1
+            },
+            {
+              "type": "json_path_exists",
+              "path": "tags",
+              "weight": 1
+            },
+            {
+              "type": "json_path_exists",
+              "path": "price",
+              "weight": 1
+            },
+            {
+              "type": "json_path_exists",
+              "path": "heroAngle",
+              "weight": 1
+            },
+            {
+              "type": "json_path_len_equals",
+              "path": "tags",
+              "value": 13,
+              "weight": 3
+            },
+            {
+              "type": "json_path_max_chars",
+              "path": "title",
+              "value": 140,
+              "weight": 2
+            }
+          ],
+          "judge": {
+            "criteria": [
+              {
+                "name": "search_intent_fit",
+                "weight": 3,
+                "guidance": "The title front-loads likely buyer language, and the tags are relevant, multi-word, and intent-matched to this product. Penalize generic art words, single-word tag waste, or drift away from printable wall-art buyer intent."
+              },
+              {
+                "name": "tag_discipline",
+                "weight": 2,
+                "guidance": "All 13 tags add value, mix head and long-tail phrases, and avoid obvious duplication. Penalize repeated-word churn, filler tags, or tags that are too broad to help ranking."
+              },
+              {
+                "name": "conversion_judgment",
+                "weight": 2,
+                "guidance": "The price is realistic for digital wall art, and the heroAngle sounds like a believable first-image click concept that would work in Etsy's visual grid. Penalize arbitrary underpricing or a vague hero concept."
+              },
+              {
+                "name": "clarity",
+                "weight": 1,
+                "guidance": "Readable, commercially usable output with no malformed or awkward copy."
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "cv-polish-recruitment",
+      "skill": "candidate-skills/recruitment-cv-polish.md",
+      "task": {
+        "id": "cv-polish-bullets-bare",
+        "prompt": "Rewrite these raw notes into the FIRST FOUR bullet points of a tailored CV for a Site Reliability Engineer application. Use ONLY these facts.\n\nCandidate facts:\n- DevOps Engineer at Bluepeak Ltd, 2019-present.\n- Led migration of 40 services to Kubernetes; deploy time dropped from 50 minutes to 20.\n- Built Terraform modules used by 6 product teams.\n- Primary on-call for customer-facing APIs; cut sev-1 incidents 35% by improving runbooks and alerts.\n- AWS Solutions Architect Associate.\n\nJob must-haves:\n1. Kubernetes at production scale\n2. Infrastructure as code\n3. On-call / reliability ownership\n4. AWS\n\nReturn ONLY JSON: {\"bullets\": [string, string, string, string], \"coverAngle\": string}. No markdown.",
+        "rubric": {
+          "deterministic": [
+            {
+              "type": "json_valid",
+              "weight": 2
+            },
+            {
+              "type": "json_path_len_equals",
+              "path": "bullets",
+              "value": 4,
+              "weight": 3
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "Kubernetes",
+                "Terraform",
+                "on-call",
+                "AWS"
+              ],
+              "weight": 2
+            }
+          ],
+          "judge": {
+            "criteria": [
+              {
+                "name": "must_have_alignment",
+                "weight": 3,
+                "guidance": "The bullets lead with evidence for the stated must-haves, ideally in the job's order. Penalize a weak ordering that buries Kubernetes, Terraform, reliability, or AWS despite those being the task's explicit must-haves."
+              },
+              {
+                "name": "truthfulness",
+                "weight": 3,
+                "guidance": "Every claim is traceable to the provided facts. Penalize invented scale, extra employers, fake metrics, fabricated tooling, or credential inflation."
+              },
+              {
+                "name": "resume_strength",
+                "weight": 2,
+                "guidance": "Strong ATS-clean bullet writing: action + scope + outcome, crisp verbs, specific evidence, no vague filler."
+              },
+              {
+                "name": "cover_angle",
+                "weight": 1,
+                "guidance": "The coverAngle frames the application honestly and specifically rather than as a generic sentence that could fit any candidate."
+              }
             ]
           }
         }
@@ -125,18 +489,94 @@
         "prompt": "We sell a CV-polishing service for $29 with a 48-hour turnaround. Draft a plan for the service's landing page: the sections it needs, in order, and the key copy/wording for each. Under 280 words. Return only the plan.",
         "rubric": {
           "deterministic": [
-            { "type": "contains_any", "values": ["CTA", "call to action", "button", "Polish my CV", "$29"], "weight": 2 },
-            { "type": "contains_any", "values": ["above the fold", "hero", "headline", "subhead", "fold"], "weight": 1 },
-            { "type": "contains_any", "values": ["proof", "testimonial", "before", "after", "sample", "trust", "review", "rating"], "weight": 2 },
-            { "type": "contains_any", "values": ["FAQ", "objection", "questions"], "weight": 1 },
-            { "type": "contains_any", "values": ["form", "fields", "friction", "account", "steps", "upload"], "weight": 1 },
-            { "type": "contains_any", "values": ["conversion", "track", "measure", "analytics", "GA4", "event", "baseline"], "weight": 1 }
+            {
+              "type": "contains_any",
+              "values": [
+                "CTA",
+                "call to action",
+                "button",
+                "Polish my CV",
+                "$29"
+              ],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "above the fold",
+                "hero",
+                "headline",
+                "subhead",
+                "fold"
+              ],
+              "weight": 1
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "proof",
+                "testimonial",
+                "before",
+                "after",
+                "sample",
+                "trust",
+                "review",
+                "rating"
+              ],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "FAQ",
+                "objection",
+                "questions"
+              ],
+              "weight": 1
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "form",
+                "fields",
+                "friction",
+                "account",
+                "steps",
+                "upload"
+              ],
+              "weight": 1
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "conversion",
+                "track",
+                "measure",
+                "analytics",
+                "GA4",
+                "event",
+                "baseline"
+              ],
+              "weight": 1
+            }
           ],
           "judge": {
             "criteria": [
-              { "name": "cro_structure", "weight": 3, "guidance": "Designs the page backwards from the single conversion action: ONE primary, repeated CTA written as action+value (ideally +price, e.g. 'Polish my CV - $29'), not a generic 'Get started'/'Learn more'. The above-the-fold answers what-it-is / what-you-get / what-to-do-next at a glance. Penalize multiple competing CTAs, a nav/carousel maze, or vague benefit-free copy." },
-              { "name": "persuasion", "weight": 2, "guidance": "Places proof near the ask (sample/before-after, numbers, trust signals), handles the top objections (price/trust/effort) inline, and removes friction (fewest form fields, no forced account before value, fast load). Rewards specific outcome copy ('land more interviews', '$29, 48 hours') over abstract adjectives." },
-              { "name": "measurement", "weight": 1, "guidance": "Calls for instrumenting ONE conversion event + knowing the baseline so lift is measurable, rather than shipping blind." }
+              {
+                "name": "cro_structure",
+                "weight": 3,
+                "guidance": "Designs the page backwards from the single conversion action: ONE primary, repeated CTA written as action+value (ideally +price, e.g. 'Polish my CV - $29'), not a generic 'Get started'/'Learn more'. The above-the-fold answers what-it-is / what-you-get / what-to-do-next at a glance. Penalize multiple competing CTAs, a nav/carousel maze, or vague benefit-free copy."
+              },
+              {
+                "name": "persuasion",
+                "weight": 2,
+                "guidance": "Places proof near the ask (sample/before-after, numbers, trust signals), handles the top objections (price/trust/effort) inline, and removes friction (fewest form fields, no forced account before value, fast load). Rewards specific outcome copy ('land more interviews', '$29, 48 hours') over abstract adjectives."
+              },
+              {
+                "name": "measurement",
+                "weight": 1,
+                "guidance": "Calls for instrumenting ONE conversion event + knowing the baseline so lift is measurable, rather than shipping blind."
+              }
             ]
           }
         }
@@ -150,16 +590,76 @@
         "prompt": "Our YouTube channel swapped in a new thumbnail on one video three days ago. Since the swap it has gotten about 40 clicks and views are up roughly 30% versus the days before. Did the new thumbnail win? Tell us what to conclude and what to do next.",
         "rubric": {
           "deterministic": [
-            { "type": "contains_any", "values": ["sample", "noise", "too few", "small", "40 clicks", "not enough", "underpowered", "insufficient"], "weight": 3 },
-            { "type": "contains_any", "values": ["baseline", "pre-register", "threshold", "preset", "window", "in advance", "decide"], "weight": 2 },
-            { "type": "contains_any", "values": ["one variable", "one change", "confound", "other change", "seasonal", "algorithm", "isolate"], "weight": 2 },
-            { "type": "contains_any", "values": ["directional", "not proven", "inconclusive", "cannot conclude", "can't conclude", "longer"], "weight": 1 }
+            {
+              "type": "contains_any",
+              "values": [
+                "sample",
+                "noise",
+                "too few",
+                "small",
+                "40 clicks",
+                "not enough",
+                "underpowered",
+                "insufficient"
+              ],
+              "weight": 3
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "baseline",
+                "pre-register",
+                "threshold",
+                "preset",
+                "window",
+                "in advance",
+                "decide"
+              ],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "one variable",
+                "one change",
+                "confound",
+                "other change",
+                "seasonal",
+                "algorithm",
+                "isolate"
+              ],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "directional",
+                "not proven",
+                "inconclusive",
+                "cannot conclude",
+                "can't conclude",
+                "longer"
+              ],
+              "weight": 1
+            }
           ],
           "judge": {
             "criteria": [
-              { "name": "correctness", "weight": 3, "guidance": "Refuses to declare a win on ~40 clicks over 3 days - recognizes the sample is far too small and the 30% is most likely noise. The right call is to keep running to a pre-set window (or at most treat it as DIRECTIONAL, not proven), not to lock in 'the new thumbnail won'. Penalize heavily any confident 'yes it won, roll it out'." },
-              { "name": "rigor", "weight": 2, "guidance": "Surfaces the discipline the bare prompt omitted on its own: a captured baseline (with date), a success metric + threshold set in advance, one-variable isolation, and naming possible confounds (other changes, seasonality, algorithm shift). Reward an explicit verdict framed as extend / directional with N stated." },
-              { "name": "actionability", "weight": 1, "guidance": "Gives a concrete next step (run to window X, set the threshold now, what single metric to read), not a vague 'gather more data'." }
+              {
+                "name": "correctness",
+                "weight": 3,
+                "guidance": "Refuses to declare a win on ~40 clicks over 3 days - recognizes the sample is far too small and the 30% is most likely noise. The right call is to keep running to a pre-set window (or at most treat it as DIRECTIONAL, not proven), not to lock in 'the new thumbnail won'. Penalize heavily any confident 'yes it won, roll it out'."
+              },
+              {
+                "name": "rigor",
+                "weight": 2,
+                "guidance": "Surfaces the discipline the bare prompt omitted on its own: a captured baseline (with date), a success metric + threshold set in advance, one-variable isolation, and naming possible confounds (other changes, seasonality, algorithm shift). Reward an explicit verdict framed as extend / directional with N stated."
+              },
+              {
+                "name": "actionability",
+                "weight": 1,
+                "guidance": "Gives a concrete next step (run to window X, set the threshold now, what single metric to read), not a vague 'gather more data'."
+              }
             ]
           }
         }
@@ -173,16 +673,114 @@
         "prompt": "We are about to publish our first how-to ebook (about 150 pages) on Amazon KDP. What price should we set it at, and why? Give your recommendation and reasoning. Under 200 words.",
         "rubric": {
           "deterministic": [
-            { "type": "contains_any", "values": ["2.99", "9.99", "70%", "royalty", "35%"], "weight": 3 },
-            { "type": "contains_any", "values": ["comp", "competitor", "top seller", "band", "genre", "what others charge", "similar"], "weight": 2 },
-            { "type": "contains_any", "values": ["net", "after fees", "margin", "delivery fee", "profit", "earn"], "weight": 2 },
-            { "type": "contains_any", "values": ["4.99", "5.99", "6.99", "3.99", "7.99"], "weight": 1 }
+            {
+              "type": "contains_any",
+              "values": [
+                "2.99",
+                "9.99",
+                "70%",
+                "royalty",
+                "35%"
+              ],
+              "weight": 3
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "comp",
+                "competitor",
+                "top seller",
+                "band",
+                "genre",
+                "what others charge",
+                "similar"
+              ],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "net",
+                "after fees",
+                "margin",
+                "delivery fee",
+                "profit",
+                "earn"
+              ],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "4.99",
+                "5.99",
+                "6.99",
+                "3.99",
+                "7.99"
+              ],
+              "weight": 1
+            }
           ],
           "judge": {
             "criteria": [
-              { "name": "pricing_method", "weight": 3, "guidance": "Anchors the price to the competitive band (what comparable KDP titles in the genre charge) rather than guessing or defaulting to cheap, and lands in/near the $2.99-$9.99 70%-royalty window for a stated reason. Penalize an arbitrary number with no comp reasoning, or racing to the bottom (e.g. $0.99) without noting it drops to the 35% royalty tier." },
-              { "name": "economics", "weight": 2, "guidance": "Shows it knows the platform royalty math - the 70% tier requires a $2.99-$9.99 list price (below $2.99 = 35%), and reasons about net/profit per sale, not just the headline price. Reward computing or referencing net-of-royalty earnings." },
-              { "name": "judgment", "weight": 1, "guidance": "Treats the price as revisable/testable (could test against a window reading profit, not just units) and commits to one clear charm-priced number, not 'it depends'." }
+              {
+                "name": "pricing_method",
+                "weight": 3,
+                "guidance": "Anchors the price to the competitive band (what comparable KDP titles in the genre charge) rather than guessing or defaulting to cheap, and lands in/near the $2.99-$9.99 70%-royalty window for a stated reason. Penalize an arbitrary number with no comp reasoning, or racing to the bottom (e.g. $0.99) without noting it drops to the 35% royalty tier."
+              },
+              {
+                "name": "economics",
+                "weight": 2,
+                "guidance": "Shows it knows the platform royalty math - the 70% tier requires a $2.99-$9.99 list price (below $2.99 = 35%), and reasons about net/profit per sale, not just the headline price. Reward computing or referencing net-of-royalty earnings."
+              },
+              {
+                "name": "judgment",
+                "weight": 1,
+                "guidance": "Treats the price as revisable/testable (could test against a window reading profit, not just units) and commits to one clear charm-priced number, not 'it depends'."
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "agentfile-cto-review",
+      "kind": "agent_file",
+      "skill": "candidate-skills/cto-agent-file.md",
+      "task": {
+        "id": "cto-pr-review-bare",
+        "prompt": "Review this pull request for merge. An engineer added orphan-run reaping on server startup:\n\n```js\n// index.ts startup\nreapOrphanedRuns()   // reap runs orphaned by the previous process\n\nfunction reapOrphanedRuns(staleThresholdMs = 0) {\n  const cutoff = Date.now() - staleThresholdMs\n  for (const run of runningRuns()) {\n    if (run.lastHeartbeatAt <= cutoff) failRun(run, 'process_lost')  // permanent, shouldRetry=false\n  }\n}\n```\n\nGive your merge decision and reasoning. Return ONLY JSON: {\"decision\": \"approve\"|\"reject\", \"reason\": string}.",
+        "rubric": {
+          "deterministic": [
+            {
+              "type": "json_valid",
+              "weight": 2
+            },
+            {
+              "type": "json_path_equals",
+              "path": "decision",
+              "value": "reject",
+              "weight": 4
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "0",
+                "default",
+                "grace",
+                "threshold",
+                "cutoff"
+              ],
+              "weight": 2
+            }
+          ],
+          "judge": {
+            "criteria": [
+              {
+                "name": "catches_default_bug",
+                "weight": 3,
+                "guidance": "Rejects, and correctly explains that staleThresholdMs defaults to 0 so cutoff==now, so EVERY still-running run (lastHeartbeatAt <= now) is permanently failed as process_lost on a clean restart before it can heartbeat. The fix is a non-zero startup grace. Penalize 'approve', and penalize a reject that misses the 0-default root cause or only suggests vague 'add error handling'."
+              }
             ]
           }
         }

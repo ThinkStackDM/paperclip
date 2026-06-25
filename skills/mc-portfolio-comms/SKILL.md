@@ -16,6 +16,14 @@ The `/fire` webhook does **not** render the directive body into the issue descri
 
 If the run or payload cannot be fetched (transient error), still close the issue `done` rather than blocking — non-retrieval of a probe is not board-worthy.
 
+## Gate: MC inbound origin check (triage entry)
+
+**MC inbound only originates from a registered MC inbound routine.** If the origin routine is `None`, the wake source is a recovery-retry routine, a generic comment/assignment wake, or a non-MC schedule — it is NOT MC inbound and should not enter the MC inbound classifier path.
+
+Recovery-retry wakes (origin `None`, recovery action present in the thread) should be treated as **ordinary stuck-issue triage**: read the latest substantive comment, find the named recovery owner / next action, execute or hand off accordingly.
+
+Real MC inbound traffic carries an MC inbound routine origin **AND** a `portfolio_directive` / `portfolio_input_request` / `directive_receipt_ack` / `handshake` / `binding_probe` payload type — gate the MC inbound path on both.
+
 ## Step 1 — Classify the payload
 
 | Payload signal | Class | Action |

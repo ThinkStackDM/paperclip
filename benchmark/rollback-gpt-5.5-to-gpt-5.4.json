@@ -1,0 +1,103 @@
+[
+  {
+    "id": "d4813a45-db34-469e-945c-84acdbbf2131",
+    "name": "Coder-Codex",
+    "oldModel": "gpt-5.5",
+    "adapterConfig": {
+      "cwd": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367",
+      "model": "gpt-5.5",
+      "graceSec": 15,
+      "paperclipSkillSync": {
+        "desiredSkills": [
+          "paperclipai/paperclip/auto-captions",
+          "paperclipai/paperclip/content-production-ops",
+          "paperclipai/paperclip/creative-stack",
+          "paperclipai/paperclip/escalate-platform-work-to-tsmc",
+          "paperclipai/paperclip/hermes-lane-delegation",
+          "paperclipai/paperclip/launch-gtm-checklist",
+          "paperclipai/paperclip/og-image-rendering",
+          "paperclipai/paperclip/paperclip",
+          "paperclipai/paperclip/paperclip-converting-plans-to-tasks",
+          "paperclipai/paperclip/paperclip-create-agent",
+          "paperclipai/paperclip/para-memory-files",
+          "paperclipai/paperclip/seo-keyword-research-no-tools",
+          "paperclipai/paperclip/ship-it-qa-checklist",
+          "paperclipai/paperclip/video-assembly-pipeline",
+          "paperclipai/paperclip/video-editing",
+          "paperclipai/paperclip/web-design-polish",
+          "paperclipai/paperclip/youtube-packaging-ctr"
+        ]
+      },
+      "instructionsFilePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/agents/d4813a45-db34-469e-945c-84acdbbf2131/instructions/AGENTS.md",
+      "instructionsRootPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/agents/d4813a45-db34-469e-945c-84acdbbf2131/instructions",
+      "instructionsEntryFile": "AGENTS.md",
+      "instructionsBundleMode": "managed",
+      "dangerouslyBypassApprovalsAndSandbox": true
+    }
+  },
+  {
+    "id": "2a0441ac-8688-47a8-b62b-a130e6dedc62",
+    "name": "ContentStrategist-Codex",
+    "oldModel": "gpt-5.5",
+    "adapterConfig": {
+      "cwd": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367",
+      "model": "gpt-5.5",
+      "graceSec": 15,
+      "paperclipSkillSync": {
+        "desiredSkills": [
+          "paperclipai/paperclip/auto-captions",
+          "paperclipai/paperclip/content-production-ops",
+          "paperclipai/paperclip/creative-stack",
+          "paperclipai/paperclip/customer-feedback-loop",
+          "paperclipai/paperclip/hermes-lane-delegation",
+          "paperclipai/paperclip/launch-gtm-checklist",
+          "paperclipai/paperclip/og-image-rendering",
+          "paperclipai/paperclip/seo-keyword-research-no-tools",
+          "paperclipai/paperclip/ship-it-qa-checklist",
+          "paperclipai/paperclip/video-assembly-pipeline",
+          "paperclipai/paperclip/video-editing",
+          "paperclipai/paperclip/web-design-polish",
+          "paperclipai/paperclip/youtube-packaging-ctr"
+        ]
+      },
+      "instructionsFilePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/agents/2a0441ac-8688-47a8-b62b-a130e6dedc62/instructions/AGENTS.md",
+      "instructionsRootPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/agents/2a0441ac-8688-47a8-b62b-a130e6dedc62/instructions",
+      "instructionsEntryFile": "AGENTS.md",
+      "instructionsBundleMode": "managed",
+      "dangerouslyBypassApprovalsAndSandbox": true
+    }
+  },
+  {
+    "id": "48f649b9-a74b-4204-92ed-a222fef54c80",
+    "name": "Showrunner",
+    "oldModel": "gpt-5.5",
+    "adapterConfig": {
+      "cwd": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367",
+      "model": "gpt-5.5",
+      "graceSec": 15,
+      "paperclipSkillSync": {
+        "desiredSkills": [
+          "paperclipai/paperclip/auto-captions",
+          "paperclipai/paperclip/broll-sourcing",
+          "paperclipai/paperclip/content-production-ops",
+          "paperclipai/paperclip/creative-stack",
+          "paperclipai/paperclip/escalate-platform-work-to-tsmc",
+          "paperclipai/paperclip/hermes-lane-delegation",
+          "paperclipai/paperclip/launch-gtm-checklist",
+          "paperclipai/paperclip/og-image-rendering",
+          "paperclipai/paperclip/ship-it-qa-checklist",
+          "paperclipai/paperclip/video-assembly-pipeline",
+          "paperclipai/paperclip/video-editing",
+          "paperclipai/paperclip/video-gen-ops",
+          "paperclipai/paperclip/web-design-polish",
+          "paperclipai/paperclip/youtube-packaging-ctr"
+        ]
+      },
+      "instructionsFilePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/agents/48f649b9-a74b-4204-92ed-a222fef54c80/instructions/AGENTS.md",
+      "instructionsRootPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/agents/48f649b9-a74b-4204-92ed-a222fef54c80/instructions",
+      "instructionsEntryFile": "AGENTS.md",
+      "instructionsBundleMode": "managed",
+      "dangerouslyBypassApprovalsAndSandbox": true
+    }
+  }
+]

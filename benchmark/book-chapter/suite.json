@@ -1,0 +1,137 @@
+{
+  "role": "book-chapter",
+  "description": "Production task (Books workflow-start): write the OPENING of a book chapter (scoped to ~150 words to bound output) under real craft constraints. Chapter openings carry huge quality variance — in-scene and concrete vs throat-clearing and clichéd — so the strict judge discriminates hard. Tasks include hard constraints (banned opening clichés, show-don't-tell with named-emotion ban, POV/tense discipline), a planted-continuity trap (facts that must not be contradicted), a genre-register match, a tighten-the-purple-prose rewrite, and the key cheap-model trap: write a SCENE, not a plot summary. Deterministic checks anchor the objective constraints (length, banned words/clichés, required continuity tokens); the judge grades opening craft: immediacy, specificity, register, and constraint adherence.",
+  "tasks": [
+    {
+      "id": "chapter-open-in-scene",
+      "title": "Open in scene (no throat-clearing)",
+      "prompt": "Write the opening (~150 words) of Chapter 1 of a literary novel. Drop the reader into a concrete moment in medias res — a specific place, a specific action under way. No weather-report opening, no backstory dump, no abstract throat-clearing ('This is a story about...'). Return ONLY the prose, no title or notes.",
+      "rubric": {
+        "deterministic": [
+          { "type": "max_words", "value": 175, "weight": 2 },
+          { "type": "not_regex", "pattern": "this is a story about|let me tell you|have you ever|once upon a time", "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "in_scene_craft", "weight": 3, "guidance": "Drops the reader into a concrete, sensory moment with something already happening (a specific place, action, tension). It should create a pull to read on. HEAVILY penalize abstract throat-clearing, a backstory/exposition dump, a weather-report or 'the sun rose' open, or a summary of the story instead of a lived scene." },
+            { "name": "prose_quality", "weight": 1, "guidance": "Clean, controlled prose — specific nouns/verbs, not adjective soup or cliché. Penalize purple writing and generic filler." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "chapter-no-cliche-open",
+      "title": "Avoid banned opening clichés (constraint trap)",
+      "prompt": "Write the opening (~140 words) of a novel chapter. Hard constraint: do NOT use any of these clichéd openings — a character waking up (from sleep, an alarm, or a dream); 'It was a dark and stormy night'; opening on the weather; or 'Little did they know'. Find a fresher way in. Return ONLY the prose.",
+      "rubric": {
+        "deterministic": [
+          { "type": "not_regex", "pattern": "woke up|woke with|awoke|alarm clock|dark and stormy|little did (he|she|they|i)|it was a (beautiful|cold|bright|warm) (day|morning)", "weight": 4 },
+          { "type": "max_words", "value": 165, "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "freshness", "weight": 3, "guidance": "A fresh, specific way into the chapter that earns attention without any banned cliché or a thin paraphrase of one (e.g. 'her eyes opened' to dodge 'woke up'). Reward a concrete, original entry point. Penalize formulaic openers or a disguised version of a banned one." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "chapter-show-dont-tell",
+      "title": "Show, don't tell (named-emotion ban)",
+      "prompt": "Rewrite this flat 'telling' line into an opening passage (~120 words) that SHOWS the character's state through action, physical sensation, and detail: \"Sarah was very angry and also very nervous about the meeting.\" Hard constraint: do NOT name the emotions — the words angry, anger, nervous, anxious, afraid, scared must not appear. Convey them anyway. Return ONLY the prose.",
+      "rubric": {
+        "deterministic": [
+          { "type": "not_regex", "pattern": "angry|anger|nervous|anxious|afraid|scared|furious|terrified", "weight": 3 },
+          { "type": "max_words", "value": 140, "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "show_not_tell", "weight": 3, "guidance": "Conveys BOTH the anger and the nervousness through behavior, physiology, and concrete detail (clenched jaw, a reread text, a knee that won't stay still) without naming any emotion. Penalize naming/labelling the feelings, generic 'her heart raced' filler that could mean anything, or showing only one of the two states." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "chapter-pov-tense-discipline",
+      "title": "POV + tense discipline (no head-hop, no slip)",
+      "prompt": "Write the opening (~150 words) of a chapter in CLOSE THIRD-PERSON, PAST tense, anchored to ONE character named Mara. Stay strictly in her perspective — we get only what she perceives, thinks, feels; no dipping into any other character's thoughts (no head-hopping), and no slipping into present tense. Return ONLY the prose.",
+      "rubric": {
+        "deterministic": [
+          { "type": "max_words", "value": 175, "weight": 1 },
+          { "type": "contains", "value": "Mara", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "pov_tense_control", "weight": 4, "guidance": "Maintains a single close-third POV anchored to Mara, in consistent past tense, throughout. Other characters are rendered only from the outside (what Mara sees/infers), never from inside their heads. HEAVILY penalize ANY head-hop into another character's interiority, omniscient narration, or a slip into present tense. This tests craft discipline under a hard constraint." },
+            { "name": "still_engaging", "weight": 1, "guidance": "Within the constraint it should still be a real, engaging opening, not a dry exercise." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "chapter-continuity",
+      "title": "Honor planted continuity facts (don't contradict)",
+      "prompt": "Continue a novel into Chapter 5. Three established facts you MUST keep consistent: (a) it is deep winter with heavy snow; (b) the protagonist, Tomas, broke his right arm in the previous chapter and it is in a cast; (c) his dog, Bara, died two chapters ago. Write the opening (~160 words) of Chapter 5 — a new scene that stays fully consistent with all three. Return ONLY the prose.",
+      "rubric": {
+        "deterministic": [
+          { "type": "contains_any", "values": ["snow", "winter", "cold", "frost", "ice"], "weight": 1 },
+          { "type": "contains_any", "values": ["cast", "arm", "sling", "broken"], "weight": 1 },
+          { "type": "not_regex", "pattern": "Bara (ran|barked|wagged|bounded|greeted|trotted|leapt|jumped|licked)", "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "continuity", "weight": 4, "guidance": "Honors ALL THREE planted facts: it reads as deep winter; Tomas's broken/casted arm meaningfully constrains what he can physically do; and the dog Bara is gone (absent, grieved, or simply not present and alive). HEAVILY penalize ANY contradiction — the dog alive and active, the arm unimpaired, or a summer/warm setting. Missing a fact silently is also a penalty." },
+            { "name": "scene_quality", "weight": 1, "guidance": "A genuine new opening scene, not a recap of the established facts as a checklist." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "chapter-genre-register",
+      "title": "Match a genre register (cozy mystery)",
+      "prompt": "Write the opening (~150 words) of a COZY MYSTERY chapter. Match the register: warm, charming, small-town, gently intriguing — NOT hard-boiled, graphic, or grim. Setting: a village bakery on the morning a beloved regular fails to show up for the first time in years. Return ONLY the prose.",
+      "rubric": {
+        "deterministic": [
+          { "type": "max_words", "value": 175, "weight": 1 },
+          { "type": "not_regex", "pattern": "blood pooled|gunshot|corpse|brutally|severed|mutilated", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "genre_register", "weight": 3, "guidance": "Nails the cozy-mystery register: warmth, charm, a strong sense of a small-town place (the bakery's smells, regulars, routine) and a gentle hook (the missing regular as quiet wrongness). Penalize a hard-boiled/graphic/grim tone, a thriller register, or a flat scene with no cozy texture or intrigue." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "chapter-scene-not-summary",
+      "title": "Write a SCENE, not a plot summary (the key trap)",
+      "prompt": "Write the OPENING SCENE (~160 words) of a thriller chapter in which a bike courier realizes she is being followed through a city. Write it as a SCENE — moment-to-moment, grounded in what she sees, hears, and does right now — NOT a summary of what happens in the chapter. Return ONLY the prose.",
+      "rubric": {
+        "deterministic": [
+          { "type": "max_words", "value": 180, "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "scene_not_summary", "weight": 4, "guidance": "Renders a single continuous, moment-to-moment scene with immediate sensory detail and real-time action/tension as she notices and reacts. HEAVILY penalize plot summary or synopsis ('She had always... Over the next few minutes she would...'), telescoped time ('then she did X, then Y, then Z'), or narrating the gist instead of living the moment. This is the key discriminator." },
+            { "name": "tension", "weight": 1, "guidance": "The dawning realization creates genuine suspense. Penalize a flat or generic chase." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "chapter-tighten-purple",
+      "title": "Tighten overwritten prose",
+      "prompt": "This opening is overwritten and bloated. Rewrite it tighter — AT MOST 90 words — preserving the core image and mood but cutting the adjective pile-ups, redundancy, and purple excess, with stronger verbs.\n\n\"The golden, shimmering, resplendent sun rose slowly and majestically over the distant, far-off, rolling hills that stretched endlessly into the horizon, casting its warm, glowing, radiant light down upon the small, tiny, little village that nestled quietly and peacefully in the verdant green valley below, where the gentle, soft morning breeze whispered softly and quietly through the tall, swaying trees as the villagers, who were just beginning to wake and rouse themselves from their deep slumber, started to stir and move about their daily business.\"\n\nReturn ONLY the rewritten passage.",
+      "rubric": {
+        "deterministic": [
+          { "type": "max_words", "value": 95, "weight": 3 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "tightening", "weight": 3, "guidance": "Materially tighter than the original: keeps the core image (dawn over a village in a valley) and mood, but cuts the adjective triplets and redundancy and uses stronger verbs. Penalize a rewrite that is still bloated/purple, that exceeds the word limit, or that strips so much the image and mood are lost. Reward crisp, evocative economy." }
+          ]
+        }
+      }
+    }
+  ]
+}

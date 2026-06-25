@@ -178,6 +178,17 @@ def _fmt(x):
     return "—" if x is None else f"{int(round(x)):,}"
 
 
+def _power_limits():
+    """Honor TSBC shared-Mac caps like bench.py/variants.py."""
+    try:
+        import json as _j
+        import os as _o
+        p = _j.load(open(_o.path.join(_o.path.dirname(_o.path.abspath(__file__)), ".tsbc-power.json")))
+        return p.get("maxWorkers"), p.get("paused", False)
+    except Exception:
+        return None, False
+
+
 def main():
     global _cfg
     ap = argparse.ArgumentParser(description="#16 skill-refinement benchmark")
@@ -220,6 +231,13 @@ def main():
 
     timeout = _cfg["run"]["timeout_sec"]
     workers = _cfg["run"].get("max_workers", 4)
+    max_workers_cap, paused = _power_limits()
+    if paused:
+        print("TSBC SLEEP (paused) — not running.")
+        return
+    if max_workers_cap is not None:
+        workers = min(workers, max_workers_cap)
+    print(f"  [TSBC power cap: {workers} worker(s)]")
     t0 = time.time()
     records = []
     rec_lock = threading.Lock()

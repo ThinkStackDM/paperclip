@@ -97,6 +97,110 @@
           ]
         }
       }
+    },
+    {
+      "id": "design-wcag-contrast-audit",
+      "title": "WCAG contrast-ratio audit of three real color pairs",
+      "prompt": "You are auditing the ThinkStack dashboard for WCAG 2.1 accessibility. Three text/background color pairs are in use. For normal body text the AA threshold is a contrast ratio of at least 4.5:1; below that it FAILS AA.\n\nPAIRS (text on background):\n- pairA: text #777777 on background #FFFFFF\n- pairB: text #FFFFFF on background #2E7D32\n- pairC: text #F5A623 on background #FFFFFF\n\nCompute the WCAG contrast ratio for each pair and decide AA pass/fail for normal body text. Note: #777777 on white is ~4.48:1 (just under 4.5) and #F5A623 (a mid amber) on white is well under 4.5; a dark green like #2E7D32 with white text clears 4.5 comfortably.\n\nReturn ONLY JSON: {\"pairA\": {\"ratio\": number, \"passAA\": true|false}, \"pairB\": {\"ratio\": number, \"passAA\": true|false}, \"pairC\": {\"ratio\": number, \"passAA\": true|false}, \"worst\": \"pairA\"|\"pairB\"|\"pairC\"}. `worst` is the lowest-contrast pair.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "pairA.passAA", "value": false, "weight": 3 },
+          { "type": "json_path_equals", "path": "pairB.passAA", "value": true, "weight": 3 },
+          { "type": "json_path_equals", "path": "pairC.passAA", "value": false, "weight": 3 },
+          { "type": "json_path_equals", "path": "worst", "value": "pairC", "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "ratio_accuracy", "weight": 2, "guidance": "The numeric contrast ratios are computed (relative-luminance formula), not guessed: pairA ~4.4-4.5:1, pairB ~6-7:1, pairC ~2:1. The pass/fail verdicts follow the 4.5:1 threshold. Penalize an answer that marks the ~4.48 grey (pairA) as passing, that approves the amber (pairC) which is clearly the worst, or that returns round-number ratios with no basis." },
+            { "name": "trap_avoided", "weight": 1, "guidance": "Correctly flags BOTH borderline failures: the grey that sits just under 4.5 and the amber that is the worst offender. A lenient audit that waves the grey or amber through fails this criterion." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "design-brand-consistency-reject",
+      "title": "Reject an off-brand asset against the brand guide",
+      "prompt": "ThinkStack Capital's brand guide is strict: APPROVED palette is navy #0B1F3A, slate #4A5568, and a single accent teal #14B8A6 (no other accent colors); typography is a clean grotesque sans only (no script, no decorative fonts); voice is precise and restrained (no hype words like 'revolutionary', 'game-changing', no exclamation marks); the logo must keep clear space and never be recolored.\n\nA contractor submits a proposed social banner described as: 'Bright purple #9B59B6 gradient background with a hot-pink #FF1493 accent, the headline \"REVOLUTIONARY trading, REINVENTED!!!\" set in a brushy script font, and the ThinkStack logo recolored to white with a drop shadow.'\n\nDecide whether to approve this asset as-is for publication. Return ONLY JSON: {\"approve\": true|false, \"violations\": [string], \"fix\": string}. `violations` must list each brand-guide breach; `fix` is one short instruction to the contractor.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "approve", "value": false, "weight": 5 },
+          { "type": "contains_any", "values": ["purple", "pink", "#9B59B6", "#FF1493", "off-palette", "palette"], "weight": 2 },
+          { "type": "contains_any", "values": ["script", "font", "voice", "REVOLUTIONARY", "exclamation", "recolor", "logo"], "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "rejection_correctness", "weight": 3, "guidance": "Hard reject. The violations list must catch the MULTIPLE distinct breaches: off-palette colors (purple/hot-pink are not navy/slate/teal), banned script/decorative font, hype-y off-voice copy with exclamation marks ('REVOLUTIONARY ... REINVENTED!!!'), and the recolored logo. Penalize any approval or conditional approval, and penalize catching only one breach while missing the palette OR voice OR logo violations." },
+            { "name": "fix_quality", "weight": 1, "guidance": "The fix is a concrete instruction that brings the asset back on-brand (use the approved palette/accent, switch to the grotesque sans, rewrite the copy in restrained voice, restore the logo), not a vague 'make it on-brand'." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "design-responsive-layout-spec",
+      "title": "Specify a responsive grid layout with exact breakpoints",
+      "prompt": "Specify the responsive layout for the ThinkStack marketing site's feature-card grid. There are 12 feature cards. The grid must adapt across three breakpoints with EXACTLY these column counts:\n- mobile (viewport < 640px): 1 column\n- tablet (640px to 1023px): 2 columns\n- desktop (>= 1024px): 4 columns\n\nAlso specify a fixed gutter of 24px between cards at every breakpoint, and a max content width of 1200px on desktop (centered). The card minimum width must never force a horizontal scrollbar on a 320px-wide phone.\n\nReturn ONLY JSON: {\"breakpoints\": {\"mobile\": {\"maxWidth\": 639, \"columns\": 1}, \"tablet\": {\"minWidth\": 640, \"maxWidth\": 1023, \"columns\": 2}, \"desktop\": {\"minWidth\": 1024, \"columns\": 4}}, \"gutterPx\": 24, \"maxContentWidthPx\": 1200, \"note\": string}. `note` (<=30 words) must address avoiding horizontal scroll at 320px.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "breakpoints.mobile.columns", "value": 1, "weight": 2 },
+          { "type": "json_path_equals", "path": "breakpoints.tablet.columns", "value": 2, "weight": 2 },
+          { "type": "json_path_equals", "path": "breakpoints.desktop.columns", "value": 4, "weight": 2 },
+          { "type": "json_path_equals", "path": "breakpoints.tablet.minWidth", "value": 640, "weight": 1 },
+          { "type": "json_path_equals", "path": "breakpoints.desktop.minWidth", "value": 1024, "weight": 1 },
+          { "type": "json_path_equals", "path": "gutterPx", "value": 24, "weight": 1 },
+          { "type": "json_path_equals", "path": "maxContentWidthPx", "value": 1200, "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "spec_correctness", "weight": 2, "guidance": "Column counts (1/2/4) map to the correct breakpoints with non-overlapping, gap-free ranges (mobile ends at 639, tablet 640-1023, desktop >=1024). 12 cards divide cleanly into all three counts. Penalize off-by-one boundaries (e.g. tablet starting at 641 leaving a 640px dead zone), overlapping ranges, or column counts that don't divide 12 evenly." },
+            { "name": "no_overflow", "weight": 1, "guidance": "The note genuinely explains how a single column with the 24px gutter and fluid/percentage card widths avoids horizontal scroll at 320px (e.g. cards use 100% width / min-width:0, not a fixed px width wider than the viewport). Penalize a note that ignores the 320px constraint or proposes fixed card widths that would overflow." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "design-progress-ring-svg",
+      "title": "Emit a progress-ring SVG with EXACT stroke-dasharray geometry",
+      "prompt": "Produce an inline SVG circular progress ring showing 75% completion, following these specs EXACTLY.\n\nSPEC:\n- viewBox=\"0 0 120 120\". The ring is a <circle> centered at cx=60 cy=60 with r=54.\n- The circle is drawn as a stroke only (fill=\"none\"), stroke-width=12.\n- The full circumference is 2 * pi * 54 = 339.292 (use 339.29). For a 75% arc the stroke-dasharray must encode a filled length of 75% of the circumference and a gap of the remaining 25%: that is stroke-dasharray=\"254.47 84.82\" (254.47 = 0.75*339.29, 84.82 = 0.25*339.29).\n- Rotate the progress arc so it starts at the 12 o'clock position: apply transform=\"rotate(-90 60 60)\" to the progress circle.\n- Include a <text> centered at (60,60) reading exactly: 75%\n- Use a track circle (the faint full-circle background) under the progress arc. Self-contained, no <script>.\n\nReturn ONLY the SVG markup.",
+      "rubric": {
+        "deterministic": [
+          { "type": "regex", "pattern": "viewBox\\s*=\\s*[\"']0 0 120 120", "weight": 2 },
+          { "type": "regex", "pattern": "r\\s*=\\s*[\"']54[\"']", "weight": 2 },
+          { "type": "regex", "pattern": "stroke-dasharray\\s*=\\s*[\"']\\s*254\\.47", "weight": 3 },
+          { "type": "regex", "pattern": "rotate\\(\\s*-90\\s+60\\s+60\\s*\\)", "weight": 2 },
+          { "type": "regex", "pattern": ">\\s*75%\\s*<", "weight": 2 },
+          { "type": "not_contains", "value": "<script", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "geometry_correct", "weight": 3, "guidance": "The dasharray actually encodes 75%: filled segment ~254.47 (0.75*339.29) and gap ~84.82, on a circle of r=54 stroke-width=12 fill=none. The progress arc is rotated -90 about (60,60) so it starts at 12 o'clock. There is a separate faint track circle UNDER the progress arc. Penalize a dasharray that doesn't sum to ~339.29, a wrong filled fraction (e.g. 0.25 instead of 0.75), a missing rotation, or a missing track circle even if the 75% text is present." },
+            { "name": "polish", "weight": 1, "guidance": "Track and progress strokes use distinct sensible colors, stroke-linecap is reasonable, the 75% text is centered and legible. Looks like a real progress ring." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "design-icon-glyph-spec",
+      "title": "Emit a 24x24 stroke icon to an exact grid spec",
+      "prompt": "Produce an inline SVG line-style 'download' icon for the ThinkStack icon set, drawn to the EXACT grid and stroke conventions below (same conventions as Lucide/Feather).\n\nSPEC:\n- viewBox=\"0 0 24 24\", width=24, height=24.\n- fill=\"none\", stroke=\"currentColor\", stroke-width=2, stroke-linecap=\"round\", stroke-linejoin=\"round\".\n- Keep a 2px safe padding: all drawn geometry stays within x,y in [2,22].\n- The glyph is a download icon: (1) a tray/baseline near the bottom drawn as a path (an open-top rectangle: from x=3,y=15 down to y=21 across to x=21 up to y=15), (2) a vertical down-arrow shaft on the center axis x=12 from about y=3 down to y=15, (3) the arrowhead chevron pointing down, e.g. a polyline through (7,11) (12,16) (17,11).\n- Self-contained, no <script>, no <image>, no embedded raster.\n\nReturn ONLY the SVG markup.",
+      "rubric": {
+        "deterministic": [
+          { "type": "regex", "pattern": "viewBox\\s*=\\s*[\"']0 0 24 24", "weight": 2 },
+          { "type": "regex", "pattern": "fill\\s*=\\s*[\"']none[\"']", "weight": 2 },
+          { "type": "regex", "pattern": "stroke\\s*=\\s*[\"']currentColor[\"']", "weight": 2 },
+          { "type": "regex", "pattern": "stroke-width\\s*=\\s*[\"']2[\"']", "weight": 2 },
+          { "type": "regex", "pattern": "stroke-linecap\\s*=\\s*[\"']round[\"']", "weight": 1 },
+          { "type": "not_contains", "value": "<image", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "glyph_geometry", "weight": 3, "guidance": "The drawn coordinates actually compose a recognizable down-arrow-into-tray DOWNLOAD glyph on the 24x24 grid: a center vertical shaft on x~=12, a downward chevron arrowhead around y~=11-16 pointing DOWN, and an open-top tray near the bottom (y~=15-21). All geometry stays within the [2,22] safe area. Penalize coordinates that overflow the viewBox or the 2px padding, an arrow pointing the wrong way (up), a filled-shape icon, or geometry that doesn't read as a download icon." },
+            { "name": "convention_fidelity", "weight": 1, "guidance": "Faithful to the stroke-icon convention: fill=none, stroke=currentColor, width 2, round caps/joins — a single coherent line icon, not a multicolor filled illustration." }
+          ]
+        }
+      }
     }
   ]
 }

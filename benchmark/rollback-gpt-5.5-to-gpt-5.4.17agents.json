@@ -1,0 +1,594 @@
+[
+  {
+    "id": "63e632ff-d88d-4cfd-8156-dd78cbe17dcd",
+    "name": "BrandDesigner-Codex",
+    "oldModel": "gpt-5.5",
+    "adapterConfig": {
+      "cwd": "/Users/glad0s/.paperclip/instances/default/projects/e7507bfa-ecfd-4dde-bd2a-7b19947ffdde/12ea2cbc-6053-4ef2-93b1-93fa175ed624/_default",
+      "model": "gpt-5.5",
+      "graceSec": 15,
+      "timeoutSec": 0,
+      "paperclipSkillSync": {
+        "desiredSkills": [
+          "paperclipai/paperclip/creative-stack",
+          "paperclipai/paperclip/etsy-listing-ops",
+          "paperclipai/paperclip/etsy-seo-pricing-photography",
+          "paperclipai/paperclip/hermes-lane-delegation",
+          "paperclipai/paperclip/launch-gtm-checklist",
+          "paperclipai/paperclip/og-image-rendering",
+          "paperclipai/paperclip/ship-it-qa-checklist",
+          "paperclipai/paperclip/web-design-polish"
+        ]
+      },
+      "instructionsFilePath": "/Users/glad0s/.paperclip/instances/default/companies/e7507bfa-ecfd-4dde-bd2a-7b19947ffdde/agents/63e632ff-d88d-4cfd-8156-dd78cbe17dcd/instructions/AGENTS.md",
+      "instructionsRootPath": "/Users/glad0s/.paperclip/instances/default/companies/e7507bfa-ecfd-4dde-bd2a-7b19947ffdde/agents/63e632ff-d88d-4cfd-8156-dd78cbe17dcd/instructions",
+      "modelReasoningEffort": "low",
+      "instructionsEntryFile": "AGENTS.md",
+      "instructionsBundleMode": "managed",
+      "dangerouslyBypassApprovalsAndSandbox": true
+    }
+  },
+  {
+    "id": "1f4e441d-f9c0-456f-a014-2d15502b95f6",
+    "name": "FoundingEngineer-Codex",
+    "oldModel": "gpt-5.5",
+    "adapterConfig": {
+      "cwd": "/Users/glad0s/.paperclip/instances/default/projects/e7507bfa-ecfd-4dde-bd2a-7b19947ffdde/12ea2cbc-6053-4ef2-93b1-93fa175ed624/_default",
+      "model": "gpt-5.5",
+      "graceSec": 15,
+      "timeoutSec": 0,
+      "paperclipSkillSync": {
+        "desiredSkills": [
+          "company/e7507bfa-ecfd-4dde-bd2a-7b19947ffdde/context-compression",
+          "company/e7507bfa-ecfd-4dde-bd2a-7b19947ffdde/issue-handling",
+          "company/e7507bfa-ecfd-4dde-bd2a-7b19947ffdde/skill-stewardship",
+          "local/6912bfd85c/sprint-checkpoint",
+          "paperclipai/paperclip/ab-testing-discipline",
+          "paperclipai/paperclip/analytics-finops",
+          "paperclipai/paperclip/auto-captions",
+          "paperclipai/paperclip/broll-sourcing",
+          "paperclipai/paperclip/content-book-craft",
+          "paperclipai/paperclip/content-production-ops",
+          "paperclipai/paperclip/creative-stack",
+          "paperclipai/paperclip/crypto-trading-ops",
+          "paperclipai/paperclip/customer-feedback-loop",
+          "paperclipai/paperclip/diagnose-why-work-stopped",
+          "paperclipai/paperclip/escalate-platform-work-to-tsmc",
+          "paperclipai/paperclip/etsy-listing-ops",
+          "paperclipai/paperclip/etsy-seo-pricing-photography",
+          "paperclipai/paperclip/fallback-lane-ops",
+          "paperclipai/paperclip/hermes-lane-delegation",
+          "paperclipai/paperclip/image-gen-ops",
+          "paperclipai/paperclip/kdp-keyword-category-research",
+          "paperclipai/paperclip/kdp-publishing-pipeline",
+          "paperclipai/paperclip/landing-page-cro",
+          "paperclipai/paperclip/launch-gtm-checklist",
+          "paperclipai/paperclip/make-a-skill",
+          "paperclipai/paperclip/marketing-ops",
+          "paperclipai/paperclip/mc-portfolio-comms",
+          "paperclipai/paperclip/og-image-rendering",
+          "paperclipai/paperclip/paperclip",
+          "paperclipai/paperclip/paperclip-converting-plans-to-tasks",
+          "paperclipai/paperclip/paperclip-create-agent",
+          "paperclipai/paperclip/paperclip-create-plugin",
+          "paperclipai/paperclip/paperclip-dev",
+          "paperclipai/paperclip/para-memory-files",
+          "paperclipai/paperclip/polymarket-paper-eval-ops",
+          "paperclipai/paperclip/pricing-strategy",
+          "paperclipai/paperclip/recruitment-pipeline-ops",
+          "paperclipai/paperclip/risk-management",
+          "paperclipai/paperclip/seo-keyword-research-no-tools",
+          "paperclipai/paperclip/ship-it-qa-checklist",
+          "paperclipai/paperclip/silent-run-review",
+          "paperclipai/paperclip/terminal-bench-loop",
+          "paperclipai/paperclip/utility-site-shipping",
+          "paperclipai/paperclip/video-assembly-pipeline",
+          "paperclipai/paperclip/video-editing",
+          "paperclipai/paperclip/video-gen-ops",
+          "paperclipai/paperclip/web-design-polish",
+          "paperclipai/paperclip/youtube-packaging-ctr"
+        ]
+      },
+      "instructionsFilePath": "/Users/glad0s/.paperclip/instances/default/companies/e7507bfa-ecfd-4dde-bd2a-7b19947ffdde/agents/1f4e441d-f9c0-456f-a014-2d15502b95f6/instructions/AGENTS.md",
+      "instructionsRootPath": "/Users/glad0s/.paperclip/instances/default/companies/e7507bfa-ecfd-4dde-bd2a-7b19947ffdde/agents/1f4e441d-f9c0-456f-a014-2d15502b95f6/instructions",
+      "modelReasoningEffort": "medium",
+      "instructionsEntryFile": "AGENTS.md",
+      "instructionsBundleMode": "managed",
+      "dangerouslyBypassApprovalsAndSandbox": true
+    }
+  },
+  {
+    "id": "f04817e5-f01f-4134-a3db-67be07fa7629",
+    "name": "ResearchAnalyst-Codex",
+    "oldModel": "gpt-5.5",
+    "adapterConfig": {
+      "cwd": "/Users/glad0s/.paperclip/instances/default/projects/e7507bfa-ecfd-4dde-bd2a-7b19947ffdde/12ea2cbc-6053-4ef2-93b1-93fa175ed624/_default",
+      "model": "gpt-5.5",
+      "graceSec": 15,
+      "timeoutSec": 0,
+      "paperclipSkillSync": {
+        "desiredSkills": [
+          "paperclipai/paperclip/etsy-seo-pricing-photography",
+          "paperclipai/paperclip/hermes-lane-delegation",
+          "paperclipai/paperclip/launch-gtm-checklist",
+          "paperclipai/paperclip/seo-keyword-research-no-tools",
+          "paperclipai/paperclip/ship-it-qa-checklist"
+        ]
+      },
+      "instructionsFilePath": "/Users/glad0s/.paperclip/instances/default/companies/e7507bfa-ecfd-4dde-bd2a-7b19947ffdde/agents/f04817e5-f01f-4134-a3db-67be07fa7629/instructions/AGENTS.md",
+      "instructionsRootPath": "/Users/glad0s/.paperclip/instances/default/companies/e7507bfa-ecfd-4dde-bd2a-7b19947ffdde/agents/f04817e5-f01f-4134-a3db-67be07fa7629/instructions",
+      "modelReasoningEffort": "medium",
+      "instructionsEntryFile": "AGENTS.md",
+      "instructionsBundleMode": "managed",
+      "dangerouslyBypassApprovalsAndSandbox": true
+    }
+  },
+  {
+    "id": "9f13870f-4c1d-4afa-a434-ab63ad1a7c6b",
+    "name": "RoutingPA-Codex",
+    "oldModel": "gpt-5.5",
+    "adapterConfig": {
+      "cwd": "/Users/glad0s/.paperclip/instances/default/projects/e7507bfa-ecfd-4dde-bd2a-7b19947ffdde/12ea2cbc-6053-4ef2-93b1-93fa175ed624/_default",
+      "model": "gpt-5.5",
+      "graceSec": 15,
+      "paperclipSkillSync": {
+        "desiredSkills": [
+          "company/e7507bfa-ecfd-4dde-bd2a-7b19947ffdde/context-compression",
+          "company/e7507bfa-ecfd-4dde-bd2a-7b19947ffdde/issue-handling",
+          "company/e7507bfa-ecfd-4dde-bd2a-7b19947ffdde/skill-stewardship",
+          "paperclipai/paperclip/ab-testing-discipline",
+          "paperclipai/paperclip/analytics-finops",
+          "paperclipai/paperclip/auto-captions",
+          "paperclipai/paperclip/broll-sourcing",
+          "paperclipai/paperclip/content-book-craft",
+          "paperclipai/paperclip/content-production-ops",
+          "paperclipai/paperclip/creative-stack",
+          "paperclipai/paperclip/crypto-trading-ops",
+          "paperclipai/paperclip/customer-feedback-loop",
+          "paperclipai/paperclip/diagnose-why-work-stopped",
+          "paperclipai/paperclip/escalate-platform-work-to-tsmc",
+          "paperclipai/paperclip/etsy-listing-ops",
+          "paperclipai/paperclip/etsy-seo-pricing-photography",
+          "paperclipai/paperclip/fallback-lane-ops",
+          "paperclipai/paperclip/hermes-lane-delegation",
+          "paperclipai/paperclip/image-gen-ops",
+          "paperclipai/paperclip/kdp-keyword-category-research",
+          "paperclipai/paperclip/kdp-publishing-pipeline",
+          "paperclipai/paperclip/landing-page-cro",
+          "paperclipai/paperclip/launch-gtm-checklist",
+          "paperclipai/paperclip/make-a-skill",
+          "paperclipai/paperclip/marketing-ops",
+          "paperclipai/paperclip/mc-portfolio-comms",
+          "paperclipai/paperclip/og-image-rendering",
+          "paperclipai/paperclip/paperclip",
+          "paperclipai/paperclip/paperclip-converting-plans-to-tasks",
+          "paperclipai/paperclip/paperclip-create-agent",
+          "paperclipai/paperclip/paperclip-create-plugin",
+          "paperclipai/paperclip/paperclip-dev",
+          "paperclipai/paperclip/para-memory-files",
+          "paperclipai/paperclip/polymarket-paper-eval-ops",
+          "paperclipai/paperclip/pricing-strategy",
+          "paperclipai/paperclip/recruitment-pipeline-ops",
+          "paperclipai/paperclip/risk-management",
+          "paperclipai/paperclip/seo-keyword-research-no-tools",
+          "paperclipai/paperclip/ship-it-qa-checklist",
+          "paperclipai/paperclip/silent-run-review",
+          "paperclipai/paperclip/terminal-bench-loop",
+          "paperclipai/paperclip/utility-site-shipping",
+          "paperclipai/paperclip/video-assembly-pipeline",
+          "paperclipai/paperclip/video-editing",
+          "paperclipai/paperclip/video-gen-ops",
+          "paperclipai/paperclip/web-design-polish",
+          "paperclipai/paperclip/youtube-packaging-ctr"
+        ]
+      },
+      "instructionsFilePath": "/Users/glad0s/.paperclip/instances/default/companies/e7507bfa-ecfd-4dde-bd2a-7b19947ffdde/agents/9f13870f-4c1d-4afa-a434-ab63ad1a7c6b/instructions/AGENTS.md",
+      "instructionsRootPath": "/Users/glad0s/.paperclip/instances/default/companies/e7507bfa-ecfd-4dde-bd2a-7b19947ffdde/agents/9f13870f-4c1d-4afa-a434-ab63ad1a7c6b/instructions",
+      "instructionsEntryFile": "AGENTS.md",
+      "instructionsBundleMode": "managed",
+      "dangerouslyBypassApprovalsAndSandbox": true
+    }
+  },
+  {
+    "id": "e07315cd-d5d7-4ea7-ac06-1fc92ec4d764",
+    "name": "Tagsmith",
+    "oldModel": "gpt-5.5",
+    "adapterConfig": {
+      "cwd": "/Users/glad0s/.paperclip/instances/default/projects/e7507bfa-ecfd-4dde-bd2a-7b19947ffdde/12ea2cbc-6053-4ef2-93b1-93fa175ed624/_default",
+      "model": "gpt-5.5",
+      "graceSec": 15,
+      "paperclipSkillSync": {
+        "desiredSkills": [
+          "paperclipai/paperclip/creative-stack",
+          "paperclipai/paperclip/escalate-platform-work-to-tsmc",
+          "paperclipai/paperclip/etsy-listing-ops",
+          "paperclipai/paperclip/etsy-seo-pricing-photography",
+          "paperclipai/paperclip/hermes-lane-delegation",
+          "paperclipai/paperclip/image-gen-ops",
+          "paperclipai/paperclip/launch-gtm-checklist",
+          "paperclipai/paperclip/og-image-rendering",
+          "paperclipai/paperclip/ship-it-qa-checklist",
+          "paperclipai/paperclip/web-design-polish"
+        ]
+      },
+      "instructionsFilePath": "/Users/glad0s/.paperclip/instances/default/companies/e7507bfa-ecfd-4dde-bd2a-7b19947ffdde/agents/e07315cd-d5d7-4ea7-ac06-1fc92ec4d764/instructions/AGENTS.md",
+      "instructionsRootPath": "/Users/glad0s/.paperclip/instances/default/companies/e7507bfa-ecfd-4dde-bd2a-7b19947ffdde/agents/e07315cd-d5d7-4ea7-ac06-1fc92ec4d764/instructions",
+      "instructionsEntryFile": "AGENTS.md",
+      "instructionsBundleMode": "managed",
+      "dangerouslyBypassApprovalsAndSandbox": true
+    }
+  },
+  {
+    "id": "7c4c3b70-f207-42a2-9b35-b6d096647a40",
+    "name": "Architect-Codex",
+    "oldModel": "gpt-5.5",
+    "adapterConfig": {
+      "model": "gpt-5.5",
+      "graceSec": 15,
+      "paperclipSkillSync": {
+        "desiredSkills": [
+          "paperclipai/paperclip/creative-stack",
+          "paperclipai/paperclip/hermes-lane-delegation",
+          "paperclipai/paperclip/kdp-keyword-category-research",
+          "paperclipai/paperclip/kdp-publishing-pipeline",
+          "paperclipai/paperclip/launch-gtm-checklist",
+          "paperclipai/paperclip/og-image-rendering",
+          "paperclipai/paperclip/ship-it-qa-checklist"
+        ]
+      },
+      "instructionsFilePath": "/Users/glad0s/.paperclip/instances/default/companies/baba1235-7f5b-4555-aed8-c06efa095125/agents/7c4c3b70-f207-42a2-9b35-b6d096647a40/instructions/AGENTS.md",
+      "instructionsRootPath": "/Users/glad0s/.paperclip/instances/default/companies/baba1235-7f5b-4555-aed8-c06efa095125/agents/7c4c3b70-f207-42a2-9b35-b6d096647a40/instructions",
+      "instructionsEntryFile": "AGENTS.md",
+      "instructionsBundleMode": "managed",
+      "dangerouslyBypassApprovalsAndSandbox": true
+    }
+  },
+  {
+    "id": "c96f86c5-42ab-419d-a65d-e6168a27eca5",
+    "name": "Author-Codex",
+    "oldModel": "gpt-5.5",
+    "adapterConfig": {
+      "model": "gpt-5.5",
+      "graceSec": 15,
+      "paperclipSkillSync": {
+        "desiredSkills": [
+          "paperclipai/paperclip/content-book-craft",
+          "paperclipai/paperclip/creative-stack",
+          "paperclipai/paperclip/hermes-lane-delegation",
+          "paperclipai/paperclip/kdp-keyword-category-research",
+          "paperclipai/paperclip/kdp-publishing-pipeline",
+          "paperclipai/paperclip/launch-gtm-checklist",
+          "paperclipai/paperclip/og-image-rendering",
+          "paperclipai/paperclip/ship-it-qa-checklist"
+        ]
+      },
+      "instructionsFilePath": "/Users/glad0s/.paperclip/instances/default/companies/baba1235-7f5b-4555-aed8-c06efa095125/agents/c96f86c5-42ab-419d-a65d-e6168a27eca5/instructions/AGENTS.md",
+      "instructionsRootPath": "/Users/glad0s/.paperclip/instances/default/companies/baba1235-7f5b-4555-aed8-c06efa095125/agents/c96f86c5-42ab-419d-a65d-e6168a27eca5/instructions",
+      "instructionsEntryFile": "AGENTS.md",
+      "instructionsBundleMode": "managed",
+      "dangerouslyBypassApprovalsAndSandbox": true
+    }
+  },
+  {
+    "id": "7312c379-9cde-47ca-837a-6f1931743ed1",
+    "name": "Designer-Codex",
+    "oldModel": "gpt-5.5",
+    "adapterConfig": {
+      "model": "gpt-5.5",
+      "graceSec": 15,
+      "paperclipSkillSync": {
+        "desiredSkills": [
+          "paperclipai/paperclip/creative-stack",
+          "paperclipai/paperclip/hermes-lane-delegation",
+          "paperclipai/paperclip/kdp-keyword-category-research",
+          "paperclipai/paperclip/kdp-publishing-pipeline",
+          "paperclipai/paperclip/launch-gtm-checklist",
+          "paperclipai/paperclip/og-image-rendering",
+          "paperclipai/paperclip/ship-it-qa-checklist"
+        ]
+      },
+      "instructionsFilePath": "/Users/glad0s/.paperclip/instances/default/companies/baba1235-7f5b-4555-aed8-c06efa095125/agents/7312c379-9cde-47ca-837a-6f1931743ed1/instructions/AGENTS.md",
+      "instructionsRootPath": "/Users/glad0s/.paperclip/instances/default/companies/baba1235-7f5b-4555-aed8-c06efa095125/agents/7312c379-9cde-47ca-837a-6f1931743ed1/instructions",
+      "instructionsEntryFile": "AGENTS.md",
+      "instructionsBundleMode": "managed",
+      "dangerouslyBypassApprovalsAndSandbox": true
+    }
+  },
+  {
+    "id": "87770379-6db6-4a78-ba99-cc929a58447b",
+    "name": "Editor-Codex",
+    "oldModel": "gpt-5.5",
+    "adapterConfig": {
+      "model": "gpt-5.5",
+      "graceSec": 15,
+      "paperclipSkillSync": {
+        "desiredSkills": [
+          "company/baba1235-7f5b-4555-aed8-c06efa095125/context-compression",
+          "company/baba1235-7f5b-4555-aed8-c06efa095125/issue-handling",
+          "company/baba1235-7f5b-4555-aed8-c06efa095125/skill-stewardship",
+          "paperclipai/paperclip/analytics-finops",
+          "paperclipai/paperclip/broll-sourcing",
+          "paperclipai/paperclip/content-book-craft",
+          "paperclipai/paperclip/content-production-ops",
+          "paperclipai/paperclip/creative-stack",
+          "paperclipai/paperclip/diagnose-why-work-stopped",
+          "paperclipai/paperclip/escalate-platform-work-to-tsmc",
+          "paperclipai/paperclip/etsy-listing-ops",
+          "paperclipai/paperclip/fallback-lane-ops",
+          "paperclipai/paperclip/hermes-lane-delegation",
+          "paperclipai/paperclip/image-gen-ops",
+          "paperclipai/paperclip/kdp-keyword-category-research",
+          "paperclipai/paperclip/kdp-publishing-pipeline",
+          "paperclipai/paperclip/launch-gtm-checklist",
+          "paperclipai/paperclip/make-a-skill",
+          "paperclipai/paperclip/marketing-ops",
+          "paperclipai/paperclip/mc-portfolio-comms",
+          "paperclipai/paperclip/og-image-rendering",
+          "paperclipai/paperclip/paperclip",
+          "paperclipai/paperclip/paperclip-converting-plans-to-tasks",
+          "paperclipai/paperclip/paperclip-create-agent",
+          "paperclipai/paperclip/paperclip-create-plugin",
+          "paperclipai/paperclip/paperclip-dev",
+          "paperclipai/paperclip/para-memory-files",
+          "paperclipai/paperclip/polymarket-paper-eval-ops",
+          "paperclipai/paperclip/recruitment-pipeline-ops",
+          "paperclipai/paperclip/risk-management",
+          "paperclipai/paperclip/ship-it-qa-checklist",
+          "paperclipai/paperclip/silent-run-review",
+          "paperclipai/paperclip/terminal-bench-loop",
+          "paperclipai/paperclip/utility-site-shipping",
+          "paperclipai/paperclip/video-gen-ops",
+          "paperclipai/paperclip/web-design-polish"
+        ]
+      },
+      "instructionsFilePath": "/Users/glad0s/.paperclip/instances/default/companies/baba1235-7f5b-4555-aed8-c06efa095125/agents/87770379-6db6-4a78-ba99-cc929a58447b/instructions/AGENTS.md",
+      "instructionsRootPath": "/Users/glad0s/.paperclip/instances/default/companies/baba1235-7f5b-4555-aed8-c06efa095125/agents/87770379-6db6-4a78-ba99-cc929a58447b/instructions",
+      "instructionsEntryFile": "AGENTS.md",
+      "instructionsBundleMode": "managed",
+      "dangerouslyBypassApprovalsAndSandbox": true
+    }
+  },
+  {
+    "id": "5be4015a-71f9-499d-9628-db2eb0419d47",
+    "name": "Forge-Codex",
+    "oldModel": "gpt-5.5",
+    "adapterConfig": {
+      "model": "gpt-5.5",
+      "graceSec": 15,
+      "timeoutSec": 0,
+      "paperclipSkillSync": {
+        "desiredSkills": [
+          "company/baba1235-7f5b-4555-aed8-c06efa095125/context-compression",
+          "company/baba1235-7f5b-4555-aed8-c06efa095125/issue-handling",
+          "company/baba1235-7f5b-4555-aed8-c06efa095125/skill-stewardship",
+          "local/6912bfd85c/sprint-checkpoint",
+          "paperclipai/paperclip/analytics-finops",
+          "paperclipai/paperclip/auto-captions",
+          "paperclipai/paperclip/broll-sourcing",
+          "paperclipai/paperclip/content-book-craft",
+          "paperclipai/paperclip/content-production-ops",
+          "paperclipai/paperclip/creative-stack",
+          "paperclipai/paperclip/customer-feedback-loop",
+          "paperclipai/paperclip/diagnose-why-work-stopped",
+          "paperclipai/paperclip/escalate-platform-work-to-tsmc",
+          "paperclipai/paperclip/etsy-listing-ops",
+          "paperclipai/paperclip/etsy-seo-pricing-photography",
+          "paperclipai/paperclip/fallback-lane-ops",
+          "paperclipai/paperclip/hermes-lane-delegation",
+          "paperclipai/paperclip/image-gen-ops",
+          "paperclipai/paperclip/kdp-keyword-category-research",
+          "paperclipai/paperclip/kdp-publishing-pipeline",
+          "paperclipai/paperclip/launch-gtm-checklist",
+          "paperclipai/paperclip/make-a-skill",
+          "paperclipai/paperclip/marketing-ops",
+          "paperclipai/paperclip/mc-portfolio-comms",
+          "paperclipai/paperclip/og-image-rendering",
+          "paperclipai/paperclip/paperclip",
+          "paperclipai/paperclip/paperclip-converting-plans-to-tasks",
+          "paperclipai/paperclip/paperclip-create-agent",
+          "paperclipai/paperclip/paperclip-create-plugin",
+          "paperclipai/paperclip/paperclip-dev",
+          "paperclipai/paperclip/para-memory-files",
+          "paperclipai/paperclip/polymarket-paper-eval-ops",
+          "paperclipai/paperclip/recruitment-pipeline-ops",
+          "paperclipai/paperclip/risk-management",
+          "paperclipai/paperclip/seo-keyword-research-no-tools",
+          "paperclipai/paperclip/ship-it-qa-checklist",
+          "paperclipai/paperclip/silent-run-review",
+          "paperclipai/paperclip/terminal-bench-loop",
+          "paperclipai/paperclip/utility-site-shipping",
+          "paperclipai/paperclip/video-assembly-pipeline",
+          "paperclipai/paperclip/video-editing",
+          "paperclipai/paperclip/video-gen-ops",
+          "paperclipai/paperclip/web-design-polish",
+          "paperclipai/paperclip/youtube-packaging-ctr"
+        ]
+      },
+      "instructionsFilePath": "/Users/glad0s/.paperclip/instances/default/companies/baba1235-7f5b-4555-aed8-c06efa095125/agents/5be4015a-71f9-499d-9628-db2eb0419d47/instructions/AGENTS.md",
+      "instructionsRootPath": "/Users/glad0s/.paperclip/instances/default/companies/baba1235-7f5b-4555-aed8-c06efa095125/agents/5be4015a-71f9-499d-9628-db2eb0419d47/instructions",
+      "modelReasoningEffort": "medium",
+      "instructionsEntryFile": "AGENTS.md",
+      "instructionsBundleMode": "managed",
+      "dangerouslyBypassApprovalsAndSandbox": true
+    }
+  },
+  {
+    "id": "67f40d02-d289-44ac-85b0-a1128f045184",
+    "name": "Press",
+    "oldModel": "gpt-5.5",
+    "adapterConfig": {
+      "model": "gpt-5.5",
+      "graceSec": 15,
+      "paperclipSkillSync": {
+        "desiredSkills": [
+          "paperclipai/paperclip/content-book-craft",
+          "paperclipai/paperclip/creative-stack",
+          "paperclipai/paperclip/escalate-platform-work-to-tsmc",
+          "paperclipai/paperclip/hermes-lane-delegation",
+          "paperclipai/paperclip/image-gen-ops",
+          "paperclipai/paperclip/kdp-keyword-category-research",
+          "paperclipai/paperclip/kdp-publishing-pipeline",
+          "paperclipai/paperclip/launch-gtm-checklist",
+          "paperclipai/paperclip/og-image-rendering",
+          "paperclipai/paperclip/ship-it-qa-checklist"
+        ]
+      },
+      "instructionsFilePath": "/Users/glad0s/.paperclip/instances/default/companies/baba1235-7f5b-4555-aed8-c06efa095125/agents/67f40d02-d289-44ac-85b0-a1128f045184/instructions/AGENTS.md",
+      "instructionsRootPath": "/Users/glad0s/.paperclip/instances/default/companies/baba1235-7f5b-4555-aed8-c06efa095125/agents/67f40d02-d289-44ac-85b0-a1128f045184/instructions",
+      "instructionsEntryFile": "AGENTS.md",
+      "instructionsBundleMode": "managed",
+      "dangerouslyBypassApprovalsAndSandbox": true
+    }
+  },
+  {
+    "id": "d5cfacbc-58d6-4021-ab57-e66450e3af39",
+    "name": "Researcher-Codex",
+    "oldModel": "gpt-5.5",
+    "adapterConfig": {
+      "model": "gpt-5.5",
+      "graceSec": 15,
+      "paperclipSkillSync": {
+        "desiredSkills": [
+          "paperclipai/paperclip/creative-stack",
+          "paperclipai/paperclip/hermes-lane-delegation",
+          "paperclipai/paperclip/kdp-keyword-category-research",
+          "paperclipai/paperclip/kdp-publishing-pipeline",
+          "paperclipai/paperclip/launch-gtm-checklist",
+          "paperclipai/paperclip/seo-keyword-research-no-tools",
+          "paperclipai/paperclip/ship-it-qa-checklist"
+        ]
+      },
+      "instructionsFilePath": "/Users/glad0s/.paperclip/instances/default/companies/baba1235-7f5b-4555-aed8-c06efa095125/agents/d5cfacbc-58d6-4021-ab57-e66450e3af39/instructions/AGENTS.md",
+      "instructionsRootPath": "/Users/glad0s/.paperclip/instances/default/companies/baba1235-7f5b-4555-aed8-c06efa095125/agents/d5cfacbc-58d6-4021-ab57-e66450e3af39/instructions",
+      "instructionsEntryFile": "AGENTS.md",
+      "instructionsBundleMode": "managed",
+      "dangerouslyBypassApprovalsAndSandbox": true
+    }
+  },
+  {
+    "id": "dd36e5ce-17c4-4ff9-ba09-1c739b2540cc",
+    "name": "Crawler",
+    "oldModel": "gpt-5.5",
+    "adapterConfig": {
+      "cwd": "/Users/glad0s/.paperclip/instances/default/projects/6d2c1656-dabd-4aa1-b45a-0f5aedea3092/96f4ccfc-7792-4008-9fc7-40b87e29653f",
+      "model": "gpt-5.5",
+      "graceSec": 15,
+      "paperclipSkillSync": {
+        "desiredSkills": [
+          "paperclipai/paperclip/creative-stack",
+          "paperclipai/paperclip/escalate-platform-work-to-tsmc",
+          "paperclipai/paperclip/hermes-lane-delegation",
+          "paperclipai/paperclip/launch-gtm-checklist",
+          "paperclipai/paperclip/marketing-ops",
+          "paperclipai/paperclip/og-image-rendering",
+          "paperclipai/paperclip/ship-it-qa-checklist",
+          "paperclipai/paperclip/utility-site-shipping",
+          "paperclipai/paperclip/web-design-polish"
+        ]
+      },
+      "instructionsFilePath": "/Users/glad0s/.paperclip/instances/default/companies/6d2c1656-dabd-4aa1-b45a-0f5aedea3092/agents/dd36e5ce-17c4-4ff9-ba09-1c739b2540cc/instructions/AGENTS.md",
+      "instructionsRootPath": "/Users/glad0s/.paperclip/instances/default/companies/6d2c1656-dabd-4aa1-b45a-0f5aedea3092/agents/dd36e5ce-17c4-4ff9-ba09-1c739b2540cc/instructions",
+      "instructionsEntryFile": "AGENTS.md",
+      "instructionsBundleMode": "managed",
+      "dangerouslyBypassApprovalsAndSandbox": true
+    }
+  },
+  {
+    "id": "28104aa6-6e00-4adf-811c-30530de0d8db",
+    "name": "ApplicationWriter-Codex",
+    "oldModel": "gpt-5.5",
+    "adapterConfig": {
+      "cwd": "/Users/glad0s/.paperclip/instances/default/projects/cefbbf68-0ca7-4383-967e-03bc1b037ae7/c236b130-a329-4c64-8ff1-9a16612a508d/_default",
+      "model": "gpt-5.5",
+      "graceSec": 15,
+      "paperclipSkillSync": {
+        "desiredSkills": [
+          "paperclipai/paperclip/creative-stack",
+          "paperclipai/paperclip/hermes-lane-delegation",
+          "paperclipai/paperclip/launch-gtm-checklist",
+          "paperclipai/paperclip/recruitment-pipeline-ops",
+          "paperclipai/paperclip/ship-it-qa-checklist"
+        ]
+      },
+      "instructionsFilePath": "/Users/glad0s/.paperclip/instances/default/companies/cefbbf68-0ca7-4383-967e-03bc1b037ae7/agents/28104aa6-6e00-4adf-811c-30530de0d8db/instructions/AGENTS.md",
+      "instructionsRootPath": "/Users/glad0s/.paperclip/instances/default/companies/cefbbf68-0ca7-4383-967e-03bc1b037ae7/agents/28104aa6-6e00-4adf-811c-30530de0d8db/instructions",
+      "instructionsEntryFile": "AGENTS.md",
+      "instructionsBundleMode": "managed",
+      "dangerouslyBypassApprovalsAndSandbox": true
+    }
+  },
+  {
+    "id": "3eca5a85-3a2b-4711-b089-7ba03d6bffe3",
+    "name": "CandidateIntakeSpecialist-Codex",
+    "oldModel": "gpt-5.5",
+    "adapterConfig": {
+      "cwd": "/Users/glad0s/.paperclip/instances/default/projects/cefbbf68-0ca7-4383-967e-03bc1b037ae7/c236b130-a329-4c64-8ff1-9a16612a508d/_default",
+      "model": "gpt-5.5",
+      "graceSec": 15,
+      "paperclipSkillSync": {
+        "desiredSkills": [
+          "paperclipai/paperclip/creative-stack",
+          "paperclipai/paperclip/hermes-lane-delegation",
+          "paperclipai/paperclip/launch-gtm-checklist",
+          "paperclipai/paperclip/recruitment-pipeline-ops",
+          "paperclipai/paperclip/ship-it-qa-checklist"
+        ]
+      },
+      "instructionsFilePath": "/Users/glad0s/.paperclip/instances/default/companies/cefbbf68-0ca7-4383-967e-03bc1b037ae7/agents/3eca5a85-3a2b-4711-b089-7ba03d6bffe3/instructions/AGENTS.md",
+      "instructionsRootPath": "/Users/glad0s/.paperclip/instances/default/companies/cefbbf68-0ca7-4383-967e-03bc1b037ae7/agents/3eca5a85-3a2b-4711-b089-7ba03d6bffe3/instructions",
+      "instructionsEntryFile": "AGENTS.md",
+      "instructionsBundleMode": "managed",
+      "dangerouslyBypassApprovalsAndSandbox": true
+    }
+  },
+  {
+    "id": "f6a610d8-68a0-4307-987f-d91af85e5612",
+    "name": "JobSourcer-Codex",
+    "oldModel": "gpt-5.5",
+    "adapterConfig": {
+      "cwd": "/Users/glad0s/.paperclip/instances/default/projects/cefbbf68-0ca7-4383-967e-03bc1b037ae7/c236b130-a329-4c64-8ff1-9a16612a508d/_default",
+      "model": "gpt-5.5",
+      "graceSec": 15,
+      "paperclipSkillSync": {
+        "desiredSkills": [
+          "paperclipai/paperclip/creative-stack",
+          "paperclipai/paperclip/hermes-lane-delegation",
+          "paperclipai/paperclip/launch-gtm-checklist",
+          "paperclipai/paperclip/recruitment-pipeline-ops",
+          "paperclipai/paperclip/seo-keyword-research-no-tools",
+          "paperclipai/paperclip/ship-it-qa-checklist"
+        ]
+      },
+      "instructionsFilePath": "/Users/glad0s/.paperclip/instances/default/companies/cefbbf68-0ca7-4383-967e-03bc1b037ae7/agents/f6a610d8-68a0-4307-987f-d91af85e5612/instructions/AGENTS.md",
+      "instructionsRootPath": "/Users/glad0s/.paperclip/instances/default/companies/cefbbf68-0ca7-4383-967e-03bc1b037ae7/agents/f6a610d8-68a0-4307-987f-d91af85e5612/instructions",
+      "instructionsEntryFile": "AGENTS.md",
+      "instructionsBundleMode": "managed",
+      "dangerouslyBypassApprovalsAndSandbox": true
+    }
+  },
+  {
+    "id": "e11cafc0-c212-4dbe-b4b8-0fa2400a9192",
+    "name": "RecruitmentManager-Codex",
+    "oldModel": "gpt-5.5",
+    "adapterConfig": {
+      "cwd": "/Users/glad0s/.paperclip/instances/default/projects/cefbbf68-0ca7-4383-967e-03bc1b037ae7/c236b130-a329-4c64-8ff1-9a16612a508d/_default",
+      "model": "gpt-5.5",
+      "graceSec": 15,
+      "paperclipSkillSync": {
+        "desiredSkills": [
+          "paperclipai/paperclip/creative-stack",
+          "paperclipai/paperclip/customer-feedback-loop",
+          "paperclipai/paperclip/hermes-lane-delegation",
+          "paperclipai/paperclip/launch-gtm-checklist",
+          "paperclipai/paperclip/recruitment-pipeline-ops",
+          "paperclipai/paperclip/ship-it-qa-checklist"
+        ]
+      },
+      "instructionsFilePath": "/Users/glad0s/.paperclip/instances/default/companies/cefbbf68-0ca7-4383-967e-03bc1b037ae7/agents/e11cafc0-c212-4dbe-b4b8-0fa2400a9192/instructions/AGENTS.md",
+      "instructionsRootPath": "/Users/glad0s/.paperclip/instances/default/companies/cefbbf68-0ca7-4383-967e-03bc1b037ae7/agents/e11cafc0-c212-4dbe-b4b8-0fa2400a9192/instructions",
+      "instructionsEntryFile": "AGENTS.md",
+      "instructionsBundleMode": "managed",
+      "dangerouslyBypassApprovalsAndSandbox": true
+    }
+  }
+]

@@ -1,0 +1,29 @@
+[
+  {
+    "id": "f3bee9b7-0a66-49c5-badc-de8af0da2304",
+    "name": "GrowthSEO-Gemini",
+    "adapterType": "hermes_local",
+    "adapterConfig": {
+      "cwd": "/Users/glad0s/.paperclip/instances/default/workspaces/growth-seo",
+      "model": "grok-4.3",
+      "paperclipSkillSync": {
+        "desiredSkills": [
+          "paperclipai/paperclip/utility-site-shipping",
+          "paperclipai/paperclip/escalate-platform-work-to-tsmc",
+          "paperclipai/paperclip/creative-stack",
+          "paperclipai/paperclip/ship-it-qa-checklist",
+          "paperclipai/paperclip/launch-gtm-checklist",
+          "paperclipai/paperclip/seo-keyword-research-no-tools",
+          "paperclipai/paperclip/landing-page-cro",
+          "paperclipai/paperclip/ab-testing-discipline",
+          "paperclipai/paperclip/pricing-strategy",
+          "paperclipai/paperclip/og-image-rendering"
+        ]
+      },
+      "instructionsFilePath": "/Users/glad0s/.paperclip/instances/default/companies/6d2c1656-dabd-4aa1-b45a-0f5aedea3092/agents/f3bee9b7-0a66-49c5-badc-de8af0da2304/instructions/AGENTS.md",
+      "instructionsRootPath": "/Users/glad0s/.paperclip/instances/default/companies/6d2c1656-dabd-4aa1-b45a-0f5aedea3092/agents/f3bee9b7-0a66-49c5-badc-de8af0da2304/instructions",
+      "instructionsEntryFile": "AGENTS.md",
+      "instructionsBundleMode": "managed"
+    }
+  }
+]

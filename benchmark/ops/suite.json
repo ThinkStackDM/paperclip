@@ -89,6 +89,79 @@
           { "type": "json_path_equals", "path": "3", "value": "ui-badge", "weight": 1 }
         ]
       }
+    },
+    {
+      "id": "ops-cascade-rootcause",
+      "title": "Separate root cause from downstream symptoms in a cascade",
+      "prompt": "A cascading Paperclip outage just fired five alerts within 90 seconds. Find the ONE root cause and label the rest as downstream symptoms — do not treat a symptom as the cause.\n\nTIMELINE (timestamps in seconds):\n- t=0: the embedded Postgres connection pool is exhausted — every new query blocks waiting for a connection that never frees (a slow migration grabbed and held all 20 connections).\n- t=12: heartbeat.ts can't write heartbeats (its DB writes hang), so heartbeats stop landing.\n- t=31: the liveness monitor sees stale heartbeats and starts marking healthy in-flight runs as process_lost.\n- t=44: the board UI shows 'all agents offline' because it reads run status from the DB and every read is queued behind the exhausted pool.\n- t=58: PagerDuty fires a FULL-OUTAGE page ('instance down').\n\nThe on-call's instinct is to restart the instance (which would clear heartbeats and reap even more runs) or to bump the liveness threshold. Identify the true root cause and the fix that addresses IT, not a symptom.\n\nReturn ONLY JSON: {\"root_cause\": string, \"symptoms\": [string], \"fix\": string, \"why_not_symptom\": string}. `root_cause` must name the connection-pool exhaustion / the migration holding all connections; `symptoms` must list the downstream effects (stale heartbeats, runs marked process_lost, board offline, the page); `fix` must target the pool/migration, not restart-or-raise-threshold; `why_not_symptom` <=40 words.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "contains_any", "values": ["connection pool", "pool exhaust", "connection", "pool", "migration"], "weight": 3 },
+          { "type": "json_path_exists", "path": "symptoms", "weight": 1 },
+          { "type": "json_path_exists", "path": "fix", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "root_cause_correct", "weight": 3, "guidance": "Correctly names the t=0 Postgres connection-pool exhaustion (the long migration holding all 20 connections) as THE single root cause. Heavily penalize answers that name a downstream symptom as the cause — especially stale heartbeats, runs marked process_lost, the board showing offline, or the page itself — and penalize 'the server is down' as if that were primary." },
+            { "name": "symptom_separation", "weight": 2, "guidance": "Lists the downstream effects (heartbeats not landing, healthy runs falsely reaped as process_lost, board reads queued/offline, the full-outage page) AS symptoms of the pool exhaustion, in the right causal direction. Penalize inverting causality or mislabeling the cause as a symptom." },
+            { "name": "fix_targets_cause", "weight": 2, "guidance": "The fix addresses the pool/migration (kill or throttle the migration so it releases connections / run it without holding the whole pool, add a connection cap or statement timeout so one job can't starve the pool). Heavily penalize the trap fixes: restarting the instance (clears heartbeats and reaps MORE runs) or just raising the liveness threshold (masks the symptom while the pool stays exhausted)." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ops-alert-actionable",
+      "title": "Decide if a 3am page is actionable or noise",
+      "prompt": "It is 3am. A page just woke the on-call. Decide whether this is ACTIONABLE (a human/agent must act now) or NOISE (auto-recovering or expected; should not have paged) — then make the correct call.\n\nPOLICY: page only for conditions that (a) are not self-healing AND (b) need intervention now. Transient conditions that the system recovers from on its own, or expected/known-paused states, are NOISE and the alert rule should be fixed, not the system.\n\nPAGE DETAILS: alert 'agent-invoke-failed' fired because 13 claude leadership primaries returned 'Agent is not invokable (paused)'. These 13 are the DELIBERATELY paused weekly-rate-limited primaries that auto-resume on their fixed reset date (in 2 days). Productive work is still flowing on the codex and grok lanes; no customer-facing capability is down; nothing is stuck waiting on these 13. The same alert has fired every night this week at the same volume.\n\nReturn ONLY JSON: {\"verdict\": \"actionable\"|\"noise\", \"page_now\": true|false, \"fix\": string, \"reason\": string}. `page_now` is whether a human should be woken for THIS condition. `fix` says what to change so this stops mis-paging. `reason` <=40 words.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "verdict", "value": "noise", "weight": 5 },
+          { "type": "json_path_equals", "path": "page_now", "value": false, "weight": 3 },
+          { "type": "json_path_exists", "path": "fix", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "call_correct", "weight": 2, "guidance": "Classifies this as NOISE / non-actionable: the paused primaries are an expected, self-resolving state (auto-resume in 2 days), work is still flowing on other lanes, nothing is blocked, and the alert repeats nightly. No human should be woken. Heavily penalize 'actionable'/page_now=true, and penalize any answer that proposes unpausing the rate-limited primaries (that fights the deliberate pause) or treats steady productive work as an emergency." },
+            { "name": "fix_quality", "weight": 2, "guidance": "The fix corrects the ALERT, not the system: suppress/exclude deliberately-paused agents from this alert rule, alert only when paused-state actually blocks work or when no lane is making progress, or silence until the known reset date. Penalize fixes that page louder, that add no rule change, or that 'fix' it by waking someone." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ops-rollback-decision",
+      "title": "Roll back vs forward-fix a bad deploy",
+      "prompt": "A deploy 25 minutes ago is actively losing data, and you must choose: ROLL BACK to the previous release now, or FORWARD-FIX (ship a patch on top).\n\nFACTS:\n- The new release writes agent run results to a column that the migration RENAMED; the rename half-applied, so ~every 3rd run's result is being dropped (silent data loss, happening right now and unrecoverable once the run is gc'd).\n- The previous release is known-good and is still deployed-and-runnable (blue/green: the old version is one switch away, ~30 seconds to cut back).\n- The forward-fix is NOT written yet; best estimate is 40+ minutes to write, review, and deploy safely, and it touches the same migration that is already half-applied.\n- The migration is ADDITIVE-compatible: the old release runs fine against the current schema (the renamed column is additive; the old code reads the original column, which still exists).\n\nChoose the action that stops the bleeding fastest with the least risk. Return ONLY JSON: {\"action\": \"roll_back\"|\"forward_fix\", \"reason\": string, \"followup\": string}. `reason` <=45 words must weigh time-to-stop-bleeding and risk; `followup` says what happens after.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "action", "value": "roll_back", "weight": 5 },
+          { "type": "json_path_exists", "path": "followup", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "decision_correct", "weight": 3, "guidance": "Chooses ROLL BACK: data is being lost right now and unrecoverably, the previous release is known-good and one ~30s switch away, and it is schema-compatible with the current (additive) migration — so rollback stops the bleeding in seconds at minimal risk. Heavily penalize forward_fix: it leaves data loss running for 40+ minutes AND touches the already-half-applied migration (higher risk). Penalize any answer that ignores the active, unrecoverable data loss or that doubts rollback safety despite the stated blue/green + additive-compat facts." },
+            { "name": "followup_quality", "weight": 2, "guidance": "After rolling back, the followup is sane: stabilize on the known-good release, then fix the half-applied rename / build and test the forward fix off the hot path, redeploy carefully, and (bonus) audit/quantify the runs already lost. Penalize 'roll back and immediately redeploy the same broken release', or a followup that never fixes the underlying migration." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ops-runbook-ordering",
+      "title": "Order the recovery runbook steps correctly",
+      "prompt": "The Paperclip source server died mid-flight and you are bringing it back. Put these six recovery steps into the correct safe order. Ordering rules that MUST hold:\n- You must STOP the flapping supervisor (launchd KeepAlive is re-execing the start script every few seconds) BEFORE anything else, or each step races a relaunch.\n- You must kill the stale embedded-Postgres postmaster and free port 13100 (old workspace-runtime) BEFORE you start the new process, or it crashes on 'postmaster.pid exists' / 'port in use'.\n- You must start the app and let it pass a health check BEFORE you reconcile/reap runs, so reaping runs against a live DB with a real heartbeat grace (not the 0-default that instantly fails live runs).\n- You must verify productive work has resumed (runs dispatching, heartbeats landing) as the FINAL step.\n- Re-enabling the launchd supervisor must happen AFTER the app is confirmed healthy, never before.\n\nSTEPS (label = id):\n- \"reap\": reconcile/reap orphaned runs with a non-zero stale-threshold grace.\n- \"verify\": confirm runs are dispatching and heartbeats are landing.\n- \"start\": start the app (pnpm dev) and wait for the health check to pass.\n- \"clean\": kill the stale postmaster and free port 13100.\n- \"halt-supervisor\": disable launchd KeepAlive so it stops re-execing the start script.\n- \"reenable-supervisor\": re-enable launchd KeepAlive.\n\nReturn ONLY a JSON array of the 6 ids in execution order, first step first. No prose. Shape: [\"a\",\"b\",\"c\",\"d\",\"e\",\"f\"].",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "0", "value": "halt-supervisor", "weight": 3 },
+          { "type": "json_path_equals", "path": "1", "value": "clean", "weight": 2 },
+          { "type": "json_path_equals", "path": "2", "value": "start", "weight": 2 },
+          { "type": "json_path_equals", "path": "3", "value": "reap", "weight": 2 },
+          { "type": "json_path_equals", "path": "4", "value": "reenable-supervisor", "weight": 2 },
+          { "type": "json_path_equals", "path": "5", "value": "verify", "weight": 1 }
+        ]
+      }
     }
   ]
 }

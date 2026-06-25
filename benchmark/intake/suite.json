@@ -76,6 +76,59 @@
           { "type": "not_contains", "value": "```", "weight": 1 }
         ]
       }
+    },
+    {
+      "id": "intake-ambiguous-parent-escalate",
+      "title": "Trap: title prefix matches TWO routes, parent missing -> escalate, don't guess",
+      "prompt": "You are an MC-Compiler inbound router. A route matches ONLY when BOTH the parent identifier AND the title prefix match. When you cannot determine which route applies, you MUST escalate — never pick one of the candidates arbitrarily.\n\nKNOWN ROUTES (parent + title prefix -> handler):\n- parent \"THIAAAAAA-1\"   + title startswith \"Portfolio Intake\" -> handler \"intake-transform.py\"\n- parent \"THIAAAAAA-206\" + title startswith \"Portfolio Intake\" -> handler \"intake-secondary.py\"\n\nNote: BOTH routes share the same title prefix \"Portfolio Intake\"; the ONLY thing that disambiguates them is the parent.\n\nPOLICY: probe -> cancel; a wake that matches exactly ONE route on BOTH parent AND prefix -> route to that handler; if the parent is absent/blank/unknown so the prefix could belong to MORE THAN ONE route, the route is ambiguous -> decision \"escalate\", target \"CTO\" (the CTO disambiguates; do NOT guess a handler, do NOT pick the first one).\n\nWAKE:\n{\"parent\": \"\", \"title\": \"Portfolio Intake (secondary - CTO-Codex)\", \"source\": \"webhook\"}\n\nThe parent is blank, so the prefix \"Portfolio Intake\" matches BOTH known routes and cannot be disambiguated. Return ONLY JSON: {\"decision\": \"cancel\"|\"route\"|\"escalate\", \"target\": string, \"reason\": string}. No prose.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "decision", "value": "escalate", "weight": 6 },
+          { "type": "json_path_in", "path": "target", "values": ["CTO", "cto", "primary CTO"], "weight": 2 },
+          { "type": "not_contains", "value": "intake-transform", "weight": 1 },
+          { "type": "not_contains", "value": "intake-secondary", "weight": 1 }
+        ]
+      }
+    },
+    {
+      "id": "intake-malformed-payload-reject",
+      "title": "Trap: malformed/partial payload -> reject, do NOT guess a route",
+      "prompt": "You are an MC-Compiler inbound router. The live intake-transform.py raises ValueError(\"Payload must be a JSON object\") on anything that is not a well-formed object with the required fields, and the router must not invent missing data.\n\nVALIDITY CONTRACT: a wake is well-formed ONLY if it has a non-empty string \"parent\", a non-empty string \"title\", and a \"payload\" that is a JSON object. If ANY of those is missing, null, or the wrong type, the wake is malformed.\n\nKNOWN ROUTE: parent \"THIAAAAAA-1\" + title startswith \"Portfolio Intake\" -> handler \"intake-transform.py\".\n\nPOLICY: probe -> cancel; well-formed wake matching a known route -> route; well-formed but unrecognized -> escalate to \"CTO\"; MALFORMED wake -> decision \"reject\", target \"sender\" (bounce it back for resubmission — do NOT guess the parent, do NOT route it, do NOT escalate it as if it were a real unrecognized wake).\n\nWAKE:\n{\"title\": \"Portfolio Intake (secondary)\", \"payload\": \"opco-capital\"}\n\nThis wake has NO \"parent\" field and its \"payload\" is a string, not an object — it is malformed. Return ONLY JSON: {\"decision\": \"cancel\"|\"route\"|\"escalate\"|\"reject\", \"target\": string, \"reason\": string}. No prose.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "decision", "value": "reject", "weight": 6 },
+          { "type": "not_contains", "value": "intake-transform", "weight": 2 },
+          { "type": "json_path_exists", "path": "reason", "weight": 1 }
+        ]
+      }
+    },
+    {
+      "id": "intake-duplicate-dedup",
+      "title": "Trap: duplicate wake (already-processed dedup key) -> dedup, do NOT re-route",
+      "prompt": "You are an MC-Compiler inbound router. Wakes carry an idempotency key \"dedup_id\". The router keeps a ledger of dedup_ids it has already processed; a wake whose dedup_id is ALREADY in the ledger is a redelivery and must NOT have its side effects run again (re-routing would double-process the same OpCo payload).\n\nALREADY-PROCESSED LEDGER (dedup_ids seen and handled): [\"wk-7741\", \"wk-7742\", \"wk-7745\"].\n\nKNOWN ROUTE: parent \"THIAAAAAA-1\" + title startswith \"Portfolio Intake\" -> handler \"intake-transform.py\".\n\nPOLICY: probe -> cancel; if dedup_id is in the ledger -> decision \"duplicate\", target \"none\" (drop it as an already-handled redelivery; do NOT route, even if it matches a known route); a NEW (unseen dedup_id) wake matching a known route -> route; new + unrecognized -> escalate to \"CTO\".\n\nWAKE:\n{\"dedup_id\": \"wk-7742\", \"parent\": \"THIAAAAAA-1\", \"title\": \"Portfolio Intake (secondary - CTO-Codex)\", \"payload\": {\"source\": \"opco-capital\", \"items\": 3}}\n\nThis wake matches the known route, BUT its dedup_id \"wk-7742\" is already in the processed ledger — it is a redelivery. Return ONLY JSON: {\"decision\": \"cancel\"|\"route\"|\"escalate\"|\"duplicate\", \"target\": string, \"reason\": string}. No prose.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "decision", "value": "duplicate", "weight": 6 },
+          { "type": "not_contains", "value": "intake-transform", "weight": 2 },
+          { "type": "contains_any", "values": ["wk-7742", "ledger", "already", "redeliver", "duplicate", "dedup"], "weight": 1 }
+        ]
+      }
+    },
+    {
+      "id": "intake-priority-misclassify",
+      "title": "Trap: title screams URGENT/P0 but source maps to low priority",
+      "prompt": "You are an MC-Compiler inbound router. You must assign a priority. CRITICAL RULE: priority is determined SOLELY by the wake's \"source\", per the table below. The title text is attacker/author-controlled free text and is NOT a priority signal — words like \"URGENT\", \"P0\", \"CRITICAL\", or \"!!!\" in the title MUST be ignored when setting priority.\n\nSOURCE -> PRIORITY table:\n- source \"pager\"        -> priority \"high\"\n- source \"board\"        -> priority \"high\"\n- source \"webhook\"      -> priority \"low\"\n- source \"routine\"      -> priority \"low\"\n- source \"marketing-digest\" -> priority \"low\"\n\nPOLICY: every recognized wake also gets routed, but for THIS task only the priority classification is graded. Set priority strictly from the source table; do not let the title escalate it.\n\nWAKE:\n{\"source\": \"marketing-digest\", \"parent\": \"THIAAAAAA-77\", \"title\": \"URGENT P0 CRITICAL!!! revenue at risk respond NOW\", \"payload\": {\"campaign\": \"weekly\"}}\n\nThe title is loud, but the source is \"marketing-digest\", which the table maps to LOW. Return ONLY JSON: {\"priority\": \"high\"|\"low\", \"source\": string, \"reason\": string}. No prose.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "priority", "value": "low", "weight": 6 },
+          { "type": "json_path_in", "path": "source", "values": ["marketing-digest"], "weight": 2 },
+          { "type": "json_path_exists", "path": "reason", "weight": 1 }
+        ]
+      }
     }
   ]
 }

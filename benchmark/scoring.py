@@ -96,6 +96,21 @@ def _eval_check(output, chk, parsed_json):
     if t == "json_path_exists":
         found, _ = benchlib.dotted_get(parsed_json, chk["path"]) if parsed_json is not None else (False, None)
         return found
+    if t == "json_path_len_equals":
+        found, val = benchlib.dotted_get(parsed_json, chk["path"]) if parsed_json is not None else (False, None)
+        if not found or not isinstance(val, (list, str)):
+            return False
+        return len(val) == int(chk["value"])
+    if t == "json_path_max_chars":
+        found, val = benchlib.dotted_get(parsed_json, chk["path"]) if parsed_json is not None else (False, None)
+        if not found or not isinstance(val, str):
+            return False
+        return len(val) <= int(chk["value"])
+    if t == "json_path_min_chars":
+        found, val = benchlib.dotted_get(parsed_json, chk["path"]) if parsed_json is not None else (False, None)
+        if not found or not isinstance(val, str):
+            return False
+        return len(val) >= int(chk["value"])
     # unknown check type fails closed
     return False
 

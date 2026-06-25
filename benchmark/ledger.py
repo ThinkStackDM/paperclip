@@ -157,6 +157,108 @@ def record_skill_run(run_id, company=None):
     return append_records(out), len(out)
 
 
+def record_variants_run(run_id, company=None):
+    """Ingest a #17 config-variant run's cells.json -> one record per (role, model, agent_file, skills) cell.
+    Namespaced test_class 'variant:<role>:<af>-<skills>' so these never pollute the bare base-model
+    leaderboard (test_class=<role>). The base matrix already supplies bare:none (the floor); this layer
+    captures the agent-file / skills configs on top, so the drill can fill the with-skills decision grid."""
+    company = company or _company()
+    run_dir = benchlib.RESULTS_DIR / run_id
+    cells_path = run_dir / "cells.json"
+    if not cells_path.exists():
+        raise FileNotFoundError(f"no cells.json for {run_id}")
+    cells = json.load(open(cells_path))
+    ts = _now_iso()
+    out = []
+    for key, c in cells.items():
+        parts = key.split("|")  # "role|model|af|skills"
+        if len(parts) != 4 or c.get("quality") is None:
+            continue
+        role, model_id, af, skills = parts
+        out.append({
+            "ts": ts, "company": company, "kind": "config_variant",
+            "test_class": f"variant:{role}:{af}-{skills}", "model": model_id,
+            "model_class": _model_class(model_id),
+            "metrics": {
+                "quality": _r(c.get("quality")),
+                "qPer1kOut": _r(c.get("qPer1kOut")),
+                "meanOutputTokens": _r(c.get("outputTokens"), 0),
+            },
+            "n_tasks": c.get("n"), "run_id": run_id, "judge": None,
+            "variant": {"role": role, "agentFile": af, "skills": skills},
+            "skill": None, "source": "variants.py",
+        })
+    return append_records(out), len(out)
+
+
+def record_agentic_variants_run(run_id, company=None):
+    """Ingest a variants_agentic.py run's cells.json -> one record per (role, model, af, skills) cell,
+    namespaced test_class 'agentic-variant:<role>:<af>-<skills>'. This is the AGENTIC frame for lanes
+    (gemini/antigravity) that cannot answer the single-shot ~65k concatenated-skills prompt: skills are
+    mounted as files and the agent reads them on demand (mirrors the live antigravity_local adapter).
+    Kept in its OWN namespace so it never mixes with the single-shot 'variant:' cells or the bare
+    leaderboard — single-shot vs agentic are different methodologies and must be compared separately."""
+    company = company or _company()
+    run_dir = benchlib.RESULTS_DIR / run_id
+    cells_path = run_dir / "cells.json"
+    if not cells_path.exists():
+        raise FileNotFoundError(f"no cells.json for {run_id}")
+    cells = json.load(open(cells_path))
+    ts = _now_iso()
+    out = []
+    for key, c in cells.items():
+        parts = key.split("|")  # "role|model|af|skills"
+        if len(parts) != 4 or c.get("quality") is None:
+            continue
+        role, model_id, af, skills = parts
+        out.append({
+            "ts": ts, "company": company, "kind": "agentic_config_variant",
+            "test_class": f"agentic-variant:{role}:{af}-{skills}", "model": model_id,
+            "model_class": _model_class(model_id),
+            "metrics": {
+                "quality": _r(c.get("quality")),
+                "qPer1kOut": _r(c.get("qPer1kOut")),
+                "meanOutputTokens": _r(c.get("outputTokens"), 0),
+            },
+            "n_tasks": c.get("n"), "run_id": run_id, "judge": None,
+            "variant": {"role": role, "agentFile": af, "skills": skills},
+            "frame": "agentic", "skill": None, "source": "variants_agentic.py",
+        })
+    return append_records(out), len(out)
+
+
+def record_team_run(run_id, company=None):
+    """Ingest a team_bench.py run's cells.json -> one record per (test_class) cell, namespaced
+    'team:<domain>:<mode>' (single-<model> | team<N>-<workers>). This is workstream-D: does a TEAM
+    of fast agents splitting a long-form draft beat ONE drafter? Kept in its OWN namespace so it
+    never mixes with model/skill/variant/agentic-variant evals — different methodology."""
+    company = company or _company()
+    run_dir = benchlib.RESULTS_DIR / run_id
+    cells_path = run_dir / "cells.json"
+    if not cells_path.exists():
+        raise FileNotFoundError(f"no cells.json for {run_id}")
+    cells = json.load(open(cells_path))
+    ts = _now_iso()
+    out = []
+    for test_class, c in cells.items():
+        if c.get("quality") is None:
+            continue
+        out.append({
+            "ts": ts, "company": company, "kind": "team_decomp",
+            "test_class": test_class, "model": test_class.split(":")[-1],
+            "model_class": "team" if ":team" in test_class else "single",
+            "metrics": {
+                "quality": _r(c.get("quality")),
+                "qPer1kOut": _r(c.get("qPer1kOut")),
+                "meanOutputTokens": _r(c.get("meanOutputTokens"), 0),
+                "meanWallMs": _r(c.get("meanWallMs"), 0),
+            },
+            "n_tasks": c.get("n"), "run_id": run_id, "judge": None,
+            "frame": "team", "skill": None, "source": "team_bench.py",
+        })
+    return append_records(out), len(out)
+
+
 def _r(x, default=None):
     if x is None:
         return default
@@ -280,7 +382,7 @@ def main():
     ap = argparse.ArgumentParser(description="shared benchmark ledger (source of truth)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     pr = sub.add_parser("record"); pr.add_argument("--run", required=True)
-    pr.add_argument("--company", default=None); pr.add_argument("--kind", choices=["bench", "skill", "auto"], default="auto")
+    pr.add_argument("--company", default=None); pr.add_argument("--kind", choices=["bench", "skill", "variants", "auto"], default="auto")
     pq = sub.add_parser("query"); pq.add_argument("test_class"); pq.add_argument("model")
     pq.add_argument("--days", type=int, default=DEFAULT_DAYS); pq.add_argument("--min", type=int, default=DEFAULT_MIN_RESULTS, dest="min_results")
     ps = sub.add_parser("summary"); ps.add_argument("--days", type=int, default=DEFAULT_DAYS)
@@ -294,6 +396,8 @@ def main():
             kind = "skill" if (rd / "summary.json").exists() and args.run.startswith("skill-") else "bench"
         if kind == "skill":
             n_appended, n = record_skill_run(args.run, args.company)
+        elif kind == "variants":
+            n_appended, n = record_variants_run(args.run, args.company)
         else:
             n_appended, n = record_bench_run(args.run, args.company)
         print(f"recorded {n} result(s) from {args.run} into the ledger ({_company() if not args.company else args.company})")

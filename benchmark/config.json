@@ -17,10 +17,10 @@
     },
     {
       "id": "gemini-pro",
-      "adapter": "gemini",
-      "model_arg": null,
-      "label": "Gemini Pro",
-      "lane": "gemini"
+      "adapter": "antigravity",
+      "model_arg": "Gemini 3.1 Pro (High)",
+      "label": "Gemini 3.1 Pro (High)",
+      "lane": "antigravity"
     },
     {
       "id": "grok-4.3",
@@ -35,6 +35,48 @@
       "model_arg": "grok-4.20-0309-reasoning",
       "label": "Grok 4.20 (reasoning)",
       "lane": "hermes"
+    },
+    {
+      "id": "gemini-flash",
+      "adapter": "antigravity",
+      "model_arg": "Gemini 3.5 Flash (Medium)",
+      "label": "Gemini 3.5 Flash (Med)",
+      "lane": "antigravity"
+    },
+    {
+      "id": "gemini-flash-low",
+      "adapter": "antigravity",
+      "model_arg": "Gemini 3.5 Flash (Low)",
+      "label": "Gemini 3.5 Flash (Low)",
+      "lane": "antigravity"
+    },
+    {
+      "id": "grok-4.1-fast",
+      "adapter": "hermes",
+      "model_arg": "grok-4-1-fast-non-reasoning",
+      "label": "Grok 4.1 Fast",
+      "lane": "hermes"
+    },
+    {
+      "id": "grok-4-fast",
+      "adapter": "hermes",
+      "model_arg": "grok-4-fast-non-reasoning",
+      "label": "Grok 4 Fast",
+      "lane": "hermes"
+    },
+    {
+      "id": "gpt-5.4-mini",
+      "adapter": "codex",
+      "model_arg": "gpt-5.4-mini",
+      "label": "GPT-5.4 Mini",
+      "lane": "codex"
+    },
+    {
+      "id": "claude-haiku",
+      "adapter": "claude",
+      "model_arg": "haiku",
+      "label": "Claude Haiku",
+      "lane": "claude"
     }
   ],
   "_models_catalog_comment": "Validated within-family variants (confirmed callable via their CLI 2026-06-14). NOT in the default sweep \u2014 `bench.py all` runs `models` above. Opt in per run: `bench.py all --models claude-haiku,gpt-5.4-mini,gemini-flash,grok-4-fast`. These are the 'lower model' candidates for the cheap-model-+-skill gap-closing strategy. gpt-5.3-codex-spark IS a valid model (same as Paperclip's spark lane, invoked --model gpt-5.3-codex-spark with reasoning_effort=high) but is DAILY RATE-LIMITED \u2014 sweeps including it fail with a usage-limit error while exhausted (resets ~mid-afternoon). Genuinely NOT supported on this ChatGPT account (400 invalid_request, never works): plain gpt-5.3, gpt-5.3-codex, gpt-5-codex.",
@@ -84,20 +126,6 @@
       "note": "Paperclip's cheap codex lane; daily rate-limited"
     },
     {
-      "id": "gemini-flash",
-      "adapter": "gemini",
-      "model_arg": "gemini-3-flash-preview",
-      "label": "Gemini 3 Flash",
-      "lane": "gemini"
-    },
-    {
-      "id": "gemini-flash-lite",
-      "adapter": "gemini",
-      "model_arg": "gemini-2.5-flash-lite",
-      "label": "Gemini Flash Lite",
-      "lane": "gemini"
-    },
-    {
       "id": "grok-4-fast",
       "adapter": "hermes",
       "model_arg": "grok-4-fast-non-reasoning",
@@ -117,6 +145,41 @@
       "model_arg": "grok-3-mini",
       "label": "Grok 3 mini",
       "lane": "hermes"
+    },
+    {
+      "id": "gemini-pro-low",
+      "adapter": "antigravity",
+      "model_arg": "Gemini 3.1 Pro (Low)",
+      "label": "Gemini 3.1 Pro (Low)",
+      "lane": "antigravity"
+    },
+    {
+      "id": "gemini-flash",
+      "adapter": "antigravity",
+      "model_arg": "Gemini 3.5 Flash (Medium)",
+      "label": "Gemini 3.5 Flash (Medium)",
+      "lane": "antigravity"
+    },
+    {
+      "id": "gemini-flash-low",
+      "adapter": "antigravity",
+      "model_arg": "Gemini 3.5 Flash (Low)",
+      "label": "Gemini 3.5 Flash (Low)",
+      "lane": "antigravity"
+    },
+    {
+      "id": "gemini-flash-high",
+      "adapter": "antigravity",
+      "model_arg": "Gemini 3.5 Flash (High)",
+      "label": "Gemini 3.5 Flash (High)",
+      "lane": "antigravity"
+    },
+    {
+      "id": "gpt-oss-120b",
+      "adapter": "antigravity",
+      "model_arg": "GPT-OSS 120B (Medium)",
+      "label": "GPT-OSS 120B (Medium)",
+      "lane": "antigravity"
     }
   ],
   "judge": {
@@ -130,7 +193,23 @@
     "designer",
     "content",
     "intake",
-    "ops"
+    "ops",
+    "ceo",
+    "cto",
+    "researcher",
+    "seo",
+    "cmo",
+    "ledger",
+    "recruiter",
+    "auditor",
+    "quant",
+    "onboarding",
+    "cv-review",
+    "video-hook",
+    "social-post",
+    "book-chapter",
+    "reasoning",
+    "summarize-extract"
   ],
   "agentic_roles": [
     "paperclip"
@@ -141,12 +220,17 @@
     "benchProjectId": "f71e8665-3f38-4920-b777-348ec85b9071",
     "maxWorkers": 1,
     "cellTimeoutSec": 900,
-    "_runtime_comment": "maxWorkers=1 (SERIAL) is REQUIRED: parallel rapid-fire invokes fight the platform's GLOBAL heartbeat machinery (heartbeat.wakeup() coalesces/dedups concurrent wakeups -> 'skipped'; run-recovery reapers cancel queued runs), which company isolation can't avoid. Single-model/serial runs were clean (grok-4.3=0.94); every parallel 4-model sweep collapsed to skipped/cancelled. cellTimeoutSec=900 (raised from 600) because the grok-4.20 REASONING model legitimately runs 313-444s/cell; the lane retries transient timeouts + waits for agent-idle around each invoke. NOTE 2026-06-18: paperclip_lane SOCKET_TIMEOUT_SEC raised 45->120 — the old 45s socket timeout made a slow grok-4.20 run get abandoned mid-poll, leaving a lease-holding zombie that cascaded Errno 60 ('Operation timed out') into every following cell from ~stage 6 on. Runs in the dedicated isolated company (see _isolation_comment) so nothing acts on fixtures mid-run. ~70-90 min for the 4-model grok sweep, serial.",
+    "_runtime_comment": "maxWorkers=1 (SERIAL) is REQUIRED: parallel rapid-fire invokes fight the platform's GLOBAL heartbeat machinery (heartbeat.wakeup() coalesces/dedups concurrent wakeups -> 'skipped'; run-recovery reapers cancel queued runs), which company isolation can't avoid. Single-model/serial runs were clean (grok-4.3=0.94); every parallel 4-model sweep collapsed to skipped/cancelled. cellTimeoutSec=900 (raised from 600) because the grok-4.20 REASONING model legitimately runs 313-444s/cell; the lane retries transient timeouts + waits for agent-idle around each invoke. NOTE 2026-06-18: paperclip_lane SOCKET_TIMEOUT_SEC raised 45->120 \u2014 the old 45s socket timeout made a slow grok-4.20 run get abandoned mid-poll, leaving a lease-holding zombie that cascaded Errno 60 ('Operation timed out') into every following cell from ~stage 6 on. Runs in the dedicated isolated company (see _isolation_comment) so nothing acts on fixtures mid-run. ~70-90 min for the 4-model grok sweep, serial.",
     "agents": {
       "grok-4.3": "7fffa42f-467a-4f76-b802-4dc8bd552bd9",
       "grok-4-fast": "bdaef356-7877-40f1-a8aa-768861e427d2",
       "grok-4.1-fast": "0b73fa6f-a50c-4a2c-8c03-773298398259",
-      "grok-4.20": "fc866269-900a-42b4-84e7-df4159f98f54"
+      "grok-4.20": "fc866269-900a-42b4-84e7-df4159f98f54",
+      "claude-opus": "c7024122-7589-444a-a58f-597515d5a211",
+      "codex-gpt-5.4": "5bcc7a94-6715-43eb-ad53-da7bd300ef79",
+      "gemini-pro": "4b103786-19d0-4ce9-bf27-8b5fae22c959",
+      "gpt-5.5": "045f72f8-08ce-4f29-8f28-8d4ea4864e48",
+      "claude-opus-4.7": "53a4e9d3-81b1-4d86-8f87-e19447412f0e"
     },
     "_isolation_comment": "Bench runs in a DEDICATED ISOLATED company (Agentic Bench, e212ce50) with NO CEO/routines/active agents, so nothing in the company acts on bench fixtures mid-run (TSMC's GLaD0S + cleanup machinery was the interference that quiet-TSMC couldn't stop). reportsTo for the 4 agents = paused Bench-Manager b610338d."
   },
@@ -197,6 +281,88 @@
         "--ignore-user-config",
         "--ignore-rules"
       ]
+    },
+    "antigravity": {
+      "extra_args": []
+    }
+  },
+  "_pricing_comment": "NOTIONAL API list prices in USD per MILLION tokens, {in, out}, for the optional $ cost basis in costreport.py (#19). LEFT NULL ON PURPOSE \u2014 fill with REAL rates you can verify (operator-supplied; not fabricated). Caveat: lanes are subscription/OAuth-billed so marginal $ is ~0 today; these model the cost IF scaled via API. Output-token efficiency (q/1k-out) is the live signal and needs no prices.",
+  "pricing": {
+    "claude-opus": {
+      "in": null,
+      "out": null
+    },
+    "codex-gpt-5.4": {
+      "in": null,
+      "out": null
+    },
+    "gemini-pro": {
+      "in": null,
+      "out": null
+    },
+    "grok-4.3": {
+      "in": null,
+      "out": null
+    },
+    "grok-4.20": {
+      "in": null,
+      "out": null
+    },
+    "claude-sonnet": {
+      "in": null,
+      "out": null
+    },
+    "claude-haiku": {
+      "in": null,
+      "out": null
+    },
+    "claude-opus-4.7": {
+      "in": null,
+      "out": null
+    },
+    "gpt-5.5": {
+      "in": null,
+      "out": null
+    },
+    "gpt-5.4-mini": {
+      "in": null,
+      "out": null
+    },
+    "gpt-5.3-codex-spark": {
+      "in": null,
+      "out": null
+    },
+    "grok-4-fast": {
+      "in": null,
+      "out": null
+    },
+    "grok-4.1-fast": {
+      "in": null,
+      "out": null
+    },
+    "grok-3-mini": {
+      "in": null,
+      "out": null
+    },
+    "gemini-pro-low": {
+      "in": null,
+      "out": null
+    },
+    "gemini-flash": {
+      "in": null,
+      "out": null
+    },
+    "gemini-flash-low": {
+      "in": null,
+      "out": null
+    },
+    "gemini-flash-high": {
+      "in": null,
+      "out": null
+    },
+    "gpt-oss-120b": {
+      "in": null,
+      "out": null
     }
   }
 }

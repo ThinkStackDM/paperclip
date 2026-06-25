@@ -1,0 +1,230 @@
+{
+  "role": "cto",
+  "description": "Technical-leadership JUDGMENT for the Paperclip CTO lane — the complement to the engineer suite (which tests coding). Tasks cover architecture trade-offs, plan approval (approve/reject a design with reasoning), code review that catches subtle/security bugs, build-vs-buy, infra/platform risk, reversibility/rollback, eng load-balancing, least-privilege capability design, and knowing when to escalate platform work to Mission Control. Every task is failable and trap-laden: the lenient rubber-stamp, the over-engineered gold-plate, and the trap-falling answer all score below a sharp one. Deterministic checks anchor the objective call (approve/reject, option chosen, the security bug named); the strict blind judge grades the reasoning and whether the trap was avoided. Grounded in real Paperclip incidents: the gate_keeper_write capability, the fallback-monitor durable fix, the restart-race that bricked live runs, plan-approval gates, and the local-only-vs-cloud-relay architecture mismatch.",
+  "tasks": [
+    {
+      "id": "cto-reject-restart-race-default",
+      "title": "Reject a startup-reaper PR whose default bricks live runs",
+      "prompt": "You are the CTO doing plan/code approval before merge. An engineer submits this startup change to Paperclip's orphan-run reaper:\n\n  // index.ts startup\n  reapOrphanedRuns()                       // called with no argument\n\n  function reapOrphanedRuns(staleThresholdMs = 0) {\n    const cutoff = Date.now() - staleThresholdMs\n    for (const run of runningRuns()) {\n      if (run.lastHeartbeatAt <= cutoff) {\n        failRun(run, 'process_lost')         // shouldRetry=false -> permanent\n      }\n    }\n  }\n\nThe PR description says 'cleans up orphaned runs on boot.' This is the exact pattern that caused the restart-race incident: on a clean restart, every still-running run was permanently failed before it could heartbeat. Decide whether to approve or reject this PR, and name the one-line root cause and the required change.\n\nReturn ONLY JSON: {\"decision\": \"approve\"|\"reject\", \"rootCause\": string, \"requiredChange\": string}. `rootCause` must be <=30 words and name the specific defaulted value; `requiredChange` <=30 words.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "decision", "value": "reject", "weight": 5 },
+          { "type": "regex", "pattern": "(default(s|ed|ing)?|=)\\s*(to\\s*)?(0|zero)|stalethresholdms\\s*(default|=|of|is|to)|threshold\\s*(default|=|of|is|to)?\\s*(0|zero)|(0|zero)\\b[^.]*\\b(default|threshold|cutoff)", "weight": 2 },
+          { "type": "contains_any", "values": ["grace", "non-zero", "nonzero", "staleThresholdMs", "60s", "grace window", "grace period"], "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "correctness", "weight": 3, "guidance": "REJECT, with the exact root cause: staleThresholdMs defaults to 0, so cutoff == now, so every running run (lastHeartbeatAt <= now) is failed instantly on boot before it can heartbeat. requiredChange = pass/raise a non-zero startup grace (e.g. 60s) so freshly-restarted runs survive. Penalize 'approve', penalize blaming the heartbeat itself, and penalize a fix that only flips shouldRetry without addressing the 0-default." },
+            { "name": "discipline", "weight": 1, "guidance": "Names the minimal correct change (the grace window), not a sprawling rewrite. Penalize gold-plating the diff with unrelated refactors." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cto-fallback-monitor-option",
+      "title": "Pick the durable fix for the fallback-monitor permission gap",
+      "prompt": "You are the CTO choosing the durable architecture for the fallback-monitor. The fallback-monitor is a routine that runs every 15 minutes, DELIBERATELY on a non-Claude adapter so it survives the very Claude outage it mitigates. When a primary agent hits its Claude limit, the monitor must reassign that primary's open issues to a pre-hired sister agent on another adapter. It currently FAILS because it lacks permission to write to issues it does not own.\n\nThree proposals are on the table:\n  Option 1 — Server-side route that performs the reassignment, gated by a narrow, label-scoped, immediately-revocable capability granted only to the monitor agent (least privilege; auditable; revoke = remove the grant or the label).\n  Option 2 — Grant the monitor broad write authority over ALL issues in every company so it never hits a permission wall again.\n  Option 3 — Have the monitor message a human/manager to do each reassignment by hand.\n\nPick ONE. Return ONLY JSON: {\"option\": 1|2|3, \"reason\": string, \"rejectedRisk\": string}. `reason` <=40 words on why your pick is right; `rejectedRisk` <=30 words naming the chief risk of the most dangerous rejected option.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "option", "value": 1, "weight": 5 },
+          { "type": "contains_any", "values": ["least privilege", "least-privilege", "scoped", "revocable", "audit", "label"], "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "judgment", "weight": 3, "guidance": "Picks Option 1: the narrow, label-scoped, revocable server-route capability (least privilege, auditable). reason ties it to scoping/revocability/audit. rejectedRisk should call out Option 2's blast radius (a compromised or buggy monitor with all-issue write across every company) — that is the most dangerous reject. Penalize Option 2 (over-broad authority) or Option 3 (violates the don't-ask-a-human-to-do-an-agent's-job rule AND reintroduces a Claude/human dependency the monitor exists to avoid)." },
+            { "name": "risk_framing", "weight": 1, "guidance": "rejectedRisk names a concrete failure mode (blast radius / lateral write across companies), not a vague 'it's bad'." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cto-local-only-relay-mismatch",
+      "title": "Catch the local-only vs cloud-relay architecture mismatch",
+      "prompt": "You are the CTO reviewing a proposed design before any code is written. PROPOSAL: 'Add MC redundancy by deploying a Vercel cloud function (MC_FILTER_RELAY_SECONDARY_URL) that, on a schedule, calls fetch() against the Paperclip fire endpoint to forward Mission-Control triggers to each OpCo as a backup leg.'\n\nKnown fact about this deployment: the Paperclip instance is LOCAL-ONLY. It serves on 127.0.0.1:3100 and has NO public URL or tunnel. All companies (MC and every OpCo) live inside that one local instance; MC->OpCo delivery today is intra-instance direct.\n\nDecide whether this design can work as written. Return ONLY JSON: {\"viable\": true|false, \"flaw\": string, \"betterPath\": string}. `flaw` <=35 words must name WHY it cannot work; `betterPath` <=35 words gives the correct approach.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "viable", "value": false, "weight": 5 },
+          { "type": "contains_any", "values": ["127.0.0.1", "loopback", "localhost", "local-only", "local only", "no public", "not reachable", "unreachable"], "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "correctness", "weight": 3, "guidance": "NOT viable: a Vercel cloud function calling 127.0.0.1 hits its OWN loopback, never the local Paperclip instance, so the relay can never forward anything. betterPath = use the direct intra-instance trigger (with a matching bearer), OR expose Paperclip via a real tunnel (e.g. cloudflared) FIRST if external ingress is truly needed. Penalize 'viable', penalize blaming auth/secrets as the primary flaw, and penalize a betterPath that just retries the cloud->loopback call." },
+            { "name": "specificity", "weight": 1, "guidance": "Pins the loopback/no-public-URL mechanism specifically, not a generic 'networking issue'." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cto-gate-keeper-capability-design",
+      "title": "Design the gate_keeper_write capability scope",
+      "prompt": "You are the CTO specifying a new capability, tasks:gate_keeper_write, that lets a gate-keeper/auditor agent WRITE to issues it does NOT own (to approve/comment/correct other agents' work). Make the four design calls. Each question has a tempting distractor that sounds convenient or 'safe enough' but widens blast radius or slows recovery; choose the option you would actually ship.\n\nQ1 scope: (a) all issues in the instance, (b) all issues in the gate-keeper's own company, (c) only issues carrying a specific label the grant is bound to.\nQ2 grant target: (a) every agent by default so no one is ever blocked, (b) only the specific gate-keeper agent it is granted to.\nQ3 revocation: (a) a redeploy with the grant removed from config (clean and version-controlled), (b) takes effect immediately when the grant OR the binding label is removed, no deploy.\nQ4 default when no grant exists: (a) allow but log every write for audit, (b) deny.\n\nReturn ONLY JSON: {\"Q1\": \"a\"|\"b\"|\"c\", \"Q2\": \"a\"|\"b\", \"Q3\": \"a\"|\"b\", \"Q4\": \"a\"|\"b\", \"worstDefault\": \"Q1a\"|\"Q2a\"|\"Q3a\"|\"Q4a\"}. `worstDefault` names the single most dangerous distractor above.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "Q1", "value": "c", "weight": 3 },
+          { "type": "json_path_equals", "path": "Q2", "value": "b", "weight": 2 },
+          { "type": "json_path_equals", "path": "Q3", "value": "b", "weight": 2 },
+          { "type": "json_path_equals", "path": "Q4", "value": "b", "weight": 3 },
+          { "type": "json_path_in", "path": "worstDefault", "values": ["Q4a", "Q1a"], "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "least_privilege", "weight": 2, "guidance": "Correct answers: Q1=c (label-bound scope, narrowest), Q2=b (only the named agent), Q3=b (immediate revoke, no deploy), Q4=b (deny-by-default / fail-closed). worstDefault should be Q4a — allow-by-default with logging is fail-OPEN: a missing grant silently permits writes and logging is detection-after-the-fact, not prevention (Q1a, instance-wide scope, is the acceptable second-worst). Penalize ANY of: Q4=a (fail-open is the cardinal sin here), Q1=a or Q1=b (over-broad scope), Q2=a (default grant to all), Q3=a (revoke needs a redeploy — too slow to contain a compromised grant). The distractors are deliberately seductive ('log every write', 'never blocked', 'version-controlled'); reward picking security over convenience." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cto-code-review-security-bug",
+      "title": "Catch the broken-auth bug in a permission-check diff",
+      "prompt": "You are the CTO doing security-focused code review on this Paperclip authorization check before it ships. It is meant to allow a gate-keeper agent to write to an issue ONLY when it holds a matching, label-scoped grant:\n\n  function canGateKeeperWrite(actor, issue, grant) {\n    if (actor.companyId !== issue.companyId) return false;\n    if (grant)                                   // grant just needs to EXIST\n      return true;\n    return false;\n  }\n\nThe intended rule: the grant must have permissionKey === 'tasks:gate_keeper_write' AND at least one of the grant's labels must be present on the issue (scope binding). This code ignores both the permissionKey and the label binding.\n\nIn under 110 words: (1) name the security flaw precisely, (2) explain the concrete privilege-escalation it allows, and (3) give the corrected check. Be specific.",
+      "rubric": {
+        "deterministic": [
+          { "type": "contains_any", "values": ["permissionKey", "permission key", "tasks:gate_keeper_write"], "weight": 2 },
+          { "type": "contains_any", "values": ["label", "binding", "scope binding", "label-scoped", "label overlap"], "weight": 2 },
+          { "type": "contains_any", "values": ["privilege", "escalation", "any grant", "any issue", "unscoped", "over-broad"], "weight": 2 },
+          { "type": "max_words", "value": 120, "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "correctness", "weight": 3, "guidance": "Identifies that the check approves on the mere EXISTENCE of any grant: it never verifies permissionKey === 'tasks:gate_keeper_write' and never checks the label binding (grant label present on the issue). The escalation: an agent holding ANY unrelated grant can write to ANY issue in its company, including ones outside its labelled scope. The corrected check must verify BOTH the permissionKey AND the label-overlap. Penalize answers that only add the permissionKey check but forget the label binding, or vice versa." },
+            { "name": "specificity", "weight": 1, "guidance": "Concrete about the exact missing checks and the escalation path, not 'this needs more validation'." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cto-build-vs-buy-judge",
+      "title": "Build vs buy on auth — pick the reversible path",
+      "prompt": "You are the CTO. The Paperclip OpCos need user authentication (login, sessions, password reset, OAuth) for their public products. Two paths:\n  BUILD: write a bespoke auth system in-house (sessions, hashing, reset flows, OAuth handshakes, ongoing CVE patching). A senior engineer argues building is 'cheaper long-term (no per-MAU fees), gives full control, avoids vendor lock-in, and is a good learning exercise for the team.'\n  BUY: adopt a battle-tested managed auth provider via the existing Vercel Marketplace integration, behind a thin adapter so it can be swapped later.\n\nAuth is a commodity, security-critical, not a differentiator for these products, and time-to-revenue matters. Make the call and address the engineer's argument.\n\nReturn ONLY JSON: {\"decision\": \"build\"|\"buy\", \"reason\": string, \"hedge\": string}. `reason` <=40 words; `hedge` <=30 words names the CONCRETE mechanism that keeps the decision reversible / avoids lock-in (must name a swap path, not just say 'we can switch').",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "decision", "value": "buy", "weight": 5 },
+          { "type": "contains_any", "values": ["adapter", "abstraction", "swap", "lock-in", "lock in", "interface", "wrapper", "reversible"], "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "judgment", "weight": 3, "guidance": "BUY: auth is a security-critical commodity, not a differentiator, and buying is faster + safer (no in-house CVE burden). The hedge keeps it reversible — a thin adapter/abstraction behind which the provider can be swapped, avoiding lock-in. The answer must REBUT the engineer's 'build' argument: the 'lock-in' and 'cost' framing ignores that DIY auth carries an unbounded security-maintenance liability (CVE patching, breach risk) that dwarfs per-MAU fees, and 'learning exercise' is not a reason to ship security-critical infra. Penalize 'build' (re-implementing security-critical commodity infra is the trap — and uncritically swallowing the lock-in argument is the deeper trap), and penalize a 'buy' whose hedge is vague ('we can switch later') with no concrete swap mechanism (the gold-plated naive buy)." },
+            { "name": "reasoning", "weight": 1, "guidance": "Reason names the real driver (commodity + the security-maintenance liability of DIY + time-to-revenue) AND engages the build-side counter-argument rather than ignoring it. Penalize a reason that just says 'buying is easier' or never addresses lock-in/cost." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cto-plan-approval-gate",
+      "title": "Approve a destructive plan only with a rollback gate",
+      "prompt": "You are the CTO at a plan-approval gate. An engineer's plan: 'Run a one-shot migration that DROPs the legacy heartbeat_runs_v1 table and rewrites every row into a new schema, in production, in a single transaction, no backup, during peak dispatch.' The migration is irreversible as written (the old table is dropped) and has no tested rollback. heartbeat_runs is the only cost/usage signal under subscription billing, so losing it blinds the whole fleet.\n\nDecide. Return ONLY JSON: {\"decision\": \"approve\"|\"approve_with_changes\"|\"reject\", \"requiredGuards\": [string], \"why\": string}. `requiredGuards` must list the concrete gates that make this safe; `why` <=35 words.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_in", "path": "decision", "values": ["reject", "approve_with_changes"], "weight": 4 },
+          { "type": "json_path_exists", "path": "requiredGuards.0", "weight": 1 },
+          { "type": "contains_any", "values": ["backup", "rollback", "reversible", "snapshot", "dual-write", "dual write", "off-peak", "off peak", "expand-contract", "expand/contract"], "weight": 3 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "risk_judgment", "weight": 3, "guidance": "Does NOT plain-approve. Either rejects, or approves_with_changes ONLY after attaching real guards: a verified backup/snapshot, a tested rollback (or non-destructive expand-then-contract so the old table is not dropped until the new path is proven), running off-peak not at peak dispatch, and not a single all-or-nothing transaction with no recovery. why notes that heartbeat_runs is the sole cost/usage signal so data loss blinds the fleet. Penalize a clean 'approve', and penalize guards that omit the backup/rollback (the core reversibility gate)." },
+            { "name": "specificity", "weight": 1, "guidance": "Guards are concrete and actionable (backup, tested rollback, expand-contract, off-peak window), not 'be careful' / 'test it first' with no substance." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cto-escalate-to-mc",
+      "title": "Decide which work to escalate to Mission Control",
+      "prompt": "You are the CTO of one ThinkStack OpCo. Mission Control (MC) owns the shared Paperclip PLATFORM code and cross-OpCo policy; you own everything inside your own company. Escalate to MC ONLY for shared-platform-code or cross-OpCo/portfolio-policy matters; handle anything scoped to your own company yourself. Judge by what the change actually TOUCHES, not by where the symptom appears or who reports it.\n\nFive items land at once:\n  s1: A bug in your own OpCo's product feature, in code only your company touches.\n  s2: A defect in the shared heartbeat recovery service in the Paperclip platform that affects every OpCo's runs.\n  s3: You want to re-sequence your own engineering backlog for the week.\n  s4: A proposed change to the fleet-wide failover ORDER (claude->codex->hermes->gemini) that all OpCos depend on.\n  s5: TRAP — the bug REPRODUCES only inside YOUR company's product and was filed by your team, but the root cause is a regression in the SHARED platform dispatch library that every OpCo imports; a fix edits the shared library. (Surface is local; the code that must change is shared.)\n\nFor each, decide handle local vs escalate to MC. Return ONLY JSON: {\"s1\": \"local\"|\"escalate\", \"s2\": \"local\"|\"escalate\", \"s3\": \"local\"|\"escalate\", \"s4\": \"local\"|\"escalate\", \"s5\": \"local\"|\"escalate\"}.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "s1", "value": "local", "weight": 2 },
+          { "type": "json_path_equals", "path": "s2", "value": "escalate", "weight": 3 },
+          { "type": "json_path_equals", "path": "s3", "value": "local", "weight": 2 },
+          { "type": "json_path_equals", "path": "s4", "value": "escalate", "weight": 3 },
+          { "type": "json_path_equals", "path": "s5", "value": "escalate", "weight": 4 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "boundary_judgment", "weight": 2, "guidance": "Correct: s1=local, s2=escalate, s3=local, s4=escalate, s5=ESCALATE. s5 is the trap: although the symptom and the bug report are local to this OpCo, the fix edits SHARED platform code that every OpCo imports, so it is MC's call (a local patch to shared code would fork the platform or break other OpCos). HEAVILY penalize s5=local — that is falling for the 'symptom-is-local so it's mine' surface read. Also penalize s2 or s4 marked local (those are plainly shared/cross-OpCo) or s1/s3 marked escalate (over-escalating self-owned work wastes MC's time)." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cto-eng-load-balance",
+      "title": "Load-balance work across capable lanes during a Claude outage",
+      "prompt": "You are the CTO assigning four engineering tasks RIGHT NOW. Claude lanes are PAUSED (weekly limit; resume on a fixed date). Available lanes and their state:\n  - claude-primary: PAUSED (unavailable).\n  - codex-sister: AVAILABLE, healthy, has free capacity.\n  - grok-ramp: AVAILABLE but in CONTROLLED RAMP (returning from an error state; capped at <=3 live issues, one bounded issue at a time, NO routine/batch fan-out until it clears 3 clean issues).\n  - gemini-sister: AVAILABLE, healthy, has free capacity.\n\nTasks: (T1) a large multi-file refactor; (T2) a routine fan-out that spawns many child runs; (T3) a small bounded one-file bugfix; (T4) another small bounded bugfix.\n\nAssign each task to exactly one available lane, honoring the ramp constraints (do NOT give the ramping lane the heavy refactor or the fan-out; at most ONE bounded issue to it). Return ONLY JSON: {\"T1\": string, \"T2\": string, \"T3\": string, \"T4\": string} using the lane names. Do not assign anything to claude-primary.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "not_regex", "pattern": "claude-primary", "weight": 3 },
+          { "type": "not_regex", "pattern": "\"T1\"\\s*:\\s*\"grok-ramp\"", "weight": 2 },
+          { "type": "not_regex", "pattern": "\"T2\"\\s*:\\s*\"grok-ramp\"", "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "constraint_honoring", "weight": 3, "guidance": "Assigns nothing to the paused claude-primary. Keeps the heavy refactor (T1) and the routine fan-out (T2) OFF the ramping grok-ramp lane (ramp forbids batch/fan-out and heavy load) — those go to the healthy codex/gemini sisters. grok-ramp may receive AT MOST ONE bounded bugfix (T3 or T4), or nothing; the other bounded bugfix and the heavy/fan-out work spread across the healthy lanes. Penalize giving grok-ramp the refactor or the fan-out, giving it two issues, or assigning any task to claude-primary." },
+            { "name": "balance", "weight": 1, "guidance": "Spreads load sensibly across the two healthy sisters rather than dumping everything on one. Mild penalty for stacking all heavy work on a single lane." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cto-fallback-monitor-adapter-trap",
+      "title": "Catch the self-defeating adapter choice in a redesign",
+      "prompt": "You are the CTO reviewing a redesign of the fallback-monitor. The monitor's entire job is to detect when a primary agent hits its CLAUDE usage limit and move that primary's work onto a non-Claude sister lane. An engineer proposes: 'For simplicity and best quality, run the fallback-monitor routine itself on the claude_local adapter like everything else.'\n\nThere is a critical design invariant being violated here. Decide whether to accept this redesign.\n\nReturn ONLY JSON: {\"accept\": true|false, \"invariant\": string, \"correctAdapter\": string}. `invariant` <=35 words states the rule being broken; `correctAdapter` names what the monitor must run on.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "accept", "value": false, "weight": 5 },
+          { "type": "contains_any", "values": ["non-claude", "non claude", "not claude", "codex", "grok", "gemini", "hermes", "different adapter", "other adapter"], "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "correctness", "weight": 3, "guidance": "Rejects. The invariant: a mitigation must NOT depend on the thing it mitigates — the fallback-monitor must run on a NON-Claude adapter so it stays alive during the exact Claude outage it exists to handle. If it runs on claude_local it dies in the outage and the fallback never fires (single point of failure / circular dependency). correctAdapter = a non-Claude lane (codex/grok/gemini/hermes). Penalize 'accept', and penalize an invariant that misses the survive-the-outage point (e.g. just says 'use the best model')." },
+            { "name": "specificity", "weight": 1, "guidance": "Names the survives-its-own-outage / no-self-dependency principle precisely, not a vague 'redundancy is good'." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cto-reversibility-rollout",
+      "title": "Choose a reversible rollout over a risky big-bang",
+      "prompt": "You are the CTO choosing how to ship a rewrite of the dispatch loop — the component that decides which runs execute. It touches every agent in the fleet. Two rollout plans:\n  PLAN A (big-bang): cut 100% of fleet traffic to the new dispatch loop at once, delete the old code path in the same deploy.\n  PLAN B (reversible): ship the new loop behind a runtime flag defaulting OFF, ramp a small cohort first, keep the old path intact so you can flip back instantly, then remove the old path only after the new one is proven.\n\nPick the rollout. Return ONLY JSON: {\"plan\": \"A\"|\"B\", \"reason\": string, \"rollbackPlan\": string}. `reason` <=35 words; `rollbackPlan` <=25 words states exactly how you revert if it misbehaves.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "plan", "value": "B", "weight": 5 },
+          { "type": "contains_any", "values": ["flag", "flip", "toggle", "old path", "ramp", "instant", "revert", "roll back", "rollback"], "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "judgment", "weight": 3, "guidance": "Picks Plan B: flag-gated, cohort-ramped, old path retained for instant flip-back, fleet-wide blast radius makes reversibility mandatory. rollbackPlan must be concrete and FAST — flip the flag off / route back to the retained old path (not 'redeploy the previous build', which is slow, and definitely not 'restore from backup' since the old code was deleted). Penalize Plan A (deleting the old path same-deploy removes the rollback for a fleet-wide change), and penalize a Plan B whose rollbackPlan is vague or depends on the deleted path." },
+            { "name": "reasoning", "weight": 1, "guidance": "Reason ties the choice to blast radius / reversibility, not just 'B is safer'." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cto-reject-overengineering",
+      "title": "Right-size a fix: reject the gold-plated rewrite",
+      "prompt": "You are the CTO. The reported bug is narrow: the orphan-wakeup reaper clears orphaned heartbeat_runs but NOT orphaned agent_wakeup_requests, so wakeups whose linked issue is already done/cancelled pile up as inert cruft (a few dozen rows). The correct, proven fix is small: add a reapOrphanedWakeups step using the SAME terminal-status predicate (issue done/cancelled) the recovery code already uses, wired into the existing periodic recovery tick, behind a default-on flag.\n\nAn engineer instead proposes a 3-week project: a brand-new generic 'garbage-collection framework' with a plugin registry, a new config service, and a dashboard — to handle this and 'any future cruft.'\n\nDecide. Return ONLY JSON: {\"decision\": \"approve_big\"|\"approve_minimal\"|\"reject_both\", \"reason\": string, \"scope\": string}. `reason` <=35 words; `scope` <=30 words describes the right-sized change you would actually approve.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "decision", "value": "approve_minimal", "weight": 5 },
+          { "type": "contains_any", "values": ["reapOrphanedWakeups", "reap", "same predicate", "terminal-status", "terminal status", "recovery tick", "existing", "small", "minimal", "YAGNI"], "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "right_sizing", "weight": 3, "guidance": "Approves the MINIMAL fix: a small reapOrphanedWakeups step reusing the existing terminal-status predicate and the existing recovery tick. scope describes exactly that. Rejects the 3-week GC framework as over-engineering / speculative generality (YAGNI) for a few-dozen-rows problem. Penalize approve_big (gold-plating the trap), and penalize reject_both (the real, cheap bug still needs fixing — refusing to fix it is also wrong)." },
+            { "name": "reasoning", "weight": 1, "guidance": "Reason names the over-engineering / cost-vs-benefit mismatch (huge framework for a tiny bounded bug), not just 'too big'." }
+          ]
+        }
+      }
+    }
+  ]
+}

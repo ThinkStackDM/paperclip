@@ -1,0 +1,222 @@
+{
+  "role": "cmo",
+  "description": "Content STRATEGY judgment for the ThinkStack/Paperclip marketing function — Cashflow Compass (a finance-education product) and its Stack Lab YouTube channel. Tests channel/audience selection for a stated goal, editorial-calendar prioritization, positioning, brand-voice consistency, separating strategy from execution, and resisting vanity metrics (chasing views/followers over conversions/revenue). Tasks are failable and trap-laden: the answer that chases reach, picks the wrong channel for the goal, drifts off-voice, or does production work when strategy was asked for scores low. Deterministic checks anchor the objective call (channel, metric, decision, format); the strict blind judge grades whether the reasoning ties to the actual goal and whether the vanity-metric / wrong-channel / off-brand traps were avoided.",
+  "tasks": [
+    {
+      "id": "cmo-channel-for-goal",
+      "title": "Pick the right channel for a near-term conversion goal",
+      "prompt": "Cashflow Compass needs 50 paid signups in the next 30 days for its $29 budgeting course. Four options compete for the push:\n\n- email: an existing list of 4,000 past free-tool users (warm, opted-in, never yet pitched the paid course).\n- youtube: the Stack Lab channel, 800 subscribers, growing slowly.\n- seo: start fresh blog content (articles typically take 8-12 weeks to rank).\n- viral_collab: a finance influencer offers a shout-out to her 500,000 followers next week for a flat $2,000 fee — huge reach, but a cold, general-money audience with unknown budgeting intent, and the fee is most of the campaign budget.\n\nPick the ONE channel to anchor this 30-day push on. Do not be seduced by raw reach: judge each option by expected PAID SIGNUPS inside the 30-day window, not impressions.\n\nReturn ONLY JSON: {\"channel\": \"email\"|\"youtube\"|\"seo\"|\"viral_collab\", \"why\": string}. `why` must be <=35 words, must reference the 30-day window, and must say in one phrase why the 500k-reach collab is the wrong call here.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "channel", "value": "email", "weight": 5 },
+          { "type": "regex", "pattern": "\"why\"\\s*:\\s*\"[^\"]{1,240}\"", "weight": 1 },
+          { "type": "not_regex", "pattern": "\"channel\"\\s*:\\s*\"viral_collab\"", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "reasoning", "weight": 3, "guidance": "Picks email because it is the warm, opted-in, conversion-ready audience reachable inside the 30-day window — the only channel that can plausibly hit 50 signups by the deadline. The `why` must (a) tie to the 30-day window and (b) explicitly dismiss the 500k viral_collab as cold/low-intent/expensive reach, not a conversion play. Heavily penalize picking viral_collab (the reach trap) or selling email on 'reach' instead of warm-audience conversion. Penalize SEO (won't rank in time) or YouTube (compounds too slowly, tiny base) as the primary push, and penalize a `why` that ignores the deadline or never addresses why raw reach loses to a warm list here." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cmo-vanity-metric-trap",
+      "title": "Resist the vanity-metric trap (views vs revenue)",
+      "prompt": "Two Stack Lab video concepts are on the table for next month. The goal for the quarter is paid course signups, not audience size.\n\nA. 'I tried 7 viral money hacks' — predicted ~50,000 views, broad casual audience, ~0.1% expected to ever buy the course (tenuous topical link to budgeting).\nB. 'How to build your first zero-based budget (full walkthrough)' — predicted ~4,000 views, high-intent budgeting audience, ~3% expected to buy the course (directly demonstrates the product's value).\n\nPick which to produce FIRST. Return ONLY JSON: {\"pick\": \"A\"|\"B\", \"estConversionsA\": number, \"estConversionsB\": number, \"why\": string}. Compute expected buyers for each (views x conversion rate). `why` <=30 words.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "pick", "value": "B", "weight": 5 },
+          { "type": "json_path_equals", "path": "estConversionsA", "value": 50, "weight": 2 },
+          { "type": "json_path_equals", "path": "estConversionsB", "value": 120, "weight": 2 },
+          { "type": "regex", "pattern": "\"why\"\\s*:\\s*\"[^\"]{1,210}\"", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "metric_judgment", "weight": 3, "guidance": "Picks B and grounds it in expected buyers (A: 50000*0.001=50; B: 4000*0.03=120 — B converts 2.4x more despite 12x fewer views), choosing the higher-converting high-intent video over the higher-view vanity play tied to the actual revenue goal. Heavily penalize picking A on the strength of views/reach. Penalize a correct pick with wrong, absent, or hand-waved conversion math (the `why` must reference the buyer counts, not vaguely assert 'B converts better'), and penalize a `why` that praises B's 'engagement/reach' instead of its conversion-to-goal advantage." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cmo-strategy-not-execution",
+      "title": "Deliver strategy, not production work",
+      "prompt": "You are the content STRATEGIST for Stack Lab. A stakeholder asks: 'What should our YouTube content strategy be for the next quarter to drive Cashflow Compass course signups?' They want strategy direction, NOT finished assets — a writer and editor handle production downstream.\n\nReturn ONLY JSON: {\"pillars\": [string, string, string], \"primaryMetric\": string, \"cadence\": string, \"audience\": string}. `pillars` are 3 content themes (a few words each, NOT full scripts or titles to publish). `primaryMetric` is the single success metric you'd hold the channel to. `cadence` is publishing frequency. `audience` is who the channel targets. Do NOT write any video scripts, full titles, thumbnails, or descriptions.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_exists", "path": "pillars.2", "weight": 2 },
+          { "type": "json_path_exists", "path": "cadence", "weight": 1 },
+          { "type": "json_path_exists", "path": "audience", "weight": 1 },
+          { "type": "regex", "pattern": "\"primaryMetric\"\\s*:\\s*\"[^\"]*(signup|sign-up|sign up|conversion|revenue|paid|purchase|customer|sales|enroll|buyer)", "weight": 3 },
+          { "type": "not_regex", "pattern": "\"primaryMetric\"\\s*:\\s*\"\\s*(total |new )?(views?|subscribers?|followers?|likes?|impressions?|reach|watch ?time|engagement)\\s*\"", "weight": 2 },
+          { "type": "not_regex", "pattern": "(smash that subscribe|subscribe button|like and subscribe|\\bthumbnail\\b|\\bscript:|\\bvoiceover\\b|don't forget to|#\\w+|🔥|‼|!!!)", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "altitude", "weight": 3, "guidance": "Stays at STRATEGY altitude: pillars are themes/directions (e.g. 'beginner budgeting fundamentals'), NOT finished scripts, publishable click-style titles, or thumbnail/CTA copy. primaryMetric is a conversion/revenue-tied metric (signups, signups-per-video, conversion rate), NOT a vanity metric (views/subscribers/watch time) as the success measure. cadence is a real publishing frequency. audience is a specific high-intent segment, not 'everyone interested in money'. Penalize ANY execution artifact (a pillar written as a ready-to-post video title or script, thumbnail/CTA text), a vanity primaryMetric, a missing/empty cadence, or a vague mass-market audience." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cmo-audience-targeting",
+      "title": "Choose the high-intent audience for the channel",
+      "prompt": "Stack Lab teaches budgeting and is the top-of-funnel for the $29 Cashflow Compass course. The course teaches a complete beginner how to set up their first budget. You must pick ONE primary target audience to anchor the channel's positioning and topics around.\n\nA. 'Everyone interested in money' — maximum reach, very low intent, no clear pain.\nB. 'Day-traders optimizing options strategies' — high engagement but wrong fit; they don't need a beginner budgeting course.\nC. 'Working adults living paycheck-to-paycheck who have never made a budget' — directly matches what the course solves.\nD. 'CFOs of mid-market companies' — high value but completely wrong product fit.\n\nReturn ONLY JSON: {\"audience\": \"A\"|\"B\"|\"C\"|\"D\", \"why\": string}. `why` <=30 words, must tie the audience to the course's actual promise.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "audience", "value": "C", "weight": 5 },
+          { "type": "regex", "pattern": "\"why\"\\s*:\\s*\"[^\"]{1,210}\"", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "fit", "weight": 2, "guidance": "Picks C because their stated pain (never budgeted, paycheck-to-paycheck) is exactly what a beginner budgeting course solves — product-audience fit, not reach or engagement. Penalize A (max reach, no intent/fit), and especially penalize B (the 'high engagement' trap — day-traders engage but will never buy a beginner course) and D (the 'high value' trap — CFOs are valuable but wrong fit). Penalize a `why` that justifies the pick by audience size, engagement, or value rather than fit to the course's actual promise." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cmo-positioning-statement",
+      "title": "Write a focused positioning statement, not a feature list",
+      "prompt": "Cashflow Compass is a $29 self-paced course that takes a complete beginner from zero to a working monthly budget in one weekend. Competitors are either free-but-overwhelming spreadsheet templates or $200+ financial-coaching programs. Write ONE positioning statement (target audience + the specific outcome + why it's different from the two competitor types). Constraints: <=30 words, ONE sentence, no feature bullets, NO hype adjectives of any kind (this includes but is not limited to 'amazing', 'revolutionary', 'best', 'ultimate', 'game-changing', 'world-class', 'cutting-edge', 'powerful', 'effortless', 'transformative', 'next-level'). Return the positioning statement as plain text only — no bullet points, no label, no preamble.",
+      "rubric": {
+        "deterministic": [
+          { "type": "max_words", "value": 32, "weight": 2 },
+          { "type": "min_words", "value": 10, "weight": 1 },
+          { "type": "not_regex", "pattern": "\\b(amazing|revolutionary|best|ultimate|game[- ]?changing|world[- ]?class|cutting[- ]?edge|effortless(ly)?|powerful|supercharge[ds]?|magical?|unbeatable|next[- ]?level|transformative)\\b", "weight": 2 },
+          { "type": "not_regex", "pattern": "(^|\\n)\\s*[-*\\u2022]\\s", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "positioning", "weight": 3, "guidance": "A single sentence that names the target (budgeting beginner), the specific outcome (a working budget fast / in a weekend), and a clear differentiator versus BOTH the free-overwhelming and expensive-coaching alternatives (e.g. simpler than spreadsheets, cheaper/faster than coaching). Penalize generic feature lists, missing the differentiator, naming only one competitor type, or covert hype. Reward sharpness and a single clear wedge." },
+            { "name": "concision", "weight": 1, "guidance": "One sentence, <=30 words, no bullet lists, no filler." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cmo-brand-voice-consistency",
+      "title": "Catch the off-brand draft against the voice guide",
+      "prompt": "Stack Lab's brand voice guide: calm, plain-spoken, encouraging, never hypey, never shaming, no FOMO, no get-rich-quick framing. The audience is anxious budgeting beginners.\n\nA writer submitted this video-description draft:\n'STOP being BROKE!! 99% of people will NEVER be rich because they're too lazy to budget. Smash that subscribe button NOW or stay poor forever. Don't miss out — this secret hack made me $$$ FAST!!!'\n\nDecide whether to approve it as-is, and identify the violations. Return ONLY JSON: {\"approve\": true|false, \"violations\": [string], \"reason\": string}. List the specific guide rules it breaks; `reason` <=30 words.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "approve", "value": false, "weight": 5 },
+          { "type": "json_path_exists", "path": "violations.1", "weight": 1 },
+          { "type": "contains_any", "values": ["sham", "hype", "fomo", "fear of missing", "miss out", "get-rich", "get rich", "scarcity", "all-caps", "all caps"], "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "voice_judgment", "weight": 3, "guidance": "Rejects the draft (approve=false) and the violations list maps SPECIFIC flaws to the named guide rules: shaming ('STOP being BROKE', 'too lazy', 'stay poor forever' vs the never-shaming rule), hype + all-caps + excessive punctuation (vs never-hypey), FOMO ('Don't miss out' vs no-FOMO), and get-rich-quick framing ('secret hack', '$$$ FAST' vs no get-rich-quick). A strong answer names at least 3 of these 4 categories tied to the guide. Penalize approving it, a vague 'tone is off' with no rule cited, naming only one violation, listing fewer than 3 real categories, or inventing violations not in the guide." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cmo-editorial-prioritization",
+      "title": "Prioritize the editorial calendar by goal-leverage",
+      "prompt": "The quarter's single goal is paid course signups. Five content ideas compete for the next slot:\n\nA. A trending-but-off-topic reaction video to a celebrity finance scandal (big reach, no link to the course).\nB. A comparison post 'Cashflow Compass vs spreadsheet budgeting' targeting people actively deciding (high purchase intent).\nC. A redesign of the channel banner (internal polish, no new content).\nD. A 12-part history-of-money explainer series (huge effort, low purchase intent).\nE. Restarting a dormant podcast nobody asked for (speculative).\n\nPick the ONE to schedule first and the single runner-up. Return ONLY JSON: {\"first\": \"A\"|\"B\"|\"C\"|\"D\"|\"E\", \"runnerUp\": \"A\"|\"B\"|\"C\"|\"D\"|\"E\", \"why\": string}. `why` <=35 words, tied to the signups goal.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "first", "value": "B", "weight": 5 },
+          { "type": "json_path_in", "path": "runnerUp", "values": ["D", "E"], "weight": 1 },
+          { "type": "regex", "pattern": "\"why\"\\s*:\\s*\"[^\"]{1,240}\"", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "prioritization", "weight": 2, "guidance": "Schedules B first because it targets high-purchase-intent deciders ('Cashflow Compass vs spreadsheet budgeting') and maps straight to the signups goal. Penalize choosing A (reach, off-topic), C (internal polish, no new content), D (huge effort/low intent), or E (speculative) as first. The runner-up must NOT be A (the vanity/reach trap) or C (an internal task that produces no signups); penalize A or C as runner-up. Among the rest, D (some topical intent) is a more defensible runner-up than E (purely speculative). The `why` must tie the ranking to the signups goal, not to reach or 'variety'." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cmo-multichannel-budget-split",
+      "title": "Allocate a fixed content budget across channels by goal-fit",
+      "prompt": "You have 10 units of content-production capacity for the next month. The goal is paid course signups within the month. Channel facts: Email (warm 4,000-person list, converts THIS month, very high goal-fit); YouTube (slow-compounding awareness, pays off in months, low same-month fit); SEO (ranks in 8-12 weeks, zero same-month fit). Allocate ALL 10 units across the three channels as integers that sum to exactly 10, weighting toward what can hit the same-month goal while leaving a small long-term seed.\n\nReturn ONLY JSON: {\"email\": number, \"youtube\": number, \"seo\": number, \"why\": string}. The three numbers MUST be integers summing to 10, with email the largest. `why` <=30 words.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "regex", "pattern": "\"email\"\\s*:\\s*([6-9]|10)\\b", "weight": 4 },
+          { "type": "regex", "pattern": "\"seo\"\\s*:\\s*[0-3]\\b", "weight": 1 },
+          { "type": "regex", "pattern": "\"youtube\"\\s*:\\s*[0-3]\\b", "weight": 1 },
+          { "type": "regex", "pattern": "\"why\"\\s*:\\s*\"[^\"]{1,210}\"", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "allocation", "weight": 3, "guidance": "Email gets the clear majority (>=6 of 10) and is the LARGEST allocation, because it is the only channel that converts within the same-month goal window; YouTube and SEO get only small long-term seed allocations (each <=3). The three integers MUST sum to exactly 10 — verify the arithmetic. Penalize: an even/flat split (e.g. 4/3/3), putting the most or an equal share into SEO or YouTube (which cannot convert this month), email not being the single largest, sums that aren't exactly 10, non-integer values, or a `why` that ignores the same-month constraint." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cmo-success-metric-definition",
+      "title": "Define the true success metric for a launch",
+      "prompt": "Leadership wants 'a single north-star metric' to judge whether next month's Cashflow Compass content launch succeeded. The business goal is paid course signups and revenue. Candidates floated in the meeting: total video views, new subscribers, social shares, email open rate, and paid course signups. Pick the ONE metric that actually measures the business goal, and name the single most dangerous vanity metric to AVOID treating as success.\n\nReturn ONLY JSON: {\"northStar\": string, \"vanityToAvoid\": string, \"why\": string}. `northStar` must be a metric tied to revenue/signups; `vanityToAvoid` must be a reach/engagement metric. `why` <=30 words.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "regex", "pattern": "\"northStar\"\\s*:\\s*\"[^\"]*(signup|sign-up|sign up|paid|conversion|revenue|customer|purchase|sales|enroll|buyer)", "weight": 4 },
+          { "type": "regex", "pattern": "\"vanityToAvoid\"\\s*:\\s*\"[^\"]*(view|subscriber|share|follower|like|open rate|impression|reach|watch ?time|engagement)", "weight": 3 },
+          { "type": "not_regex", "pattern": "\"northStar\"\\s*:\\s*\"\\s*(total |new )?(views?|subscribers?|followers?|impressions?|likes?|shares?|reach)\\s*\"", "weight": 1 },
+          { "type": "regex", "pattern": "\"why\"\\s*:\\s*\"[^\"]{1,210}\"", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "metric_judgment", "weight": 2, "guidance": "north-star is paid signups / conversions / revenue (the business goal); vanityToAvoid is a reach/engagement metric (views, subscribers, shares, open rate) explicitly called out as NOT success. Penalize choosing a vanity metric as north-star, choosing a revenue metric as the vanity one, or a `why` that treats reach as inherently valuable rather than a leading indicator at best." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cmo-repurpose-vs-new",
+      "title": "Decide repurpose vs. produce-new under a constraint",
+      "prompt": "Your single best-performing asset is a long Stack Lab video, 'Build your first budget', that already drives most course signups. You have limited capacity this sprint. Option A: produce a brand-new unproven video on an unrelated topic. Option B: repurpose the proven winner into an email sequence + 3 short clips + an SEO article, multiplying reach of the thing already known to convert. The goal is more signups, not more new titles.\n\nReturn ONLY JSON: {\"decision\": \"new\"|\"repurpose\", \"why\": string}. `why` <=30 words, tied to the signups goal and the proven-asset logic.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "decision", "value": "repurpose", "weight": 5 },
+          { "type": "regex", "pattern": "\"why\"\\s*:\\s*\"[^\"]{1,210}\"", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "leverage", "weight": 2, "guidance": "Chooses repurpose: under limited capacity, amplifying a PROVEN converter across formats is higher-leverage toward signups than gambling on a new, unproven, unrelated asset. The `why` must invoke the proven-asset/leverage logic (the winner already drives most signups; multiply its reach). Penalize choosing 'new', and penalize a `why` that frames repurposing as 'more content/variety/efficiency' rather than extracting more conversions from the known winner." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cmo-resist-trend-chasing",
+      "title": "Resist a trend-chase that breaks positioning",
+      "prompt": "A teammate pushes: 'Crypto meme coins are blowing up this week. Let's pump out 5 hype videos on the hottest coin — we'll get tons of views and grow the channel fast.' Stack Lab's positioning is calm, beginner budgeting education; the audience is anxious budgeting beginners; the goal is course signups. The trend is off-charter, speculative, and risks confusing the audience and brand.\n\nDecide. Return ONLY JSON: {\"decision\": \"chase\"|\"stay_course\", \"reason\": string, \"followUp\": string}. `reason` <=35 words; `followUp` says how to handle the idea without derailing positioning.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "decision", "value": "stay_course", "weight": 5 },
+          { "type": "not_regex", "pattern": "\"followUp\"\\s*:\\s*\"[^\"]*(5 hype|five hype|pump out|hottest coin|meme[- ]?coin video|do the hype|all 5|all five)", "weight": 2 },
+          { "type": "regex", "pattern": "\"reason\"\\s*:\\s*\"[^\"]{1,240}\"", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "discipline", "weight": 3, "guidance": "Stays the course: a meme-coin hype run is off-positioning, attracts the wrong (non-converting) audience, and chases views over signups. The `reason` must tie the refusal to positioning/wrong-audience/goal, not just 'it's risky'. followUp parks the idea constructively if at all — e.g. ONLY if it can be reframed to fit budgeting/beginner safety (a calm 'why beginners should avoid crypto-FOMO' angle), or logs it as out-of-scope; it does NOT greenlight the 5 hype videos. Penalize 'chase', and penalize a followUp that quietly approves the trend content, ships the hype run on a side channel, or justifies it by view/growth potential." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cmo-funnel-stage-match",
+      "title": "Match content format to the right funnel stage",
+      "prompt": "Three content jobs need their funnel stage assigned correctly so the calendar reaches each audience with the right intent. Stages: TOFU (top-of-funnel, awareness, cold audience), MOFU (middle, considering, warm), BOFU (bottom, ready to buy, hottest intent).\n\n1. A broad YouTube explainer 'Why budgeting feels impossible (and the mindset shift that fixes it)' aimed at people who don't yet know they need a course.\n2. An email to past free-tool users: 'Cashflow Compass vs. doing it yourself — which is right for you?'\n3. A limited-time launch-discount email to people who already clicked the checkout page but didn't buy.\n\nReturn ONLY JSON: {\"s1\": \"TOFU\"|\"MOFU\"|\"BOFU\", \"s2\": \"TOFU\"|\"MOFU\"|\"BOFU\", \"s3\": \"TOFU\"|\"MOFU\"|\"BOFU\"}.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "s1", "value": "TOFU", "weight": 3 },
+          { "type": "json_path_equals", "path": "s2", "value": "MOFU", "weight": 3 },
+          { "type": "json_path_equals", "path": "s3", "value": "BOFU", "weight": 3 }
+        ]
+      }
+    }
+  ]
+}
