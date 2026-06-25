@@ -277,6 +277,54 @@ describe("issue activity event routes", () => {
     });
   }, 15_000);
 
+  it("rejects patching an issue to blocked without first-class blockers", async () => {
+    const issue = makeIssue();
+    mockIssueService.getById.mockResolvedValue(issue);
+    mockIssueService.getRelationSummaries.mockResolvedValue({ blockedBy: [], blocks: [] });
+
+    const res = await request(await createApp())
+      .patch(`/api/issues/${issue.id}`)
+      .send({ status: "blocked" });
+
+    expect(res.status).toBe(422);
+    expect(String(res.body?.error ?? res.text)).toMatch(/blockedByIssueIds/i);
+    expect(mockIssueService.update).not.toHaveBeenCalled();
+  });
+
+  it("allows patching an issue to blocked when first-class blockers already exist", async () => {
+    const issue = makeIssue();
+    mockIssueService.getById.mockResolvedValue(issue);
+    mockIssueService.getRelationSummaries.mockResolvedValue({
+      blockedBy: [
+        {
+          id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          identifier: "PAP-10",
+          title: "Existing blocker",
+          status: "todo",
+          priority: "medium",
+          assigneeAgentId: null,
+          assigneeUserId: null,
+        },
+      ],
+      blocks: [],
+    });
+    mockIssueService.update.mockImplementation(async (_id: string, patch: Record<string, unknown>) => ({
+      ...issue,
+      ...patch,
+      updatedAt: new Date(),
+    }));
+
+    const res = await request(await createApp())
+      .patch(`/api/issues/${issue.id}`)
+      .send({ status: "blocked" });
+
+    expect(res.status).toBe(200);
+    expect(mockIssueService.update).toHaveBeenCalledWith(
+      issue.id,
+      expect.objectContaining({ status: "blocked" }),
+    );
+  });
+
   it("logs readable workspace change activity details for issue updates", async () => {
     const previousProjectWorkspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     const nextExecutionWorkspaceId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";

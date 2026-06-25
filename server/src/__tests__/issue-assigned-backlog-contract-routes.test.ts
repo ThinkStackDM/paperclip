@@ -244,6 +244,20 @@ describe("assigned backlog creation contract", () => {
     );
   });
 
+  it("rejects creating a blocked top-level issue without first-class blockers", async () => {
+    const res = await request(await createApp())
+      .post("/api/companies/company-1/issues")
+      .send({
+        title: "Blocked without blocker",
+        status: "blocked",
+      });
+
+    expect(res.status).toBe(422);
+    expect(String(res.body?.error ?? res.text)).toMatch(/blockedByIssueIds/i);
+    expect(mockIssueService.create).not.toHaveBeenCalled();
+    expect(mockWakeup).not.toHaveBeenCalled();
+  });
+
   it("does not let a parent-blocking assigned child become an unwoken backlog leaf by default", async () => {
     const res = await request(await createApp())
       .post("/api/issues/parent-1/children")
@@ -295,6 +309,20 @@ describe("assigned backlog creation contract", () => {
         payload: expect.objectContaining({ mutation: "create" }),
       }),
     );
+  });
+
+  it("rejects creating a blocked child issue without first-class blockers", async () => {
+    const res = await request(await createApp())
+      .post("/api/issues/parent-1/children")
+      .send({
+        title: "Blocked child without blocker",
+        status: "blocked",
+      });
+
+    expect(res.status).toBe(422);
+    expect(String(res.body?.error ?? res.text)).toMatch(/blockedByIssueIds/i);
+    expect(mockIssueService.createChild).not.toHaveBeenCalled();
+    expect(mockWakeup).not.toHaveBeenCalled();
   });
 
   it("preserves deliberate assigned backlog as parked work without assignment wakeup", async () => {

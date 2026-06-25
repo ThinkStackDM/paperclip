@@ -272,6 +272,19 @@ function buildCreateIssueActivityStatusDetails(
   };
 }
 
+function hasFirstClassBlockers(value: unknown): value is string[] {
+  return Array.isArray(value) && value.length > 0;
+}
+
+function effectiveBlockedByIssueIds(
+  requestedBlockedByIssueIds: unknown,
+  existingBlockedByIssueIds: string[] = [],
+): string[] {
+  return Array.isArray(requestedBlockedByIssueIds)
+    ? requestedBlockedByIssueIds
+    : existingBlockedByIssueIds;
+}
+
 const SUCCESSFUL_RUN_HANDOFF_ACTIONS = [
   "issue.successful_run_handoff_required",
   "issue.successful_run_handoff_resolved",
@@ -4352,6 +4365,10 @@ export function issueRoutes(
         ? { inheritExecutionWorkspaceFromIssueId: runWorkspaceInheritanceSourceIssueId }
         : {}),
     };
+    if (createBody.status === "blocked" && !hasFirstClassBlockers(createBody.blockedByIssueIds)) {
+      res.status(422).json({ error: "Blocked issues require at least one blockedByIssueIds entry" });
+      return;
+    }
     if (!(await assertCheapRecoveryIssueAssigneeProfileAllowed(req, res, { companyId }, createBody))) return;
     if (req.body.assigneeAgentId || req.body.assigneeUserId) {
       await assertCanAssignTasks(req, companyId, {
@@ -4475,6 +4492,10 @@ export function issueRoutes(
       ...req.body,
       ...(normalizedAssigneeAgentId !== undefined ? { assigneeAgentId: normalizedAssigneeAgentId } : {}),
     };
+    if (createBody.status === "blocked" && !hasFirstClassBlockers(createBody.blockedByIssueIds)) {
+      res.status(422).json({ error: "Blocked issues require at least one blockedByIssueIds entry" });
+      return;
+    }
     if (!(await assertCheapRecoveryIssueAssigneeProfileAllowed(req, res, parent, createBody))) return;
     if (req.body.assigneeAgentId || req.body.assigneeUserId) {
       await assertCanAssignTasks(req, parent.companyId, {
@@ -4812,7 +4833,7 @@ export function issueRoutes(
     );
     const titleOrDescriptionChanged = req.body.title !== undefined || req.body.description !== undefined;
     const existingRelations =
-      Array.isArray(req.body.blockedByIssueIds)
+      (Array.isArray(req.body.blockedByIssueIds) || req.body.status === "blocked")
         ? await svc.getRelationSummaries(existing.id)
         : null;
     const {
@@ -4995,6 +5016,13 @@ export function issueRoutes(
         normalizeIssueExecutionPolicy(req.body.executionPolicy),
         actor.actorType,
       );
+    }
+    if (updateFields.status === "blocked") {
+      const currentBlockedByIssueIds = (existingRelations?.blockedBy ?? []).map((relation) => relation.id);
+      if (!hasFirstClassBlockers(effectiveBlockedByIssueIds(req.body.blockedByIssueIds, currentBlockedByIssueIds))) {
+        res.status(422).json({ error: "Blocked issues require at least one blockedByIssueIds entry" });
+        return;
+      }
     }
     const previousExecutionPolicy = normalizeIssueExecutionPolicy(existing.executionPolicy ?? null);
     const nextExecutionPolicy =
