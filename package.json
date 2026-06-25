@@ -72,7 +72,8 @@
     "overrides": {
       "rollup": ">=4.59.0",
       "react": "^19.2.7",
-      "react-dom": "^19.2.7"
+      "react-dom": "^19.2.7",
+      "@cursor/sdk": "1.0.18"
     }
   }
 }
