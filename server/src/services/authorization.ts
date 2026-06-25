@@ -1,6 +1,7 @@
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
+  agentFallbackSisters,
   agents,
   companyMemberships,
   heartbeatRuns,
@@ -80,6 +81,7 @@ export type AuthorizationDecision = {
     | "allow_explicit_grant"
     | "allow_legacy_agent_creator"
     | "allow_issue_mention_grant"
+    | "allow_fallback_registry"
     | "allow_self"
     | "allow_company_agent"
     | "allow_company_member"
@@ -886,6 +888,20 @@ export function authorizationService(db: Db) {
     return isAgentInSubtree(db, companyId, managerAgentId, assigneeAgentId);
   }
 
+  async function isRegisteredFallbackSister(companyId: string, primaryAgentId: string, sisterAgentId: string) {
+    const row = await db
+      .select({ id: agentFallbackSisters.id })
+      .from(agentFallbackSisters)
+      .where(and(
+        eq(agentFallbackSisters.companyId, companyId),
+        eq(agentFallbackSisters.primaryAgentId, primaryAgentId),
+        eq(agentFallbackSisters.sisterAgentId, sisterAgentId),
+        isNull(agentFallbackSisters.revokedAt),
+      ))
+      .then((rows) => rows[0] ?? null);
+    return Boolean(row);
+  }
+
   function commentAuthorCanGrantIssueMention(input: {
     mentionedAgentId: string;
     issueAssigneeAgentId: string | null;
@@ -1310,6 +1326,20 @@ export function authorizationService(db: Db) {
       ) {
         return allowIssueMentionGrant(input.action);
       }
+    }
+    if (
+      input.action === "tasks:fallback_reassign" &&
+      input.resource.type === "issue" &&
+      input.resource.assigneeAgentId &&
+      isPlainRecord(input.scope) &&
+      input.scope.targetAgentId === actorAgentId &&
+      await isRegisteredFallbackSister(companyId, input.resource.assigneeAgentId, actorAgentId)
+    ) {
+      return allow({
+        action: input.action,
+        reason: "allow_fallback_registry",
+        explanation: "Allowed because the actor is the registered fallback sister for the requested target takeover.",
+      });
     }
     if (
       input.action === "agent_config:update" &&

@@ -59,6 +59,172 @@ describe("issue list limit helpers", () => {
   });
 });
 
+describeEmbeddedPostgres("issueService.fallbackReassign", () => {
+  let db!: ReturnType<typeof createDb>;
+  let svc!: ReturnType<typeof issueService>;
+  let tempDb: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>> | null = null;
+
+  beforeAll(async () => {
+    tempDb = await startEmbeddedPostgresTestDatabase("paperclip-issues-fallback-reassign-");
+    db = createDb(tempDb.connectionString);
+    svc = issueService(db);
+  }, 20_000);
+
+  afterEach(async () => {
+    await db.delete(issueComments);
+    await db.delete(activityLog);
+    await db.delete(issues);
+    await db.delete(heartbeatRuns);
+    await db.delete(agents);
+    await db.delete(companies);
+  });
+
+  afterAll(async () => {
+    await tempDb?.cleanup();
+  });
+
+  it("reassigns the issue, clears execution ownership, and writes a system audit comment", async () => {
+    const companyId = randomUUID();
+    const primaryAgentId = randomUUID();
+    const sisterAgentId = randomUUID();
+    const issueId = randomUUID();
+    const runId = randomUUID();
+    const checkoutRunId = randomUUID();
+    const executionRunId = randomUUID();
+    const resetAt = new Date("2026-06-25T10:00:00.000Z");
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+    await db.insert(agents).values([
+      {
+        id: primaryAgentId,
+        companyId,
+        name: "Primary",
+        role: "engineer",
+        status: "active",
+        adapterType: "codex_local",
+        adapterConfig: {},
+        runtimeConfig: {},
+        permissions: {},
+      },
+      {
+        id: sisterAgentId,
+        companyId,
+        name: "Sister",
+        role: "engineer",
+        status: "active",
+        adapterType: "codex_local",
+        adapterConfig: {},
+        runtimeConfig: {},
+        permissions: {},
+      },
+    ]);
+    await db.insert(heartbeatRuns).values([
+      {
+        id: checkoutRunId,
+        companyId,
+        agentId: primaryAgentId,
+        status: "running",
+        invocationSource: "test",
+      },
+      {
+        id: executionRunId,
+        companyId,
+        agentId: primaryAgentId,
+        status: "failed",
+        invocationSource: "test",
+      },
+      {
+        id: runId,
+        companyId,
+        agentId: sisterAgentId,
+        status: "running",
+        invocationSource: "test",
+      },
+    ]);
+    await db.insert(issues).values({
+      id: issueId,
+      companyId,
+      title: "Fallback target",
+      identifier: "TST-42",
+      status: "in_progress",
+      priority: "high",
+      assigneeAgentId: primaryAgentId,
+      checkoutRunId,
+      executionRunId,
+      executionLockedAt: new Date("2026-06-25T08:00:00.000Z"),
+      executionAgentNameKey: "primary",
+    });
+
+    const result = await svc.fallbackReassign(
+      {
+        id: issueId,
+        companyId,
+        identifier: "TST-42",
+        assigneeAgentId: primaryAgentId,
+      },
+      { id: sisterAgentId },
+      "usage_limit",
+      resetAt,
+      runId,
+    );
+
+    expect(result).toMatchObject({
+      reassignedFromAgentId: primaryAgentId,
+      reassignedToAgentId: sisterAgentId,
+      issue: {
+        id: issueId,
+        assigneeAgentId: sisterAgentId,
+      },
+      comment: {
+        issueId,
+        authorType: "system",
+        createdByRunId: runId,
+      },
+    });
+
+    const storedIssue = await db
+      .select({
+        assigneeAgentId: issues.assigneeAgentId,
+        checkoutRunId: issues.checkoutRunId,
+        executionRunId: issues.executionRunId,
+        executionLockedAt: issues.executionLockedAt,
+        executionAgentNameKey: issues.executionAgentNameKey,
+      })
+      .from(issues)
+      .where(eq(issues.id, issueId))
+      .then((rows) => rows[0]!);
+    expect(storedIssue).toEqual({
+      assigneeAgentId: sisterAgentId,
+      checkoutRunId: null,
+      executionRunId: null,
+      executionLockedAt: null,
+      executionAgentNameKey: null,
+    });
+
+    const storedComment = await db
+      .select({
+        authorType: issueComments.authorType,
+        createdByRunId: issueComments.createdByRunId,
+        body: issueComments.body,
+      })
+      .from(issueComments)
+      .where(eq(issueComments.issueId, issueId))
+      .orderBy(asc(issueComments.createdAt))
+      .then((rows) => rows[0]!);
+    expect(storedComment.authorType).toBe("system");
+    expect(storedComment.createdByRunId).toBe(runId);
+    expect(storedComment.body).toContain("Platform fallback reassigned this issue.");
+    expect(storedComment.body).toContain(`From agent: ${primaryAgentId}`);
+    expect(storedComment.body).toContain(`To agent: ${sisterAgentId}`);
+    expect(storedComment.body).toContain(`Reset at: ${resetAt.toISOString()}`);
+  });
+});
+
 describe("deriveIssueCommentRunLogAttribution", () => {
   it("recovers agent attribution from run logs that printed the posted comment id", () => {
     const commentId = randomUUID();

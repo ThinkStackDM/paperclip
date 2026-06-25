@@ -203,12 +203,23 @@ type SuccessfulRunHandoffActivityRow = {
 type GateKeeperOverrideInput =
   | { kind: "comment" }
   | { kind: "document"; documentKey: string };
+type AgentIssueMutationOverrideInput =
+  | { action: "tasks:fallback_reassign"; scope: { targetAgentId: string } };
 
 const GATE_KEEPER_ALLOWED_DOCUMENT_KEYS = new Set([
   "acceptance-criteria",
   "rollback-plan",
   "review-evidence",
 ]);
+const FALLBACK_REASSIGN_HORIZON_MS: Record<
+  "session_limit" | "weekly_limit" | "usage_limit" | "paused_primary",
+  number
+> = {
+  session_limit: 6 * 60 * 60 * 1000,
+  weekly_limit: 7 * 24 * 60 * 60 * 1000,
+  usage_limit: 6 * 60 * 60 * 1000,
+  paused_primary: 14 * 24 * 60 * 60 * 1000,
+};
 
 function issueLabelNames(issue: { labels?: Array<{ name?: string | null }> | null }) {
   return (issue.labels ?? [])
@@ -1682,6 +1693,36 @@ export function issueRoutes(
     return req.actor.type === "agent" || parseBooleanQuery(req.query.includeAnnotations);
   }
 
+  function validateFallbackResetAt(
+    reason: "session_limit" | "weekly_limit" | "usage_limit" | "paused_primary",
+    value: string | undefined,
+  ) {
+    if (!value) {
+      return reason === "paused_primary"
+        ? { ok: true as const, resetAt: null }
+        : {
+          ok: false as const,
+          error: "Fallback reassignment requires resetAt for limit-based takeover",
+        };
+    }
+    const resetAt = new Date(value);
+    if (Number.isNaN(resetAt.getTime())) {
+      return { ok: false as const, error: "Fallback reassignment resetAt must be a valid ISO timestamp" };
+    }
+    const now = Date.now();
+    if (resetAt.getTime() <= now) {
+      return { ok: false as const, error: "Fallback reassignment resetAt must be in the future" };
+    }
+    const horizonMs = FALLBACK_REASSIGN_HORIZON_MS[reason];
+    if (resetAt.getTime() - now > horizonMs) {
+      return {
+        ok: false as const,
+        error: "Fallback reassignment resetAt is outside the allowed horizon",
+      };
+    }
+    return { ok: true as const, resetAt };
+  }
+
   function shouldIncludeDocumentAnnotationComments(req: Request) {
     return parseBooleanQuery(req.query.includeAnnotationComments);
   }
@@ -2184,7 +2225,10 @@ export function issueRoutes(
       assigneeUserId: string | null;
       labels?: Array<{ name?: string | null }> | null;
     },
-    options?: { gateKeeperOverride?: GateKeeperOverrideInput },
+    options?: {
+      gateKeeperOverride?: GateKeeperOverrideInput;
+      agentMutationOverride?: AgentIssueMutationOverrideInput;
+    },
   ) {
     if (req.actor.type !== "agent") return true;
     const actorAgentId = req.actor.agentId;
@@ -2264,6 +2308,31 @@ export function issueRoutes(
     return decision.allowed;
   }
 
+  async function decideAgentIssueMutationOverride(
+    issue: {
+      id: string;
+      companyId: string;
+      status: string;
+      assigneeAgentId: string | null;
+    },
+    actorAgentId: string,
+    override?: AgentIssueMutationOverrideInput,
+  ) {
+    if (!override || !issue.assigneeAgentId) return null;
+    return access.decide({
+      actor: { type: "agent", agentId: actorAgentId, companyId: issue.companyId },
+      action: override.action,
+      resource: {
+        type: "issue",
+        companyId: issue.companyId,
+        issueId: issue.id,
+        assigneeAgentId: issue.assigneeAgentId,
+        status: issue.status,
+      },
+      scope: override.scope,
+    });
+  }
+
   async function actorHasGateKeeperWriteGrant(
     issue: {
       id: string;
@@ -2329,7 +2398,10 @@ export function issueRoutes(
       assigneeUserId: string | null;
       labels?: Array<{ name?: string | null }> | null;
     },
-    options?: { gateKeeperOverride?: GateKeeperOverrideInput },
+    options?: {
+      gateKeeperOverride?: GateKeeperOverrideInput;
+      agentMutationOverride?: AgentIssueMutationOverrideInput;
+    },
   ) {
     if (req.actor.type !== "agent") return true;
     const actorAgentId = req.actor.agentId;
@@ -2362,6 +2434,14 @@ export function issueRoutes(
     }
     const boundaryDecision = await decideIssueAccess(req, issue, "issue:mutate");
     if (!boundaryDecision.allowed) {
+      const agentMutationOverride = await decideAgentIssueMutationOverride(
+        issue,
+        actorAgentId,
+        options?.agentMutationOverride,
+      );
+      if (agentMutationOverride?.allowed) {
+        return true;
+      }
       res.status(403).json({ error: "Issue is outside this actor's authorization boundary" });
       return false;
     }
@@ -2370,6 +2450,14 @@ export function issueRoutes(
     }
     if (issue.assigneeAgentId !== actorAgentId) {
       if (await hasActiveCheckoutManagementOverride(actorAgentId, issue.companyId, issue.assigneeAgentId)) {
+        return true;
+      }
+      const agentMutationOverride = await decideAgentIssueMutationOverride(
+        issue,
+        actorAgentId,
+        options?.agentMutationOverride,
+      );
+      if (agentMutationOverride?.allowed) {
         return true;
       }
       const gateKeeperOverride = options?.gateKeeperOverride
@@ -5991,28 +6079,33 @@ export function issueRoutes(
     res.json(result);
   });
 
-  // Authorized fallback reassignment (THIAAAAAA-1872).
+  // Authorized fallback reassignment (TSMC-11078).
   //
-  // The fallback monitor runs under a non-Claude executor identity (so it
-  // survives Claude usage-limit/outage events). When it detects a usage-limit
-  // failure on a watched primary it must reassign that primary's open issues to
-  // the registered sister agent. A normal PATCH /issues/:id is rejected by the
-  // cross-agent-mutation rule (403). This route performs *only* the assignee
-  // swap, gated by an explicit, scope-constrained `tasks:fallback_reassign`
-  // grant — the registry of allowed sisters lives in the grant scope, so the
-  // executor can never mutate anything else or reassign to an unregistered
-  // target. Approved as Option 2 on THIAAAAAA-1872 (board approval ed6f4d65).
+  // This is the narrow server-side failover path for moving an issue from a
+  // paused or limit-failed primary to its registered sister. The route stays
+  // behind FEATURE_FALLBACK_REASSIGN=on until smoke passes, and it delegates
+  // the actual mutation to issueService.fallbackReassign so the assignee swap,
+  // checkout-release, and platform audit comment happen transactionally.
   router.post(
     "/issues/:id/fallback-reassign",
     validate(
       z.object({
         toAgentId: z.string().min(1),
         expectedFromAgentId: z.string().min(1).optional(),
-        reason: z.string().max(2000).optional(),
-        comment: z.string().max(20000).optional(),
+        reason: z.enum(["session_limit", "weekly_limit", "usage_limit", "paused_primary"]),
+        resetAt: z.string().datetime().optional(),
+        primaryRunId: z.string().uuid().nullable().optional(),
+        comment: z.string().max(20_000).nullable().optional(),
       }),
     ),
     async (req, res) => {
+      if (process.env.FEATURE_FALLBACK_REASSIGN !== "on") {
+        res.status(403).json({
+          error: "Fallback reassignment is not enabled",
+          code: "FEATURE_DISABLED",
+        });
+        return;
+      }
       const id = req.params.id as string;
       const existing = await svc.getById(id);
       if (!existing) {
@@ -6030,6 +6123,8 @@ export function issueRoutes(
         res.status(403).json({ error: "Agent authentication required" });
         return;
       }
+      const actorRunId = requireAgentRunId(req, res);
+      if (!actorRunId) return;
 
       const fromAgentId = existing.assigneeAgentId;
       if (!fromAgentId) {
@@ -6060,93 +6155,140 @@ export function issueRoutes(
         });
         return;
       }
+      if (targetAgentId !== actorAgentId) {
+        res.status(403).json({
+          error: "Fallback reassignment target must match the authenticated sister agent",
+          details: {
+            reason: "third_party_target",
+            actorAgentId,
+            targetAgentId,
+          },
+        });
+        return;
+      }
       if (targetAgentId === fromAgentId) {
-        res.status(409).json({
-          error: "Fallback reassignment target equals current assignee",
-          details: { issueId: id, assigneeAgentId: fromAgentId },
+        res.json({
+          issue: existing,
+          reassignedFromAgentId: fromAgentId,
+          reassignedToAgentId: targetAgentId,
+          noop: true,
         });
         return;
       }
 
-      // Authorize: requires an explicit, scope-constrained grant of
-      // `tasks:fallback_reassign`. The grant scope enumerates the registered
-      // sister agents; an unscoped grant is rejected (requireStructuredScope).
-      const decision = await access.decide({
-        actor: { type: "agent", agentId: actorAgentId, companyId: existing.companyId },
-        action: "tasks:fallback_reassign",
-        resource: {
-          type: "issue",
-          companyId: existing.companyId,
-          issueId: existing.id,
-          assigneeAgentId: fromAgentId,
-          status: existing.status,
+      if (!(await assertAgentIssueMutationAllowed(req, res, existing, {
+        agentMutationOverride: {
+          action: "tasks:fallback_reassign",
+          scope: { targetAgentId },
         },
-        scope: { targetAgentId },
-      });
-      if (!decision.allowed) {
-        res.status(403).json({
-          error: "Agent lacks an authorized fallback-reassignment grant for this target",
+      }))) return;
+
+      const relationship = await agentsSvc.getFallbackRelationship(existing.companyId, fromAgentId, targetAgentId);
+      if (!relationship) {
+        res.status(404).json({
+          error: "Registered fallback relationship not found",
           details: {
-            issueId: id,
-            actorAgentId,
-            fromAgentId,
-            toAgentId: targetAgentId,
-            reason: decision.reason,
-            securityPrinciples: ["Least Privilege", "Complete Mediation", "Fail Securely"],
+            reason: "missing_fallback_relationship",
+            primaryAgentId: fromAgentId,
+            sisterAgentId: targetAgentId,
           },
         });
         return;
       }
 
-      const actor = getActorInfo(req);
-      const updated = await svc.update(id, {
-        assigneeAgentId: targetAgentId,
-        actorAgentId: actor.agentId ?? null,
-        actorUserId: null,
-      });
-      if (!updated) {
-        res.status(404).json({ error: "Issue not found" });
+      const primary = await agentsSvc.getById(fromAgentId);
+      if (!primary || primary.companyId !== existing.companyId) {
+        res.status(404).json({
+          error: "Fallback reassignment primary agent not found",
+          details: { primaryAgentId: fromAgentId },
+        });
         return;
       }
 
-      if (req.body.comment) {
-        const comment = await svc.addComment(
-          id,
-          req.body.comment as string,
-          { agentId: actor.agentId ?? undefined, runId: actor.runId },
-          { authorType: "agent", presentation: null, metadata: null },
-        );
-        await issueReferencesSvc.syncComment(comment.id);
+      const resetAtValidation = validateFallbackResetAt(req.body.reason, req.body.resetAt);
+      if (!resetAtValidation.ok) {
+        res.status(422).json({
+          error: resetAtValidation.error,
+          details: { reason: "invalid_reset_at", resetAt: req.body.resetAt ?? null },
+        });
+        return;
       }
+
+      if (req.body.reason !== "paused_primary" && !req.body.primaryRunId) {
+        res.status(422).json({
+          error: "Fallback reassignment requires primaryRunId for limit-based takeover",
+          details: { reason: "missing_primary_run_id" },
+        });
+        return;
+      }
+
+      const eligible = await agentsSvc.isPausedOrLimitFailed(
+        { id: primary.id, status: primary.status },
+        req.body.reason,
+        req.body.primaryRunId ?? null,
+      );
+      if (!eligible) {
+        res.status(422).json({
+          error: "Primary is not in a fallback-eligible state",
+          details: {
+            reason: "primary_not_eligible",
+            primaryAgentId: primary.id,
+            fallbackReason: req.body.reason,
+            primaryRunId: req.body.primaryRunId ?? null,
+          },
+        });
+        return;
+      }
+
+      const result = await svc.fallbackReassign(
+        {
+          id: existing.id,
+          companyId: existing.companyId,
+          identifier: existing.identifier ?? null,
+          assigneeAgentId: fromAgentId,
+        },
+        { id: targetAgentId },
+        req.body.reason,
+        resetAtValidation.resetAt,
+        actorRunId,
+      );
+      await issueReferencesSvc.syncComment(result.comment.id);
 
       await logActivity(db, {
         companyId: existing.companyId,
-        actorType: actor.actorType,
-        actorId: actor.actorId,
-        agentId: actor.agentId,
-        runId: actor.runId,
+        actorType: req.actor.type,
+        actorId: actorAgentId,
+        agentId: actorAgentId,
+        runId: actorRunId,
         action: "issue.fallback_reassigned",
         entityType: "issue",
         entityId: existing.id,
         details: {
           fromAgentId,
           toAgentId: targetAgentId,
-          grantPermissionKey: decision.grant?.permissionKey ?? null,
-          reason: typeof req.body.reason === "string" ? req.body.reason : null,
+          grantPermissionKey: "tasks:fallback_reassign",
+          reason: req.body.reason,
+          resetAt: resetAtValidation.resetAt?.toISOString() ?? null,
+          primaryRunId: req.body.primaryRunId ?? null,
+          fallbackRelationshipId: relationship.id,
         },
       });
 
       void queueIssueAssignmentWakeup({
         heartbeat,
-        issue: updated,
+        issue: result.issue,
         reason: "issue_assigned",
         mutation: "fallback_reassign",
         contextSource: "issue.fallback_reassign",
-        requestedByActorType: actor.actorType,
-        requestedByActorId: actor.actorId,
+        requestedByActorType: req.actor.type,
+        requestedByActorId: actorAgentId,
       });
 
-      res.json({ issue: updated, reassignedFromAgentId: fromAgentId, reassignedToAgentId: targetAgentId });
+      res.json({
+        issue: result.issue,
+        reassignedFromAgentId: result.reassignedFromAgentId,
+        reassignedToAgentId: result.reassignedToAgentId,
+      });
     },
   );
 

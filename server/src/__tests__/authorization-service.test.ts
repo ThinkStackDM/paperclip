@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import {
+  agentFallbackSisters,
   agents,
   companies,
   companyMemberships,
@@ -129,6 +130,7 @@ describeEmbeddedPostgres("authorization service", () => {
     await db.delete(issueComments);
     await db.delete(principalPermissionGrants);
     await db.delete(companyMemberships);
+    await db.delete(agentFallbackSisters);
     await db.delete(instanceUserRoles);
     await db.delete(issues);
     await db.delete(agents);
@@ -1019,6 +1021,45 @@ describeEmbeddedPostgres("authorization service", () => {
     expect(decision).toMatchObject({
       allowed: true,
       reason: "allow_legacy_agent_creator",
+    });
+  });
+
+  it("allows a registered sister to perform fallback reassignment without an explicit grant", async () => {
+    const company = await createCompany(db, "FallbackRegistry");
+    const primaryAgent = await createAgent(db, company.id, { role: "engineer" });
+    const sisterAgent = await createAgent(db, company.id, { role: "engineer" });
+    const issue = await createIssue(db, company.id, { assigneeAgentId: primaryAgent.id });
+    await db.insert(companyMemberships).values({
+      companyId: company.id,
+      principalType: "agent",
+      principalId: sisterAgent.id,
+      status: "active",
+      membershipRole: "member",
+    });
+    await db.insert(agentFallbackSisters).values({
+      companyId: company.id,
+      primaryAgentId: primaryAgent.id,
+      sisterAgentId: sisterAgent.id,
+      priority: 0,
+      createdBy: "test",
+    });
+
+    const decision = await authorizationService(db).decide({
+      actor: { type: "agent", agentId: sisterAgent.id, companyId: company.id, source: "agent_key" },
+      action: "tasks:fallback_reassign",
+      resource: {
+        type: "issue",
+        companyId: company.id,
+        issueId: issue.id,
+        assigneeAgentId: primaryAgent.id,
+        status: issue.status,
+      },
+      scope: { targetAgentId: sisterAgent.id },
+    });
+
+    expect(decision).toMatchObject({
+      allowed: true,
+      reason: "allow_fallback_registry",
     });
   });
 

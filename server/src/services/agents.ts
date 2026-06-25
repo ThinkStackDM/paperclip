@@ -1,8 +1,9 @@
 import { createHash, randomBytes } from "node:crypto";
-import { and, desc, eq, gte, inArray, lt, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   agents,
+  agentFallbackSisters,
   agentConfigRevisions,
   agentApiKeys,
   agentRuntimeState,
@@ -28,6 +29,25 @@ import { syncAgentAdapterEnvBindings } from "./agent-secret-bindings.js";
 import { normalizeAgentPermissions } from "./agent-permissions.js";
 import { REDACTED_EVENT_VALUE, sanitizeRecord } from "../redaction.js";
 import { secretService } from "./secrets.js";
+
+const FALLBACK_LIMIT_REASON_RE =
+  /you(?:'|’)ve hit your (session|weekly|daily|5-?hour|usage) limit/i;
+
+function parseObjectRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function readRetryNotBefore(value: unknown) {
+  const record = parseObjectRecord(value);
+  const candidate = record?.retryNotBefore ?? record?.transientRetryNotBefore;
+  if (!(typeof candidate === "string" || typeof candidate === "number" || candidate instanceof Date)) {
+    return null;
+  }
+  const parsed = new Date(candidate);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
 
 function hashToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
@@ -841,6 +861,48 @@ export function agentService(db: Db) {
         .select()
         .from(heartbeatRuns)
         .where(and(eq(heartbeatRuns.agentId, agentId), inArray(heartbeatRuns.status, ["queued", "running"]))),
+
+    getFallbackRelationship: async (companyId: string, primaryAgentId: string, sisterAgentId: string) =>
+      db
+        .select()
+        .from(agentFallbackSisters)
+        .where(and(
+          eq(agentFallbackSisters.companyId, companyId),
+          eq(agentFallbackSisters.primaryAgentId, primaryAgentId),
+          eq(agentFallbackSisters.sisterAgentId, sisterAgentId),
+          isNull(agentFallbackSisters.revokedAt),
+        ))
+        .then((rows) => rows[0] ?? null),
+
+    isPausedOrLimitFailed: async (
+      primary: { id: string; status: string },
+      reason: "session_limit" | "weekly_limit" | "usage_limit" | "paused_primary",
+      runId: string | null,
+    ) => {
+      if (reason === "paused_primary") {
+        return primary.status === "paused";
+      }
+      if (!runId) return false;
+      const run = await db
+        .select({
+          agentId: heartbeatRuns.agentId,
+          status: heartbeatRuns.status,
+          error: heartbeatRuns.error,
+          stderrExcerpt: heartbeatRuns.stderrExcerpt,
+          stdoutExcerpt: heartbeatRuns.stdoutExcerpt,
+          resultJson: heartbeatRuns.resultJson,
+        })
+        .from(heartbeatRuns)
+        .where(eq(heartbeatRuns.id, runId))
+        .then((rows) => rows[0] ?? null);
+      if (!run || run.agentId !== primary.id || run.status !== "failed") return false;
+      const haystack = [
+        typeof run.error === "string" ? run.error : "",
+        typeof run.stderrExcerpt === "string" ? run.stderrExcerpt : "",
+        typeof run.stdoutExcerpt === "string" ? run.stdoutExcerpt : "",
+      ].join("\n");
+      return FALLBACK_LIMIT_REASON_RE.test(haystack) || readRetryNotBefore(run.resultJson) !== null;
+    },
 
     resolveByReference: async (companyId: string, reference: string) => {
       const raw = reference.trim();

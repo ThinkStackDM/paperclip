@@ -1496,17 +1496,63 @@ export function agentRoutes(
       };
     }
 
-    const resolvedRequestedSkillEntries = await companySkills.resolveRequestedSkillEntries(
-      companyId,
-      requestedDesiredSkills,
-    );
+    const requestedNativeHermesSkillKeys = new Set<string>();
+    let requestedCompanySkillEntries = requestedDesiredSkills;
+
+    if (adapterType === "hermes_local") {
+      const bareRequestedSkills = requestedDesiredSkills.filter((entry) => !entry.key.includes("/"));
+      if (bareRequestedSkills.length > 0) {
+        const adapter = findActiveServerAdapter(adapterType);
+        if (adapter?.listSkills) {
+          const { config: runtimeConfig } = await secretsSvc.resolveAdapterConfigForRuntime(
+            companyId,
+            writePaperclipSkillSyncPreference(adapterConfig, requestedDesiredSkills),
+          );
+          const nativeSkillSnapshot = await adapter.listSkills({
+            agentId: "",
+            companyId,
+            adapterType,
+            config: await buildRuntimeSkillConfig(companyId, adapterType, runtimeConfig, {
+              materializeMissing: false,
+            }),
+          });
+          const nativeHermesSkillKeys = new Set(
+            nativeSkillSnapshot.entries
+              .filter((entry) => !entry.managed && (entry.readOnly || entry.origin === "user_installed"))
+              .map((entry) => entry.key),
+          );
+          requestedCompanySkillEntries = requestedDesiredSkills.filter((entry) => {
+            if (!nativeHermesSkillKeys.has(entry.key)) return true;
+            requestedNativeHermesSkillKeys.add(entry.key);
+            return false;
+          });
+        }
+      }
+    }
+
+    const resolvedRequestedSkillEntries = requestedCompanySkillEntries.length > 0
+      ? await companySkills.resolveRequestedSkillEntries(
+        companyId,
+        requestedCompanySkillEntries,
+      )
+      : [];
     const runtimeSkillEntries = await companySkills.listRuntimeSkillEntries(companyId, {
       materializeMissing: shouldMaterializeRuntimeSkillsForAdapter(adapterType),
       versionSelections: skillVersionSelectionMap(resolvedRequestedSkillEntries),
     });
     const missingDesiredSkills = new Set<string>();
     const desiredSkillEntries = new Map<string, AgentDesiredSkillEntry>();
-    for (const entry of resolvedRequestedSkillEntries) {
+    let resolvedCompanySkillIndex = 0;
+    for (const requestedEntry of requestedDesiredSkills) {
+      if (requestedNativeHermesSkillKeys.has(requestedEntry.key)) {
+        if (!desiredSkillEntries.has(requestedEntry.key)) {
+          desiredSkillEntries.set(requestedEntry.key, { key: requestedEntry.key, versionId: null });
+        }
+        continue;
+      }
+
+      const entry = resolvedRequestedSkillEntries[resolvedCompanySkillIndex++];
+      if (!entry) continue;
       const canonicalKey = resolvePaperclipDesiredSkillNames(
         writePaperclipSkillSyncPreference({}, [entry.key]),
         runtimeSkillEntries,

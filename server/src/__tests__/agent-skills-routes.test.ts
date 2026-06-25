@@ -562,6 +562,62 @@ describe.sequential("agent skill routes", () => {
     expect(mockAdapter.syncSkills).not.toHaveBeenCalled();
   });
 
+  it("accepts Hermes bare preload skills during sync", async () => {
+    mockAgentService.getById.mockResolvedValue(makeAgent("hermes_local"));
+    mockAdapter.listSkills.mockResolvedValue({
+      adapterType: "hermes_local",
+      supported: true,
+      mode: "persistent",
+      desiredSkills: ["humanizer"],
+      entries: [
+        {
+          key: "humanizer",
+          runtimeName: "humanizer",
+          desired: true,
+          managed: false,
+          state: "installed",
+          origin: "user_installed",
+          readOnly: true,
+          sourcePath: "/tmp/.hermes/skills/content/humanizer/SKILL.md",
+          targetPath: null,
+          detail: "Hermes built-in skill",
+        },
+      ],
+      warnings: [],
+    });
+    mockAdapter.syncSkills.mockResolvedValue({
+      adapterType: "hermes_local",
+      supported: true,
+      mode: "persistent",
+      desiredSkills: ["humanizer"],
+      entries: [],
+      warnings: [],
+    });
+
+    const res = await requestApp(await createApp(), (baseUrl) => request(baseUrl)
+      .post("/api/agents/11111111-1111-4111-8111-111111111111/skills/sync?companyId=company-1")
+      .send({ desiredSkills: ["humanizer"] }));
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockAgentService.update).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        adapterConfig: expect.objectContaining({
+          paperclipSkillSync: expect.objectContaining({
+            desiredSkills: ["humanizer"],
+          }),
+        }),
+      }),
+      expect.any(Object),
+    );
+    expect(mockAdapter.syncSkills).toHaveBeenCalledWith(
+      expect.objectContaining({
+        adapterType: "hermes_local",
+      }),
+      ["humanizer"],
+    );
+  });
+
   it("rejects raw paperclipSkillSync patches with unknown desired skills", async () => {
     mockAgentService.getById.mockResolvedValue(makeAgent("claude_local"));
 
@@ -578,6 +634,54 @@ describe.sequential("agent skill routes", () => {
     expect(res.status, JSON.stringify(res.body)).toBe(422);
     expect(res.body.error).toContain("Unknown skill(s): pixel-art.");
     expect(mockAgentService.update).not.toHaveBeenCalled();
+  });
+
+  it("accepts Hermes bare preload skills in raw paperclipSkillSync patches", async () => {
+    mockAgentService.getById.mockResolvedValue(makeAgent("hermes_local"));
+    mockAdapter.listSkills.mockResolvedValue({
+      adapterType: "hermes_local",
+      supported: true,
+      mode: "persistent",
+      desiredSkills: ["architecture-diagram"],
+      entries: [
+        {
+          key: "architecture-diagram",
+          runtimeName: "architecture-diagram",
+          desired: true,
+          managed: false,
+          state: "installed",
+          origin: "user_installed",
+          readOnly: true,
+          sourcePath: "/tmp/.hermes/skills/diagram/architecture-diagram/SKILL.md",
+          targetPath: null,
+          detail: "Hermes built-in skill",
+        },
+      ],
+      warnings: [],
+    });
+
+    const res = await requestApp(await createApp(), (baseUrl) => request(baseUrl)
+      .patch("/api/agents/11111111-1111-4111-8111-111111111111?companyId=company-1")
+      .send({
+        adapterConfig: {
+          paperclipSkillSync: {
+            desiredSkills: ["architecture-diagram"],
+          },
+        },
+      }));
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockAgentService.update).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        adapterConfig: expect.objectContaining({
+          paperclipSkillSync: expect.objectContaining({
+            desiredSkills: ["architecture-diagram"],
+          }),
+        }),
+      }),
+      expect.any(Object),
+    );
   });
 
   it("persists canonical desired skills when creating an agent directly", async () => {

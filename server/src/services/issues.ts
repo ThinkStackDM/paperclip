@@ -155,6 +155,26 @@ function toTimestampMs(value: Date | string | null | undefined) {
   return Number.isFinite(timestamp) ? timestamp : null;
 }
 
+function buildFallbackReassignAuditComment(input: {
+  issueIdentifier: string | null;
+  primaryAgentId: string;
+  sisterAgentId: string;
+  reason: "session_limit" | "weekly_limit" | "usage_limit" | "paused_primary";
+  resetAt: Date | null;
+  runId: string | null;
+}) {
+  return [
+    "Platform fallback reassigned this issue.",
+    "",
+    `Issue: ${input.issueIdentifier ?? "unidentified issue"}`,
+    `From agent: ${input.primaryAgentId}`,
+    `To agent: ${input.sisterAgentId}`,
+    `Reason: ${input.reason}`,
+    input.resetAt ? `Reset at: ${input.resetAt.toISOString()}` : null,
+    input.runId ? `Run id: ${input.runId}` : null,
+  ].filter((line): line is string => Boolean(line)).join("\n");
+}
+
 type IssueCommentRunLogAttributionCandidate = {
   id: string;
   createdAt: Date | string;
@@ -5662,6 +5682,96 @@ export function issueService(db: Db) {
       };
 
       return dbOrTx === db ? db.transaction(runUpdate) : runUpdate(dbOrTx);
+    },
+
+    fallbackReassign: async (
+      issue: {
+        id: string;
+        companyId: string;
+        identifier?: string | null;
+        assigneeAgentId: string | null;
+      },
+      sister: { id: string },
+      reason: "session_limit" | "weekly_limit" | "usage_limit" | "paused_primary",
+      resetAt: Date | string | null,
+      runId: string | null,
+    ) => {
+      const parsedResetAt = resetAt ? new Date(resetAt) : null;
+      return db.transaction(async (tx) => {
+        const current = await tx
+          .select({
+            id: issues.id,
+            companyId: issues.companyId,
+            identifier: issues.identifier,
+            assigneeAgentId: issues.assigneeAgentId,
+          })
+          .from(issues)
+          .where(and(eq(issues.id, issue.id), eq(issues.companyId, issue.companyId)))
+          .then((rows) => rows[0] ?? null);
+        if (!current) throw notFound("Issue not found");
+        if (!current.assigneeAgentId) {
+          throw conflict("Fallback reassignment requires an assigned primary", { issueId: issue.id });
+        }
+        if (issue.assigneeAgentId && current.assigneeAgentId !== issue.assigneeAgentId) {
+          throw conflict("Fallback reassignment primary mismatch", {
+            issueId: issue.id,
+            expectedFromAgentId: issue.assigneeAgentId,
+            actualAssigneeAgentId: current.assigneeAgentId,
+          });
+        }
+        if (current.assigneeAgentId === sister.id) {
+          throw conflict("Fallback reassignment target equals current assignee", {
+            issueId: issue.id,
+            assigneeAgentId: current.assigneeAgentId,
+          });
+        }
+
+        const updated = await tx
+          .update(issues)
+          .set({
+            assigneeAgentId: sister.id,
+            updatedAt: new Date(),
+            checkoutRunId: null,
+            executionRunId: null,
+            executionAgentNameKey: null,
+            executionLockedAt: null,
+          })
+          .where(eq(issues.id, current.id))
+          .returning()
+          .then((rows) => rows[0] ?? null);
+        if (!updated) throw notFound("Issue not found");
+
+        const [comment] = await tx
+          .insert(issueComments)
+          .values({
+            companyId: current.companyId,
+            issueId: current.id,
+            authorAgentId: null,
+            authorUserId: null,
+            authorType: "system",
+            createdByRunId: runId,
+            body: buildFallbackReassignAuditComment({
+              issueIdentifier: current.identifier ?? null,
+              primaryAgentId: current.assigneeAgentId,
+              sisterAgentId: sister.id,
+              reason,
+              resetAt: parsedResetAt && !Number.isNaN(parsedResetAt.getTime()) ? parsedResetAt : null,
+              runId,
+            }),
+            presentation: null,
+            metadata: null,
+            sourceTrust: null,
+          })
+          .returning();
+
+        const [enriched] = await withIssueLabels(tx, [updated]);
+        return {
+          issue: enriched,
+          comment,
+          reassignedFromAgentId: current.assigneeAgentId,
+          reassignedToAgentId: sister.id,
+        };
+      });
     },
 
     clearExecutionWorkspaceEnvironmentSelection: async (companyId: string, environmentId: string) => {
