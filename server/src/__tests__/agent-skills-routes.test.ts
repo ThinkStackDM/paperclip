@@ -549,6 +549,37 @@ describe.sequential("agent skill routes", () => {
     );
   });
 
+  it("rejects unknown desired skills during sync without persisting them", async () => {
+    mockAgentService.getById.mockResolvedValue(makeAgent("claude_local"));
+
+    const res = await requestApp(await createApp(), (baseUrl) => request(baseUrl)
+      .post("/api/agents/11111111-1111-4111-8111-111111111111/skills/sync?companyId=company-1")
+      .send({ desiredSkills: ["pixel-art"] }));
+
+    expect(res.status, JSON.stringify(res.body)).toBe(422);
+    expect(res.body.error).toContain("Unknown skill(s): pixel-art.");
+    expect(mockAgentService.update).not.toHaveBeenCalled();
+    expect(mockAdapter.syncSkills).not.toHaveBeenCalled();
+  });
+
+  it("rejects raw paperclipSkillSync patches with unknown desired skills", async () => {
+    mockAgentService.getById.mockResolvedValue(makeAgent("claude_local"));
+
+    const res = await requestApp(await createApp(), (baseUrl) => request(baseUrl)
+      .patch("/api/agents/11111111-1111-4111-8111-111111111111?companyId=company-1")
+      .send({
+        adapterConfig: {
+          paperclipSkillSync: {
+            desiredSkills: ["pixel-art"],
+          },
+        },
+      }));
+
+    expect(res.status, JSON.stringify(res.body)).toBe(422);
+    expect(res.body.error).toContain("Unknown skill(s): pixel-art.");
+    expect(mockAgentService.update).not.toHaveBeenCalled();
+  });
+
   it("persists canonical desired skills when creating an agent directly", async () => {
     const res = await requestApp(await createApp(), (baseUrl) => request(baseUrl)
       .post("/api/companies/company-1/agents")

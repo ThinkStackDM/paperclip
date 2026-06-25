@@ -30,6 +30,7 @@ import {
 } from "@paperclipai/shared";
 import {
   resolvePaperclipInstanceRootForAdapter,
+  resolvePaperclipDesiredSkillNames,
   readPaperclipSkillSyncPreference,
   writePaperclipSkillSyncPreference,
 } from "@paperclipai/adapter-utils/server-utils";
@@ -1503,15 +1504,35 @@ export function agentRoutes(
       materializeMissing: shouldMaterializeRuntimeSkillsForAdapter(adapterType),
       versionSelections: skillVersionSelectionMap(resolvedRequestedSkillEntries),
     });
-    const desiredSkillEntries = resolvedRequestedSkillEntries.filter(
-      (entry, index, entries) => entries.findIndex((candidate) => candidate.key === entry.key) === index,
-    );
-    const desiredSkills = desiredSkillEntries.map((entry) => entry.key);
+    const missingDesiredSkills = new Set<string>();
+    const desiredSkillEntries = new Map<string, AgentDesiredSkillEntry>();
+    for (const entry of resolvedRequestedSkillEntries) {
+      const canonicalKey = resolvePaperclipDesiredSkillNames(
+        writePaperclipSkillSyncPreference({}, [entry.key]),
+        runtimeSkillEntries,
+      )[0] ?? entry.key.trim();
+      const runtimeMatch = runtimeSkillEntries.find((candidate) => candidate.key === canonicalKey);
+      if (!runtimeMatch) {
+        missingDesiredSkills.add(entry.key);
+        continue;
+      }
+      if (!desiredSkillEntries.has(runtimeMatch.key)) {
+        desiredSkillEntries.set(runtimeMatch.key, { key: runtimeMatch.key, versionId: entry.versionId ?? null });
+      }
+    }
+    if (missingDesiredSkills.size > 0) {
+      throw unprocessable(
+        `Unknown skill(s): ${Array.from(missingDesiredSkills).sort().join(", ")}.`,
+        { unknownSkills: Array.from(missingDesiredSkills).sort() },
+      );
+    }
+    const normalizedDesiredSkillEntries = Array.from(desiredSkillEntries.values());
+    const desiredSkills = normalizedDesiredSkillEntries.map((entry) => entry.key);
 
     return {
-      adapterConfig: writePaperclipSkillSyncPreference(adapterConfig, desiredSkillEntries),
+      adapterConfig: writePaperclipSkillSyncPreference(adapterConfig, normalizedDesiredSkillEntries),
       desiredSkills,
-      desiredSkillEntries,
+      desiredSkillEntries: normalizedDesiredSkillEntries,
       runtimeSkillEntries,
     };
   }
@@ -2941,7 +2962,20 @@ export function agentRoutes(
         adapterType: requestedAdapterType,
         adapterConfig: effectiveAdapterConfig,
       });
-      patchData.adapterConfig = syncInstructionsBundleConfigFromFilePath(existing, normalizedEffectiveAdapterConfig);
+      const nextAdapterConfig = syncInstructionsBundleConfigFromFilePath(existing, normalizedEffectiveAdapterConfig);
+      if (requestedAdapterConfig && Object.prototype.hasOwnProperty.call(requestedAdapterConfig, "paperclipSkillSync")) {
+        const requestedSkillEntries = readPaperclipSkillSyncPreference(nextAdapterConfig).desiredSkillEntries;
+        patchData.adapterConfig = (
+          await resolveDesiredSkillAssignment(
+            existing.companyId,
+            requestedAdapterType,
+            nextAdapterConfig,
+            requestedSkillEntries,
+          )
+        ).adapterConfig;
+      } else {
+        patchData.adapterConfig = nextAdapterConfig;
+      }
     }
     if (requestedRuntimeConfig) {
       const baseAdapterConfig = asRecord(patchData.adapterConfig) ?? asRecord(existing.adapterConfig) ?? {};
