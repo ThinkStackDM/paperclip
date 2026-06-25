@@ -15,6 +15,7 @@ import {
   type EnvironmentLeaseStatus,
   type ExecutionWorkspace,
   type ExecutionWorkspaceConfig,
+  type HeartbeatRunStatusPhase,
   type IssueExecutionMonitorClearReason,
   type IssueExecutionMonitorPolicy,
   type IssueExecutionMonitorRecoveryPolicy,
@@ -181,6 +182,7 @@ import { redactEventPayload, redactSensitiveText } from "../redaction.js";
 import {
   hasSessionCompactionThresholds,
   resolveSessionCompactionPolicy,
+  type RuntimeStatusUpdate,
   type SessionCompactionPolicy,
 } from "@paperclipai/adapter-utils";
 import {
@@ -194,6 +196,12 @@ import { environmentRuntimeService } from "./environment-runtime.js";
 import { skillVersionSelectionMap } from "./runtime-skill-selections.js";
 import { environmentRunOrchestrator } from "./environment-run-orchestrator.js";
 import { isUnsafeSessionWorkspaceCwd } from "./session-workspace-cwd.js";
+import {
+  clearHeartbeatRunRuntimeStatus,
+  getHeartbeatRunRuntimeStatus,
+  setHeartbeatRunRuntimeStatus,
+  sweepExpiredHeartbeatRunRuntimeStatuses,
+} from "./heartbeat-run-runtime-status.js";
 import {
   assertLowTrustRuntimeServicesAllowed,
   assertLowTrustWorkspaceIsolation,
@@ -841,6 +849,7 @@ async function resolveRunScopedMentionedSkillKeys(input: {
 function leaseReleaseStatusForRunStatus(
   status: string | null | undefined,
 ): Extract<EnvironmentLeaseStatus, "released" | "expired" | "failed"> {
+  if (status === "cancelled") return "expired";
   return status === "failed" || status === "timed_out" ? "failed" : "released";
 }
 
@@ -1416,6 +1425,20 @@ const heartbeatRunListColumns = {
   nextAction: heartbeatRuns.nextAction,
   createdAt: heartbeatRuns.createdAt,
   updatedAt: heartbeatRuns.updatedAt,
+} as const;
+
+const heartbeatRunSummaryListColumns = {
+  ...heartbeatRunListColumns,
+  usageJson: sql<Record<string, unknown> | null>`NULL`.as("usageJson"),
+  sessionIdBefore: sql<string | null>`NULL`.as("sessionIdBefore"),
+  sessionIdAfter: sql<string | null>`NULL`.as("sessionIdAfter"),
+  logStore: sql<string | null>`NULL`.as("logStore"),
+  logRef: sql<string | null>`NULL`.as("logRef"),
+  logSha256: sql<string | null>`NULL`.as("logSha256"),
+  externalRunId: sql<string | null>`NULL`.as("externalRunId"),
+  processPid: sql<number | null>`NULL`.as("processPid"),
+  processGroupId: sql<number | null>`NULL`.as("processGroupId"),
+  resultJson: sql<Record<string, unknown> | null>`NULL`.as("resultJson"),
 } as const;
 
 const heartbeatRunListContextColumns = {
@@ -3020,6 +3043,95 @@ function isHeartbeatRunTerminalStatus(
   );
 }
 
+function isHeartbeatRunRuntimeStatusActive(status: string | null | undefined): boolean {
+  return status === "queued" || status === "running";
+}
+
+type HeartbeatRunRuntimeStatusRunLike = {
+  id: string;
+  status?: string | null;
+  companyId?: string | null;
+  agentId?: string | null;
+  issueId?: string | null;
+  contextSnapshot?: Record<string, unknown> | null;
+};
+
+function readRuntimeStatusIssueIdCandidate(
+  run: HeartbeatRunRuntimeStatusRunLike,
+): string | null | undefined {
+  if ("issueId" in run) return readNonEmptyString(run.issueId) ?? null;
+  if ("contextSnapshot" in run) {
+    return readNonEmptyString(parseObject(run.contextSnapshot).issueId) ?? null;
+  }
+  return undefined;
+}
+
+function decorateHeartbeatRunRuntimeStatus<T extends HeartbeatRunRuntimeStatusRunLike>(
+  run: T,
+  expected: {
+    companyId?: string | null;
+    issueId?: string | null;
+    agentId?: string | null;
+  } = {},
+): T & {
+  currentStatusMessage: string | null;
+  currentStatusUpdatedAt: Date | null;
+} {
+  if (isHeartbeatRunTerminalStatus(run.status)) {
+    clearHeartbeatRunRuntimeStatus(run.id);
+  }
+
+  const companyId = expected.companyId ?? run.companyId ?? null;
+  const agentId = expected.agentId ?? run.agentId ?? null;
+  const issueId =
+    expected.issueId !== undefined ? expected.issueId : readRuntimeStatusIssueIdCandidate(run);
+  const currentStatus =
+    isHeartbeatRunRuntimeStatusActive(run.status) && companyId && agentId
+      ? getHeartbeatRunRuntimeStatus(run.id, {
+          companyId,
+          agentId,
+          ...(issueId !== undefined ? { issueId } : {}),
+        })
+      : null;
+
+  return {
+    ...run,
+    currentStatusMessage: currentStatus?.message ?? null,
+    currentStatusUpdatedAt: currentStatus?.updatedAt ?? null,
+  };
+}
+
+function recordHeartbeatRunRuntimeProgress(
+  run: Pick<typeof heartbeatRuns.$inferSelect, "id" | "companyId" | "agentId" | "status" | "contextSnapshot">,
+  update: RuntimeStatusUpdate,
+  issueId: string | null,
+) {
+  if (!isHeartbeatRunRuntimeStatusActive(run.status)) return null;
+  const status = setHeartbeatRunRuntimeStatus({
+    companyId: run.companyId,
+    issueId,
+    agentId: run.agentId,
+    runId: run.id,
+    phase: update.phase as HeartbeatRunStatusPhase,
+    message: update.message,
+  });
+  if (!status) return null;
+
+  publishLiveEvent({
+    companyId: status.companyId,
+    type: "heartbeat.run.progress",
+    payload: {
+      runId: status.runId,
+      agentId: status.agentId,
+      issueId: status.issueId,
+      phase: status.phase,
+      message: status.message,
+      updatedAt: status.updatedAt.toISOString(),
+    },
+  });
+  return status;
+}
+
 export function buildPaperclipTaskMarkdown(input: {
   issue: {
     id: string;
@@ -3508,6 +3620,25 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       .from(heartbeatRuns)
       .where(eq(heartbeatRuns.id, runId))
       .then((rows) => rows[0] ?? null);
+  }
+
+  async function recordCurrentHeartbeatRunRuntimeProgress(
+    run: Pick<typeof heartbeatRuns.$inferSelect, "id" | "companyId" | "agentId" | "status" | "contextSnapshot">,
+    update: RuntimeStatusUpdate,
+    issueId: string | null,
+  ) {
+    if (!isHeartbeatRunRuntimeStatusActive(run.status)) {
+      clearHeartbeatRunRuntimeStatus(run.id);
+      return null;
+    }
+
+    const currentRun = await getRun(run.id);
+    if (!currentRun || !isHeartbeatRunRuntimeStatusActive(currentRun.status)) {
+      clearHeartbeatRunRuntimeStatus(run.id);
+      return null;
+    }
+
+    return recordHeartbeatRunRuntimeProgress(currentRun, update, issueId);
   }
 
   async function getRunLogAccess(runId: string) {
@@ -4897,6 +5028,9 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       .then((rows) => rows[0] ?? null);
 
     if (updated) {
+      if (isHeartbeatRunTerminalStatus(updated.status)) {
+        clearHeartbeatRunRuntimeStatus(updated.id);
+      }
       publishLiveEvent({
         companyId: updated.companyId,
         type: "heartbeat.run.status",
@@ -4931,6 +5065,9 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       .then((rows) => rows[0] ?? null);
 
     if (updated) {
+      if (isHeartbeatRunTerminalStatus(updated.status)) {
+        clearHeartbeatRunRuntimeStatus(updated.id);
+      }
       publishLiveEvent({
         companyId: updated.companyId,
         type: "heartbeat.run.status",
@@ -8830,6 +8967,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       companyId: agent.companyId,
       heartbeatRunId: run.id,
       executionWorkspaceId: existingExecutionWorkspace?.id ?? null,
+      issueId,
     });
     const executionWorkspaceBase = {
       baseCwd: resolvedWorkspace.cwd,
@@ -9552,6 +9690,9 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
             : undefined,
           onLog,
           onMeta: onAdapterMeta,
+          onRuntimeProgress: async (progress) => {
+            await recordCurrentHeartbeatRunRuntimeProgress(run, progress, issueId);
+          },
           onSpawn: async (meta) => {
             await persistRunProcessMetadata(run.id, {
               pid: meta.pid,
@@ -11938,11 +12079,22 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
   }
 
   return {
-    list: async (companyId: string, agentId?: string, limit?: number) => {
+    list: async (
+      companyId: string,
+      agentId?: string,
+      limit?: number,
+      options: { summary?: boolean } = {},
+    ) => {
       const safeForLegacyEncoding = await hasUnsafeTextProjectionDatabase();
+      const summary = options.summary === true;
       const query = db
         .select(
-          safeForLegacyEncoding
+          summary
+            ? {
+                ...heartbeatRunSummaryListColumns,
+                ...heartbeatRunListContextColumns,
+              }
+            : safeForLegacyEncoding
             ? {
                 ...heartbeatRunListColumns,
                 error: sql<string | null>`NULL`.as("error"),
@@ -12003,7 +12155,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
             wakeSource: contextWakeSource,
             wakeTriggerDetail: contextWakeTriggerDetail,
           }),
-          resultJson: safeForLegacyEncoding
+          resultJson: safeForLegacyEncoding || summary
             ? null
             : summarizeHeartbeatRunListResultJson({
                 summary: resultSummary,
@@ -12019,6 +12171,10 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     },
 
     getRun,
+
+    decorateActiveRunStatus: decorateHeartbeatRunRuntimeStatus,
+    recordRuntimeProgress: recordCurrentHeartbeatRunRuntimeProgress,
+    sweepExpiredRuntimeStatuses: sweepExpiredHeartbeatRunRuntimeStatuses,
 
     getRunLogAccess,
 
