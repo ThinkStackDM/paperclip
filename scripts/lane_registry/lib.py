@@ -114,9 +114,13 @@ def lane_chains(member_ids: Iterable[str], agents: dict) -> dict[str, list[str]]
 # 0.914 ≈ opus-4.8 0.900 >> grok 0.66.  Content capability (single-pass):
 # gemini-flash leads, grok-4.1-fast runner-up, then codex, then claude(sonnet).
 AGENTIC_FAMILY_RANK = {
-    "codex_local": 0,                              # gpt-5.4 — top agentic
-    "antigravity_local": 1, "gemini_local": 1,     # gemini-pro ≈ codex
-    "claude_local": 2,                             # opus
+    # Operator-locked 2026-06-26: codex -> opus -> gemini -> grok. This is a
+    # deliberate ECONOMICS override of pure capability (opus 0.900 < gemini-pro
+    # 0.914): opus is a controlled paid-sub call so it's the #1 fallback; the
+    # current Gemini sub burns fast, so gemini sits BELOW opus as the deeper net.
+    "codex_local": 0,                              # gpt-5.4 — top agentic, always-on operational lead
+    "claude_local": 1,                             # opus — #1 fallback (controlled paid sub)
+    "antigravity_local": 2, "gemini_local": 2,     # gemini — deeper safety net (sub burns fast)
     "hermes_local": 3, "grok_local": 3,            # grok — last (cliff)
 }
 CONTENT_FAMILY_RANK = {

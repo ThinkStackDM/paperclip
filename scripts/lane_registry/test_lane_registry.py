@@ -91,8 +91,9 @@ class TestContentOrdering(unittest.TestCase):
             "gm": A("antigravity_local", "GLaD0S-Gemini", "ceo"),
             "hm": A("hermes_local", "GLaD0S-Hermes", "ceo"),
         }
+        # Operator-locked order: codex -> opus -> gemini -> grok (economics override)
         self.assertEqual(lib.order_lane("cx", ["cx", "cl", "gm", "hm"], agents),
-                         ["cx", "gm", "cl", "hm"])
+                         ["cx", "cl", "gm", "hm"])
 
     def test_agentic_non_codex_primary_fails_up(self):
         # gemini-pro primary (GrowthSEO) must fail UP to codex (most capable), not down to grok
