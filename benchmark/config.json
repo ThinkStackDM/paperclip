@@ -77,6 +77,29 @@
       "model_arg": "haiku",
       "label": "Claude Haiku",
       "lane": "claude"
+    },
+    {
+      "id": "qwen3:8b",
+      "adapter": "ollama",
+      "model_arg": "qwen3:8b",
+      "label": "Qwen3 8B (local Ollama)",
+      "lane": "ollama",
+      "think": false,
+      "options": {
+        "temperature": 0,
+        "num_ctx": 8192
+      }
+    },
+    {
+      "id": "gemma3:12b",
+      "adapter": "ollama",
+      "model_arg": "gemma3:12b",
+      "label": "Gemma3 12B (local Ollama)",
+      "lane": "ollama",
+      "options": {
+        "temperature": 0,
+        "num_ctx": 8192
+      }
     }
   ],
   "_models_catalog_comment": "Validated within-family variants (confirmed callable via their CLI 2026-06-14). NOT in the default sweep \u2014 `bench.py all` runs `models` above. Opt in per run: `bench.py all --models claude-haiku,gpt-5.4-mini,gemini-flash,grok-4-fast`. These are the 'lower model' candidates for the cheap-model-+-skill gap-closing strategy. gpt-5.3-codex-spark IS a valid model (same as Paperclip's spark lane, invoked --model gpt-5.3-codex-spark with reasoning_effort=high) but is DAILY RATE-LIMITED \u2014 sweeps including it fail with a usage-limit error while exhausted (resets ~mid-afternoon). Genuinely NOT supported on this ChatGPT account (400 invalid_request, never works): plain gpt-5.3, gpt-5.3-codex, gpt-5-codex.",
@@ -100,6 +123,13 @@
       "adapter": "claude",
       "model_arg": "claude-opus-4-7",
       "label": "Claude Opus 4.7",
+      "lane": "claude"
+    },
+    {
+      "id": "claude-opus-4.8",
+      "adapter": "claude",
+      "model_arg": "claude-opus-4-8",
+      "label": "Claude Opus 4.8",
       "lane": "claude"
     },
     {
@@ -154,6 +184,13 @@
       "lane": "antigravity"
     },
     {
+      "id": "gemini-3.1-pro",
+      "adapter": "antigravity",
+      "model_arg": "Gemini 3.1 Pro (High)",
+      "label": "Gemini 3.1 Pro (High)",
+      "lane": "antigravity"
+    },
+    {
       "id": "gemini-flash",
       "adapter": "antigravity",
       "model_arg": "Gemini 3.5 Flash (Medium)",
@@ -180,6 +217,29 @@
       "model_arg": "GPT-OSS 120B (Medium)",
       "label": "GPT-OSS 120B (Medium)",
       "lane": "antigravity"
+    },
+    {
+      "id": "qwen3:8b",
+      "adapter": "ollama",
+      "model_arg": "qwen3:8b",
+      "label": "Qwen3 8B (local Ollama)",
+      "lane": "ollama",
+      "think": false,
+      "options": {
+        "temperature": 0,
+        "num_ctx": 8192
+      }
+    },
+    {
+      "id": "gemma3:12b",
+      "adapter": "ollama",
+      "model_arg": "gemma3:12b",
+      "label": "Gemma3 12B (local Ollama)",
+      "lane": "ollama",
+      "options": {
+        "temperature": 0,
+        "num_ctx": 8192
+      }
     }
   ],
   "judge": {
@@ -199,6 +259,7 @@
     "researcher",
     "seo",
     "cmo",
+    "cfo",
     "ledger",
     "recruiter",
     "auditor",
@@ -206,6 +267,7 @@
     "onboarding",
     "cv-review",
     "video-hook",
+    "presentation-designer",
     "social-post",
     "book-chapter",
     "reasoning",
@@ -230,6 +292,8 @@
       "codex-gpt-5.4": "5bcc7a94-6715-43eb-ad53-da7bd300ef79",
       "gemini-pro": "4b103786-19d0-4ce9-bf27-8b5fae22c959",
       "gpt-5.5": "045f72f8-08ce-4f29-8f28-8d4ea4864e48",
+      "qwen3:8b": "af2728e2-76f4-4c02-bdc4-d2dfbf9d6c55",
+      "gemma3:12b": "1c8475d7-ebff-416c-9bc7-7cf58b49e5c0",
       "claude-opus-4.7": "53a4e9d3-81b1-4d86-8f87-e19447412f0e"
     },
     "_isolation_comment": "Bench runs in a DEDICATED ISOLATED company (Agentic Bench, e212ce50) with NO CEO/routines/active agents, so nothing in the company acts on bench fixtures mid-run (TSMC's GLaD0S + cleanup machinery was the interference that quiet-TSMC couldn't stop). reportsTo for the 4 agents = paused Bench-Manager b610338d."
@@ -283,6 +347,14 @@
       ]
     },
     "antigravity": {
+      "extra_args": []
+    },
+    "ollama": {
+      "api_url": "http://127.0.0.1:11434/api/generate",
+      "default_options": {
+        "temperature": 0,
+        "num_ctx": 8192
+      },
       "extra_args": []
     }
   },

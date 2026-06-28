@@ -17,6 +17,13 @@ skill-eval). Quality weighted against **output-token / quota cost**. This is the
 | intake | **grok-4.1-fast** | bare | cheapest; all lanes ace it |
 | cv-review | **gemini-flash** | bare | **AGENTIC frame only** (skills staged as files; single-shot derails) |
 
+## Locked management-role models (new — 2026-06-26)
+
+| Role | Model | Notes |
+|---|---|---|
+| cmo | **claude-opus-4.8** | Marketing-strategy judgment winner in the fresh 12-task `cmo` suite. |
+| cfo | **codex-gpt-5.4** | `cfo` suite locked to codex-gpt-5.4 for near-ceiling quality with materially lower output cost. |
+
 ## Rules
 1. **gpt-5.4-mini only earns its lane WITH skills** (book-chapter +0.105, ops +0.086, cv-review +0.075). Never lane it bare on structured tasks.
 2. **cv-review must run gemini-flash AGENTICALLY** — stage skills as files + `agy --print`; single-shot Gemini derails.

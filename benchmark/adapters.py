@@ -19,6 +19,8 @@ import subprocess
 import tempfile
 import threading
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 import benchlib
@@ -41,6 +43,8 @@ _AGY_SEM = threading.BoundedSemaphore(2)
 def run_model(prompt, model_row, adapters_cfg, timeout_sec):
     """Dispatch to the right adapter by model_row['adapter']."""
     adapter = model_row["adapter"]
+    if adapter == "ollama":
+        return _run_ollama(prompt, model_row, adapters_cfg.get("ollama") or {}, timeout_sec)
     extra = list((adapters_cfg.get(adapter) or {}).get("extra_args", []))
     # per-model reasoning effort (matches how Paperclip's codex adapter runs spark:
     # `-c model_reasoning_effort="high"`). Optional; only codex consumes it today.
@@ -91,6 +95,86 @@ def _exec(cmd, timeout_sec, cwd, stdin=None, env=None):
 def _tail(s, n=600):
     s = (s or "").strip()
     return s[-n:] if len(s) > n else s
+
+
+# --------------------------------------------------------------------------
+# ollama (local direct HTTP)
+# --------------------------------------------------------------------------
+
+def _run_ollama(prompt, model_row, adapter_cfg, timeout_sec):
+    """Direct Ollama HTTP call (`/api/generate`) for local on-box models."""
+    r = benchlib.empty_result()
+    api_url = adapter_cfg.get("api_url") or "http://127.0.0.1:11434/api/generate"
+    body = {
+        "model": model_row.get("model_arg"),
+        "prompt": prompt,
+        "stream": False,
+        "options": dict(adapter_cfg.get("default_options") or {}),
+    }
+    body["options"].update(model_row.get("options") or {})
+    if "think" in model_row:
+        body["think"] = bool(model_row["think"])
+    payload = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(
+        api_url,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    t0 = time.time()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
+            raw = resp.read().decode("utf-8", "replace")
+        wall = int((time.time() - t0) * 1000)
+    except urllib.error.HTTPError as e:
+        wall = int((time.time() - t0) * 1000)
+        raw = e.read().decode("utf-8", "replace")
+        r["wallMs"] = wall
+        r["stderrTail"] = _tail(raw)
+        r["error"] = f"ollama http {e.code}"
+        return r
+    except Exception as e:
+        wall = int((time.time() - t0) * 1000)
+        r["wallMs"] = wall
+        r["stderrTail"] = _tail(str(e))
+        r["error"] = "timeout" if "timed out" in str(e).lower() else f"ollama: {e}"
+        return r
+
+    r["wallMs"] = wall
+    parsed = benchlib._try_json(raw) or benchlib.extract_json(raw)
+    if not isinstance(parsed, dict):
+        r["error"] = "ollama: unparseable response"
+        r["stderrTail"] = _tail(raw)
+        return r
+
+    r["output"] = (parsed.get("response") or "").strip()
+    r["model"] = parsed.get("model") or model_row.get("model_arg")
+    r["inputTokens"] = parsed.get("prompt_eval_count")
+    r["outputTokens"] = parsed.get("eval_count")
+    if r["inputTokens"] is not None or r["outputTokens"] is not None:
+        r["totalTokens"] = (r["inputTokens"] or 0) + (r["outputTokens"] or 0)
+
+    prompt_eval_dur = parsed.get("prompt_eval_duration")
+    eval_dur = parsed.get("eval_duration")
+    if prompt_eval_dur:
+        try:
+            secs = float(prompt_eval_dur) / 1_000_000_000.0
+            if secs > 0 and parsed.get("prompt_eval_count") is not None:
+                r["promptTokensPerSec"] = parsed["prompt_eval_count"] / secs
+        except Exception:
+            pass
+    if eval_dur:
+        try:
+            secs = float(eval_dur) / 1_000_000_000.0
+            if secs > 0 and parsed.get("eval_count") is not None:
+                r["decodeTokensPerSec"] = parsed["eval_count"] / secs
+        except Exception:
+            pass
+
+    if not r["output"]:
+        r["error"] = "ollama: empty response"
+    r["ok"] = bool(r["output"]) and not r["error"]
+    return r
 
 
 # --------------------------------------------------------------------------
@@ -236,19 +320,27 @@ def _run_antigravity(prompt, model_arg, extra, timeout_sec):
     142MB binary; cap concurrency on the shared Mac via _AGY_SEM."""
     r = benchlib.empty_result()
     with _AGY_SEM, tempfile.TemporaryDirectory(prefix="bench-agy-") as cwd:
+        log_path = Path(cwd) / "_agy.log"
         cmd = ["agy", "-p", prompt]
         if model_arg:
             cmd += ["--model", model_arg]
+        cmd += ["--log-file", str(log_path)]
         cmd += list(extra)
         r["cmd"] = ["agy", "-p", "<prompt>"] + (["--model", model_arg] if model_arg else [])
         rc, out, err, wall, timed_out = _exec(cmd, timeout_sec, cwd)
+        log_text = log_path.read_text(errors="replace") if log_path.exists() else ""
         r["wallMs"] = wall
-        r["stderrTail"] = _tail(err)
+        r["stderrTail"] = _tail((err or "") + ("\n" + log_text if log_text else ""))
         r["output"] = (out or "").strip()
         if timed_out:
             r["error"] = "timeout"
+        elif not r["output"] and antigravity_is_quota_error((err or "") + (out or "") + log_text):
+            r["error"] = "agy quota/auth failure"
+            r["quotaError"] = True
         elif rc not in (0, None) and not r["output"]:
             r["error"] = f"agy: rc={rc}: {_tail(err, 160)}"
+        elif not r["output"]:
+            r["error"] = "agy: empty response"
         r["model"] = model_arg
         # agy print mode emits no usage JSON -> estimate tokens (flagged)
         r["inputTokens"] = benchlib.estimate_tokens(prompt)
@@ -289,24 +381,32 @@ def run_antigravity_agentic(prompt, model_arg, extra, timeout_sec, cwd, skip_per
     the orchestrator can halt the lane instead of hammering a spent weekly Gemini quota."""
     r = benchlib.empty_result()
     with _AGY_SEM:
+        log_path = Path(cwd) / "_agy.log"
         cmd = ["agy", "-p", prompt]
         if model_arg:
             cmd += ["--model", model_arg]
         if skip_permissions:
             cmd += ["--dangerously-skip-permissions"]
+        cmd += ["--log-file", str(log_path)]
         cmd += list(extra)
         r["cmd"] = (["agy", "-p", "<prompt>"]
                     + (["--dangerously-skip-permissions"] if skip_permissions else [])
                     + (["--model", model_arg] if model_arg else []))
         rc, out, err, wall, timed_out = _exec(cmd, timeout_sec, cwd)
+        log_text = log_path.read_text(errors="replace") if log_path.exists() else ""
         r["wallMs"] = wall
-        r["stderrTail"] = _tail(err)
+        r["stderrTail"] = _tail((err or "") + ("\n" + log_text if log_text else ""))
         r["output"] = (out or "").strip()
         if timed_out:
             r["error"] = "timeout"
+        elif not r["output"] and antigravity_is_quota_error((err or "") + (out or "") + log_text):
+            r["error"] = "agy quota/auth failure"
+            r["quotaError"] = True
         elif rc not in (0, None) and not r["output"]:
             r["error"] = f"agy: rc={rc}: {_tail(err, 160)}"
-        if r["error"] and antigravity_is_quota_error((err or "") + (out or "")):
+        elif not r["output"]:
+            r["error"] = "agy: empty response"
+        if r["error"] and antigravity_is_quota_error((err or "") + (out or "") + log_text):
             r["quotaError"] = True
         r["model"] = model_arg
         r["inputTokens"] = benchlib.estimate_tokens(prompt)

@@ -25,6 +25,41 @@ python3 bench.py report run-<ts>          # re-render report from a finished run
 
 No pip deps — pure stdlib Python 3.
 
+## Local Ollama model bench (TSBC-727)
+
+The harness now supports direct local Ollama HTTP calls via the `ollama`
+adapter in `config.json`. The focused local-model driver reuses the normal TSBC
+suites/scoring, but runs a fixed task-type matrix with `n>=3` repeats and emits
+variance + throughput (`tok/s`) for the local model.
+
+```bash
+cd ~/paperclip/benchmark
+
+# role-appropriate incumbents on the same matrix
+python3 local_ollama_eval.py baseline
+
+# qwen first, then gemma, each compared to that baseline run
+python3 local_ollama_eval.py local qwen3:8b --compare-to results/ollama-baseline-<ts>/summary.json
+python3 local_ollama_eval.py local gemma3:12b --compare-to results/ollama-baseline-<ts>/summary.json
+
+# role-specific WITH-skills reruns against the saved no-skills local base
+python3 local_ollama_eval.py --profile qwen_strengths --with-skills \
+  local qwen3:8b --compare-to results/ollama-qwen3-8b-<ts>/summary.json
+python3 local_ollama_eval.py --profile gemma_strengths --with-skills \
+  local gemma3:12b --compare-to results/ollama-gemma3-12b-<ts>/summary.json
+
+# validate the qwen triage-gate classifier on the labelled real-issue set
+python3 triage_gate_eval.py --model qwen3:8b
+```
+
+Outputs land in `results/ollama-*` and `results/triage-gate-*`.
+
+`local_ollama_eval.py` now supports profile-scoped role skills injected into the
+GENERATION prompt only (`--with-skills`). Scoring still uses the bare task, so
+the blind judge never sees the skill text. Saved-base comparison is overlap-aware:
+the report compares only exact task ids present in the saved base summary and
+flags any missing baseline tasks instead of rerunning external incumbents.
+
 ## What it measures
 
 Each model is invoked through its own CLI in a **fresh, empty temp working

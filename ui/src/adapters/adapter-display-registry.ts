@@ -93,6 +93,11 @@ const adapterDisplayMap: Record<string, AdapterDisplayInfo> = {
     description: "Local Hermes CLI agent",
     icon: HermesIcon,
   },
+  ollama_local: {
+    label: "Ollama",
+    description: "Local Ollama-backed OpenCode adapter",
+    icon: Terminal,
+  },
   pi_local: {
     label: "Pi",
     description: "Local Pi agent",

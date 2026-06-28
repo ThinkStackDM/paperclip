@@ -1,6 +1,6 @@
 {
   "role": "cmo",
-  "description": "Content STRATEGY judgment for the ThinkStack/Paperclip marketing function — Cashflow Compass (a finance-education product) and its Stack Lab YouTube channel. Tests channel/audience selection for a stated goal, editorial-calendar prioritization, positioning, brand-voice consistency, separating strategy from execution, and resisting vanity metrics (chasing views/followers over conversions/revenue). Tasks are failable and trap-laden: the answer that chases reach, picks the wrong channel for the goal, drifts off-voice, or does production work when strategy was asked for scores low. Deterministic checks anchor the objective call (channel, metric, decision, format); the strict blind judge grades whether the reasoning ties to the actual goal and whether the vanity-metric / wrong-channel / off-brand traps were avoided.",
+  "description": "Marketing-strategy judgment for the ThinkStack/Paperclip CMO role — Cashflow Compass (a finance-education product) and its Stack Lab channel. Tests positioning, channel-mix decisions, growth-experiment design, funnel critique, pricing-experiment framing, weekly-growth-report synthesis, separating strategy from execution, and resisting vanity metrics (chasing views/followers over conversions/revenue). Tasks are failable and trap-laden: the answer that optimizes reach over signups, misreads the funnel, defaults to blunt discounting, or responds with production work when strategy was asked for scores low. Deterministic checks anchor the objective call (channel, metric, decision, contribution math); the strict blind judge grades whether the reasoning ties to the actual revenue goal and whether the vanity / wrong-channel / wrong-lever traps were avoided.",
   "tasks": [
     {
       "id": "cmo-channel-for-goal",
@@ -61,18 +61,21 @@
       }
     },
     {
-      "id": "cmo-audience-targeting",
-      "title": "Choose the high-intent audience for the channel",
-      "prompt": "Stack Lab teaches budgeting and is the top-of-funnel for the $29 Cashflow Compass course. The course teaches a complete beginner how to set up their first budget. You must pick ONE primary target audience to anchor the channel's positioning and topics around.\n\nA. 'Everyone interested in money' — maximum reach, very low intent, no clear pain.\nB. 'Day-traders optimizing options strategies' — high engagement but wrong fit; they don't need a beginner budgeting course.\nC. 'Working adults living paycheck-to-paycheck who have never made a budget' — directly matches what the course solves.\nD. 'CFOs of mid-market companies' — high value but completely wrong product fit.\n\nReturn ONLY JSON: {\"audience\": \"A\"|\"B\"|\"C\"|\"D\", \"why\": string}. `why` <=30 words, must tie the audience to the course's actual promise.",
+      "id": "cmo-growth-experiment-design",
+      "title": "Design the next growth experiment around warm traffic",
+      "prompt": "You have enough traffic for ONE clean growth experiment next month. The goal is paid course signups from warm audiences, not broader reach. Four proposals are competing:\n\nA. A/B test the launch email's subject line + CTA to the 4,000-person free-tool list.\nB. Start a weekly podcast from scratch.\nC. Refresh the site's color palette and logo.\nD. Sponsor a general-finance meme page for a one-off shout-out.\n\nPick the experiment to run and define it clearly.\n\nReturn ONLY JSON: {\"pick\": \"A\"|\"B\"|\"C\"|\"D\", \"hypothesis\": string, \"primaryMetric\": string, \"guardrail\": string}. `primaryMetric` must be tied to paid signups / purchase rate, not reach. `guardrail` should protect list health or downstream economics.",
       "rubric": {
         "deterministic": [
           { "type": "json_valid", "weight": 2 },
-          { "type": "json_path_equals", "path": "audience", "value": "C", "weight": 5 },
-          { "type": "regex", "pattern": "\"why\"\\s*:\\s*\"[^\"]{1,210}\"", "weight": 1 }
+          { "type": "json_path_equals", "path": "pick", "value": "A", "weight": 5 },
+          { "type": "regex", "pattern": "\"primaryMetric\"\\s*:\\s*\"[^\"]*(signup|sign-up|sign up|purchase|conversion|paid|buyer)", "weight": 3 },
+          { "type": "not_regex", "pattern": "\"primaryMetric\"\\s*:\\s*\"\\s*(views?|subscribers?|followers?|reach|impressions?|watch ?time|engagement)\\s*\"", "weight": 2 },
+          { "type": "json_path_exists", "path": "hypothesis", "weight": 1 },
+          { "type": "json_path_exists", "path": "guardrail", "weight": 1 }
         ],
         "judge": {
           "criteria": [
-            { "name": "fit", "weight": 2, "guidance": "Picks C because their stated pain (never budgeted, paycheck-to-paycheck) is exactly what a beginner budgeting course solves — product-audience fit, not reach or engagement. Penalize A (max reach, no intent/fit), and especially penalize B (the 'high engagement' trap — day-traders engage but will never buy a beginner course) and D (the 'high value' trap — CFOs are valuable but wrong fit). Penalize a `why` that justifies the pick by audience size, engagement, or value rather than fit to the course's actual promise." }
+            { "name": "experiment_quality", "weight": 3, "guidance": "Picks A because it tests messaging on the warmest, conversion-ready audience with enough sample to move paid signups next month. hypothesis should say better framing/CTA on the free-tool list will lift paid signup rate; primaryMetric should be paid signup or purchase rate; guardrail should protect unsubscribes, complaints, or contribution. Penalize B/D for cold-reach vanity, C for doing no growth experiment at all, or any answer whose metric is views/opens rather than paid conversion." }
           ]
         }
       }
@@ -97,19 +100,19 @@
       }
     },
     {
-      "id": "cmo-brand-voice-consistency",
-      "title": "Catch the off-brand draft against the voice guide",
-      "prompt": "Stack Lab's brand voice guide: calm, plain-spoken, encouraging, never hypey, never shaming, no FOMO, no get-rich-quick framing. The audience is anxious budgeting beginners.\n\nA writer submitted this video-description draft:\n'STOP being BROKE!! 99% of people will NEVER be rich because they're too lazy to budget. Smash that subscribe button NOW or stay poor forever. Don't miss out — this secret hack made me $$$ FAST!!!'\n\nDecide whether to approve it as-is, and identify the violations. Return ONLY JSON: {\"approve\": true|false, \"violations\": [string], \"reason\": string}. List the specific guide rules it breaks; `reason` <=30 words.",
+      "id": "cmo-funnel-critique",
+      "title": "Critique the funnel and pick the real bottleneck",
+      "prompt": "Last week's warm-traffic funnel for Cashflow Compass:\n\n- 900 landing-page visits\n- 270 email opt-ins\n- 180 checkout starts\n- 18 paid purchases\n\nQualitative notes: visitors who reach checkout already come from budget-specific emails, but mobile users report coupon-code errors and the checkout forces account creation.\n\nPick the SINGLE bottleneck to fix FIRST and the best fix.\n\nReturn ONLY JSON: {\"bottleneck\": \"landing_to_optin\"|\"optin_to_checkout\"|\"checkout_to_paid\", \"fix\": string, \"why\": string}. `fix` <=35 words. `why` <=30 words.",
       "rubric": {
         "deterministic": [
           { "type": "json_valid", "weight": 2 },
-          { "type": "json_path_equals", "path": "approve", "value": false, "weight": 5 },
-          { "type": "json_path_exists", "path": "violations.1", "weight": 1 },
-          { "type": "contains_any", "values": ["sham", "hype", "fomo", "fear of missing", "miss out", "get-rich", "get rich", "scarcity", "all-caps", "all caps"], "weight": 1 }
+          { "type": "json_path_equals", "path": "bottleneck", "value": "checkout_to_paid", "weight": 5 },
+          { "type": "contains_any", "values": ["checkout", "coupon", "payment", "account creation", "account"], "weight": 2 },
+          { "type": "regex", "pattern": "\"why\"\\s*:\\s*\"[^\"]{1,210}\"", "weight": 1 }
         ],
         "judge": {
           "criteria": [
-            { "name": "voice_judgment", "weight": 3, "guidance": "Rejects the draft (approve=false) and the violations list maps SPECIFIC flaws to the named guide rules: shaming ('STOP being BROKE', 'too lazy', 'stay poor forever' vs the never-shaming rule), hype + all-caps + excessive punctuation (vs never-hypey), FOMO ('Don't miss out' vs no-FOMO), and get-rich-quick framing ('secret hack', '$$$ FAST' vs no get-rich-quick). A strong answer names at least 3 of these 4 categories tied to the guide. Penalize approving it, a vague 'tone is off' with no rule cited, naming only one violation, listing fewer than 3 real categories, or inventing violations not in the guide." }
+            { "name": "funnel_judgment", "weight": 3, "guidance": "Correctly identifies checkout_to_paid as the near-term bottleneck: 18/180 = 10% purchase completion is the broken step, and the qualitative notes point straight at checkout friction (coupon errors, forced account creation). A strong fix removes the forced account, fixes coupon/payment friction, or simplifies checkout. Penalize top-of-funnel answers (landing page, email opt-in) when the warm traffic is already reaching checkout, and penalize vague fixes like 'improve messaging' that ignore the concrete checkout issues." }
           ]
         }
       }
@@ -152,20 +155,20 @@
       }
     },
     {
-      "id": "cmo-success-metric-definition",
-      "title": "Define the true success metric for a launch",
-      "prompt": "Leadership wants 'a single north-star metric' to judge whether next month's Cashflow Compass content launch succeeded. The business goal is paid course signups and revenue. Candidates floated in the meeting: total video views, new subscribers, social shares, email open rate, and paid course signups. Pick the ONE metric that actually measures the business goal, and name the single most dangerous vanity metric to AVOID treating as success.\n\nReturn ONLY JSON: {\"northStar\": string, \"vanityToAvoid\": string, \"why\": string}. `northStar` must be a metric tied to revenue/signups; `vanityToAvoid` must be a reach/engagement metric. `why` <=30 words.",
+      "id": "cmo-pricing-experiment-framing",
+      "title": "Frame the pricing experiment that maximizes contribution",
+      "prompt": "Checkout-page traffic is capped at 1,000 visitors next month. You can run ONE pricing experiment for the $29 course. Variable cost is $8 per sale; the optional template bundle costs $1 to serve.\n\nA. Cut price to $19 for everyone; expected checkout conversion = 4.1%.\nB. Keep price at $29 but test a value-stack + guarantee frame; expected checkout conversion = 3.5%.\nC. Keep price at $29 and add a $9 template-bundle order bump with 25% attach rate; checkout conversion stays 3.0%.\n\nCompute the expected monthly contribution for each option and pick the best experiment to run FIRST.\n\nReturn ONLY JSON: {\"pick\": \"A\"|\"B\"|\"C\", \"estContributionA\": number, \"estContributionB\": number, \"estContributionC\": number, \"why\": string}. `why` <=30 words and must reference contribution, not just conversions or AOV.",
       "rubric": {
         "deterministic": [
           { "type": "json_valid", "weight": 2 },
-          { "type": "regex", "pattern": "\"northStar\"\\s*:\\s*\"[^\"]*(signup|sign-up|sign up|paid|conversion|revenue|customer|purchase|sales|enroll|buyer)", "weight": 4 },
-          { "type": "regex", "pattern": "\"vanityToAvoid\"\\s*:\\s*\"[^\"]*(view|subscriber|share|follower|like|open rate|impression|reach|watch ?time|engagement)", "weight": 3 },
-          { "type": "not_regex", "pattern": "\"northStar\"\\s*:\\s*\"\\s*(total |new )?(views?|subscribers?|followers?|impressions?|likes?|shares?|reach)\\s*\"", "weight": 1 },
-          { "type": "regex", "pattern": "\"why\"\\s*:\\s*\"[^\"]{1,210}\"", "weight": 1 }
+          { "type": "json_path_equals", "path": "estContributionA", "value": 451, "weight": 3 },
+          { "type": "json_path_equals", "path": "estContributionB", "value": 735, "weight": 3 },
+          { "type": "json_path_equals", "path": "estContributionC", "value": 690, "weight": 3 },
+          { "type": "json_path_equals", "path": "pick", "value": "B", "weight": 5 }
         ],
         "judge": {
           "criteria": [
-            { "name": "metric_judgment", "weight": 2, "guidance": "north-star is paid signups / conversions / revenue (the business goal); vanityToAvoid is a reach/engagement metric (views, subscribers, shares, open rate) explicitly called out as NOT success. Penalize choosing a vanity metric as north-star, choosing a revenue metric as the vanity one, or a `why` that treats reach as inherently valuable rather than a leading indicator at best." }
+            { "name": "pricing_judgment", "weight": 3, "guidance": "Contribution math is A ≈ 41 sales * $11 = $451, B = 35 sales * $21 = $735, C = 30 course sales * $21 + 7.5 bundle sales * $8 = $690, so B is the best first test. Penalize choosing A because it lifts conversion via blunt discounting but destroys unit contribution, and penalize choosing C by fixating on AOV without noticing B still produces more contribution." }
           ]
         }
       }
@@ -206,16 +209,22 @@
       }
     },
     {
-      "id": "cmo-funnel-stage-match",
-      "title": "Match content format to the right funnel stage",
-      "prompt": "Three content jobs need their funnel stage assigned correctly so the calendar reaches each audience with the right intent. Stages: TOFU (top-of-funnel, awareness, cold audience), MOFU (middle, considering, warm), BOFU (bottom, ready to buy, hottest intent).\n\n1. A broad YouTube explainer 'Why budgeting feels impossible (and the mindset shift that fixes it)' aimed at people who don't yet know they need a course.\n2. An email to past free-tool users: 'Cashflow Compass vs. doing it yourself — which is right for you?'\n3. A limited-time launch-discount email to people who already clicked the checkout page but didn't buy.\n\nReturn ONLY JSON: {\"s1\": \"TOFU\"|\"MOFU\"|\"BOFU\", \"s2\": \"TOFU\"|\"MOFU\"|\"BOFU\", \"s3\": \"TOFU\"|\"MOFU\"|\"BOFU\"}.",
+      "id": "cmo-weekly-growth-report",
+      "title": "Synthesize the weekly growth report into a clear next move",
+      "prompt": "Weekly growth report for Cashflow Compass:\n\n- email: resend of 'Build your first budget' to the warm list -> 420 clicks, 14 paid signups.\n- youtube: new video '7 money myths' -> 18,000 views, 2 paid signups.\n- comparison_page: 'Course vs Spreadsheet' BOFU page -> 310 visits, 9 paid signups.\n- influencer: one paid shout-out -> 12,000 impressions, 0 signups, cost $1,800.\n\nWrite the CMO readout.\n\nReturn ONLY JSON: {\"winner\": \"email\"|\"youtube\"|\"comparison_page\"|\"influencer\", \"pause\": \"email\"|\"youtube\"|\"comparison_page\"|\"influencer\", \"nextAction\": string, \"why\": string}. `nextAction` <=25 words. `why` <=30 words.",
       "rubric": {
         "deterministic": [
           { "type": "json_valid", "weight": 2 },
-          { "type": "json_path_equals", "path": "s1", "value": "TOFU", "weight": 3 },
-          { "type": "json_path_equals", "path": "s2", "value": "MOFU", "weight": 3 },
-          { "type": "json_path_equals", "path": "s3", "value": "BOFU", "weight": 3 }
-        ]
+          { "type": "json_path_equals", "path": "winner", "value": "email", "weight": 4 },
+          { "type": "json_path_equals", "path": "pause", "value": "influencer", "weight": 4 },
+          { "type": "regex", "pattern": "\"nextAction\"\\s*:\\s*\"[^\"]{1,180}\"", "weight": 1 },
+          { "type": "regex", "pattern": "\"why\"\\s*:\\s*\"[^\"]{1,210}\"", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "report_synthesis", "weight": 3, "guidance": "Winner should be email because it produced the most signups and strong warm-audience efficiency; comparison_page is also positive but smaller. influencer should be paused because it burned $1,800 for zero signups. A strong nextAction doubles down on the winning warm/BOFU assets (e.g. repurpose the budget walkthrough into more email + comparison-page angles). Penalize calling YouTube the winner because of views, or proposing more influencer spend because of impressions/reach." }
+          ]
+        }
       }
     }
   ]

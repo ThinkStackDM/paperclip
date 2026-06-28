@@ -1,0 +1,8 @@
+export PAPERCLIP_CONFIG='/Users/glad0s/.paperclip/instances/default/workspaces/b610338d-b340-48a3-8e73-f2ecd015e4bb/.paperclip/config.json'
+export PAPERCLIP_HOME='/Users/glad0s/.paperclip-worktrees'
+export PAPERCLIP_INSTANCE_ID='tsbc-724-cmo-cfo-bench'
+export PAPERCLIP_CONTEXT='/Users/glad0s/.paperclip-worktrees/context.json'
+export PAPERCLIP_IN_WORKTREE='true'
+export PAPERCLIP_WORKTREE_NAME='tsbc-724-cmo-cfo-bench'
+export PAPERCLIP_WORKTREE_COLOR='#db4394'
+export PAPERCLIP_AGENT_JWT_SECRET='7ea0109b7c3ee9984b1af5ec51938aab903a00f389ecd90b34afa80d70711610'

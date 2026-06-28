@@ -125,3 +125,15 @@ Bench agents created in the isolated Agentic Bench company (e212ce50).
 - **Single-pass technical/reasoning** → cheap models ceiling (Gemini Flash / grok-4.1) — no premium needed.
 - **Agentic / multi-step tool-use** → codex-gpt-5.4 OR gemini-pro OR claude-opus-4.8 (~0.90). NOT grok.
 - Gemini wins BOTH ends (Flash single-pass, Pro agentic). The grok-heavy fleet is suboptimal for both.
+
+## UPDATE 4 — management-role lock (CMO/CFO) (2026-06-26)
+
+`run-20260626-171210` completed fresh `cmo` and `cfo` suites and locked the role→model picks:
+
+| Role | Suite size | Peak quality model | Peak quality score | Locked model |
+|---|---:|---|---:|---|
+| cmo | 12 | claude-opus-4.8 | 0.9582 | **claude-opus-4.8** |
+| cfo | 6 | claude-opus-4.8 | 0.9825 | **codex-gpt-5.4** |
+
+- **CMO:** strategy judgment has best quality on claude-opus-4.8 and remains locked there.
+- **CFO:** codex-gpt-5.4 is within 0.0133 quality points of the peak, with materially better value/efficiency, so it is locked to reduce production cost.

@@ -67,6 +67,12 @@
       "minimalAgentFile": "variants/minimal/cmo.md",
       "skillsDir": "/Users/glad0s/.paperclip/instances/default/skills/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/__runtime__"
     },
+    "cfo": {
+      "representativeAgent": "CFO (TSMC)",
+      "currentAgentFile": "/Users/glad0s/.paperclip/instances/default/companies/e6361895-a6a4-438d-bb76-b17a0ad026cb/agents/2eb9c74b-26f6-4bf9-aa81-881158bef939/instructions/AGENTS.md",
+      "minimalAgentFile": "variants/minimal/cfo.md",
+      "skillsDir": "/Users/glad0s/.paperclip/instances/default/skills/e6361895-a6a4-438d-bb76-b17a0ad026cb/__runtime__"
+    },
     "quant": {
       "representativeAgent": "MIDAS (Capital)",
       "currentAgentFile": "/Users/glad0s/.paperclip/instances/default/companies/211e0f96-ecd2-4fe0-81f8-72059bc6ed46/agents/dabed502-577e-405f-954c-0780b6eef1f7/instructions/AGENTS.md",

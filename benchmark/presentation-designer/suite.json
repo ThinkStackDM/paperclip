@@ -1,0 +1,210 @@
+{
+  "role": "presentation-designer",
+  "description": "Deck-spec authoring benchmark for the Presentation Designer role. Every task asks for a render-ready 5-slide JSON deck spec for the HTML/CSS deck pipeline: title -> bullets -> image -> quote -> closing title. The judge scores pacing, copy tightness, narration naturalness, slide-type fit, image-cue usefulness, and domain-specific clarity/restraint. Replicated prompts (r1/r2/r3) measure variance on the same Stack Lab and Cashflow Compass briefs.",
+  "tasks": [
+    {
+      "id": "stacklab-antigravity-r1",
+      "title": "Stack Lab — The Antigravity CLI, explained (run 1)",
+      "prompt": "Author a render-ready deck-spec JSON for the Stack Lab presentation pipeline.\n\nTOPIC FACTS:\n- Tool: The Antigravity CLI.\n- Core idea: it is a terminal built for agents, not one-command-at-a-time use.\n- Concrete mechanism: the user gives it a goal, it plans the work, then fans out to subagents that can read files, patch files, and run tests in parallel.\n- Viewer payoff: work feels less like typing every step and more like directing a coordinated system.\n\nAUDIENCE:\n- Solo builders and operators who already use developer tools.\n\nGOAL:\n- Explain why this tool changes how work feels, not just what command it runs.\n- Target about a 50-second narrated deck.\n\nRETURN ONLY JSON with this exact outer shape:\n{\n  \"theme\": {\"name\":\"STACK <b>LAB</b>\", \"footerL\":\"stacklab.dev\"},\n  \"slides\": [\n    {\"type\":\"title\", ...},\n    {\"type\":\"bullets\", ...},\n    {\"type\":\"image\", ...},\n    {\"type\":\"quote\", ...},\n    {\"type\":\"title\", ...}\n  ]\n}\n\nHARD REQUIREMENTS:\n- Exactly 5 slides, in exactly that slide-type order.\n- Every slide must include a non-empty `vo` field.\n- The bullets slide must have exactly 3 bullets and each bullet should stay concise.\n- The image slide must set `image` to `/tmp/deck-placeholder.png`; use `body` and `caption` to describe the intended still/b-roll cue clearly enough that a human could source or recreate it later.\n- Do not invent a real-person quote. If you need a quote slide, write a short original line and attribute it to the point of view or concept.\n- The closing title slide should land the payoff or CTA; it must not simply repeat slide 1.\n- Spoken VO should sound natural in plain English, 1-3 sentences per slide.\n- No markdown fences, no notes, no explanation outside the JSON.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "not_contains", "value": "```", "weight": 1 },
+          { "type": "json_path_len_equals", "path": "slides", "value": 5, "weight": 3 },
+          { "type": "json_path_equals", "path": "theme.footerL", "value": "stacklab.dev", "weight": 1 },
+          { "type": "json_path_equals", "path": "slides.0.type", "value": "title", "weight": 2 },
+          { "type": "json_path_equals", "path": "slides.1.type", "value": "bullets", "weight": 2 },
+          { "type": "json_path_equals", "path": "slides.2.type", "value": "image", "weight": 2 },
+          { "type": "json_path_equals", "path": "slides.3.type", "value": "quote", "weight": 2 },
+          { "type": "json_path_equals", "path": "slides.4.type", "value": "title", "weight": 2 },
+          { "type": "json_path_len_equals", "path": "slides.1.bullets", "value": 3, "weight": 2 },
+          { "type": "json_path_equals", "path": "slides.2.image", "value": "/tmp/deck-placeholder.png", "weight": 2 },
+          { "type": "json_path_exists", "path": "slides.2.caption", "weight": 1 },
+          { "type": "json_path_exists", "path": "slides.3.attribution", "weight": 1 },
+          { "type": "json_path_exists", "path": "slides.0.vo", "weight": 1 },
+          { "type": "json_path_exists", "path": "slides.4.vo", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "structure_pacing", "weight": 3, "guidance": "Feels like a real ~50-second explainer deck: strong hook, clean middle progression, and a close that lands. Information density is controlled slide to slide; nothing feels bloated or underwritten." },
+            { "name": "copy_tightness", "weight": 2, "guidance": "Titles, subtitle, bullets, caption, and quote are concise, specific, and non-generic. Penalize empty hype like 'AI is changing everything' or copy that could fit any tool." },
+            { "name": "narration_naturalness", "weight": 2, "guidance": "VO sounds spoken, not like pasted article prose. Sentences transition cleanly between slides, with clear rhythm and no robotic repetition." },
+            { "name": "slide_type_fit", "weight": 2, "guidance": "Each slide type is used well for its beat: bullets clarify, image creates a visual moment, quote earns emphasis, closing title provides payoff/CTA instead of recap filler." },
+            { "name": "image_cue_usefulness", "weight": 2, "guidance": "The image slide's body/caption describe a concrete, sourceable, on-brand still or b-roll cue that strengthens the explanation. Penalize vague cues like 'futuristic interface' or cues that do not visualize the point." },
+            { "name": "tool_explanation_quality", "weight": 2, "guidance": "Accurately explains the Antigravity CLI as a goal-based, agent-first terminal that plans and fans out to subagents for parallel read/patch/test work, and makes the operator payoff legible. Penalize factual drift, generic AI-tool chatter, or missing the 'direct work, not commands' shift." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "stacklab-antigravity-r2",
+      "title": "Stack Lab — The Antigravity CLI, explained (run 2)",
+      "prompt": "Author a render-ready deck-spec JSON for the Stack Lab presentation pipeline.\n\nTOPIC FACTS:\n- Tool: The Antigravity CLI.\n- Core idea: it is a terminal built for agents, not one-command-at-a-time use.\n- Concrete mechanism: the user gives it a goal, it plans the work, then fans out to subagents that can read files, patch files, and run tests in parallel.\n- Viewer payoff: work feels less like typing every step and more like directing a coordinated system.\n\nAUDIENCE:\n- Solo builders and operators who already use developer tools.\n\nGOAL:\n- Explain why this tool changes how work feels, not just what command it runs.\n- Target about a 50-second narrated deck.\n\nRETURN ONLY JSON with this exact outer shape:\n{\n  \"theme\": {\"name\":\"STACK <b>LAB</b>\", \"footerL\":\"stacklab.dev\"},\n  \"slides\": [\n    {\"type\":\"title\", ...},\n    {\"type\":\"bullets\", ...},\n    {\"type\":\"image\", ...},\n    {\"type\":\"quote\", ...},\n    {\"type\":\"title\", ...}\n  ]\n}\n\nHARD REQUIREMENTS:\n- Exactly 5 slides, in exactly that slide-type order.\n- Every slide must include a non-empty `vo` field.\n- The bullets slide must have exactly 3 bullets and each bullet should stay concise.\n- The image slide must set `image` to `/tmp/deck-placeholder.png`; use `body` and `caption` to describe the intended still/b-roll cue clearly enough that a human could source or recreate it later.\n- Do not invent a real-person quote. If you need a quote slide, write a short original line and attribute it to the point of view or concept.\n- The closing title slide should land the payoff or CTA; it must not simply repeat slide 1.\n- Spoken VO should sound natural in plain English, 1-3 sentences per slide.\n- No markdown fences, no notes, no explanation outside the JSON.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "not_contains", "value": "```", "weight": 1 },
+          { "type": "json_path_len_equals", "path": "slides", "value": 5, "weight": 3 },
+          { "type": "json_path_equals", "path": "theme.footerL", "value": "stacklab.dev", "weight": 1 },
+          { "type": "json_path_equals", "path": "slides.0.type", "value": "title", "weight": 2 },
+          { "type": "json_path_equals", "path": "slides.1.type", "value": "bullets", "weight": 2 },
+          { "type": "json_path_equals", "path": "slides.2.type", "value": "image", "weight": 2 },
+          { "type": "json_path_equals", "path": "slides.3.type", "value": "quote", "weight": 2 },
+          { "type": "json_path_equals", "path": "slides.4.type", "value": "title", "weight": 2 },
+          { "type": "json_path_len_equals", "path": "slides.1.bullets", "value": 3, "weight": 2 },
+          { "type": "json_path_equals", "path": "slides.2.image", "value": "/tmp/deck-placeholder.png", "weight": 2 },
+          { "type": "json_path_exists", "path": "slides.2.caption", "weight": 1 },
+          { "type": "json_path_exists", "path": "slides.3.attribution", "weight": 1 },
+          { "type": "json_path_exists", "path": "slides.0.vo", "weight": 1 },
+          { "type": "json_path_exists", "path": "slides.4.vo", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "structure_pacing", "weight": 3, "guidance": "Feels like a real ~50-second explainer deck: strong hook, clean middle progression, and a close that lands. Information density is controlled slide to slide; nothing feels bloated or underwritten." },
+            { "name": "copy_tightness", "weight": 2, "guidance": "Titles, subtitle, bullets, caption, and quote are concise, specific, and non-generic. Penalize empty hype like 'AI is changing everything' or copy that could fit any tool." },
+            { "name": "narration_naturalness", "weight": 2, "guidance": "VO sounds spoken, not like pasted article prose. Sentences transition cleanly between slides, with clear rhythm and no robotic repetition." },
+            { "name": "slide_type_fit", "weight": 2, "guidance": "Each slide type is used well for its beat: bullets clarify, image creates a visual moment, quote earns emphasis, closing title provides payoff/CTA instead of recap filler." },
+            { "name": "image_cue_usefulness", "weight": 2, "guidance": "The image slide's body/caption describe a concrete, sourceable, on-brand still or b-roll cue that strengthens the explanation. Penalize vague cues like 'futuristic interface' or cues that do not visualize the point." },
+            { "name": "tool_explanation_quality", "weight": 2, "guidance": "Accurately explains the Antigravity CLI as a goal-based, agent-first terminal that plans and fans out to subagents for parallel read/patch/test work, and makes the operator payoff legible. Penalize factual drift, generic AI-tool chatter, or missing the 'direct work, not commands' shift." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "stacklab-antigravity-r3",
+      "title": "Stack Lab — The Antigravity CLI, explained (run 3)",
+      "prompt": "Author a render-ready deck-spec JSON for the Stack Lab presentation pipeline.\n\nTOPIC FACTS:\n- Tool: The Antigravity CLI.\n- Core idea: it is a terminal built for agents, not one-command-at-a-time use.\n- Concrete mechanism: the user gives it a goal, it plans the work, then fans out to subagents that can read files, patch files, and run tests in parallel.\n- Viewer payoff: work feels less like typing every step and more like directing a coordinated system.\n\nAUDIENCE:\n- Solo builders and operators who already use developer tools.\n\nGOAL:\n- Explain why this tool changes how work feels, not just what command it runs.\n- Target about a 50-second narrated deck.\n\nRETURN ONLY JSON with this exact outer shape:\n{\n  \"theme\": {\"name\":\"STACK <b>LAB</b>\", \"footerL\":\"stacklab.dev\"},\n  \"slides\": [\n    {\"type\":\"title\", ...},\n    {\"type\":\"bullets\", ...},\n    {\"type\":\"image\", ...},\n    {\"type\":\"quote\", ...},\n    {\"type\":\"title\", ...}\n  ]\n}\n\nHARD REQUIREMENTS:\n- Exactly 5 slides, in exactly that slide-type order.\n- Every slide must include a non-empty `vo` field.\n- The bullets slide must have exactly 3 bullets and each bullet should stay concise.\n- The image slide must set `image` to `/tmp/deck-placeholder.png`; use `body` and `caption` to describe the intended still/b-roll cue clearly enough that a human could source or recreate it later.\n- Do not invent a real-person quote. If you need a quote slide, write a short original line and attribute it to the point of view or concept.\n- The closing title slide should land the payoff or CTA; it must not simply repeat slide 1.\n- Spoken VO should sound natural in plain English, 1-3 sentences per slide.\n- No markdown fences, no notes, no explanation outside the JSON.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "not_contains", "value": "```", "weight": 1 },
+          { "type": "json_path_len_equals", "path": "slides", "value": 5, "weight": 3 },
+          { "type": "json_path_equals", "path": "theme.footerL", "value": "stacklab.dev", "weight": 1 },
+          { "type": "json_path_equals", "path": "slides.0.type", "value": "title", "weight": 2 },
+          { "type": "json_path_equals", "path": "slides.1.type", "value": "bullets", "weight": 2 },
+          { "type": "json_path_equals", "path": "slides.2.type", "value": "image", "weight": 2 },
+          { "type": "json_path_equals", "path": "slides.3.type", "value": "quote", "weight": 2 },
+          { "type": "json_path_equals", "path": "slides.4.type", "value": "title", "weight": 2 },
+          { "type": "json_path_len_equals", "path": "slides.1.bullets", "value": 3, "weight": 2 },
+          { "type": "json_path_equals", "path": "slides.2.image", "value": "/tmp/deck-placeholder.png", "weight": 2 },
+          { "type": "json_path_exists", "path": "slides.2.caption", "weight": 1 },
+          { "type": "json_path_exists", "path": "slides.3.attribution", "weight": 1 },
+          { "type": "json_path_exists", "path": "slides.0.vo", "weight": 1 },
+          { "type": "json_path_exists", "path": "slides.4.vo", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "structure_pacing", "weight": 3, "guidance": "Feels like a real ~50-second explainer deck: strong hook, clean middle progression, and a close that lands. Information density is controlled slide to slide; nothing feels bloated or underwritten." },
+            { "name": "copy_tightness", "weight": 2, "guidance": "Titles, subtitle, bullets, caption, and quote are concise, specific, and non-generic. Penalize empty hype like 'AI is changing everything' or copy that could fit any tool." },
+            { "name": "narration_naturalness", "weight": 2, "guidance": "VO sounds spoken, not like pasted article prose. Sentences transition cleanly between slides, with clear rhythm and no robotic repetition." },
+            { "name": "slide_type_fit", "weight": 2, "guidance": "Each slide type is used well for its beat: bullets clarify, image creates a visual moment, quote earns emphasis, closing title provides payoff/CTA instead of recap filler." },
+            { "name": "image_cue_usefulness", "weight": 2, "guidance": "The image slide's body/caption describe a concrete, sourceable, on-brand still or b-roll cue that strengthens the explanation. Penalize vague cues like 'futuristic interface' or cues that do not visualize the point." },
+            { "name": "tool_explanation_quality", "weight": 2, "guidance": "Accurately explains the Antigravity CLI as a goal-based, agent-first terminal that plans and fans out to subagents for parallel read/patch/test work, and makes the operator payoff legible. Penalize factual drift, generic AI-tool chatter, or missing the 'direct work, not commands' shift." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cashflow-hsa-r1",
+      "title": "Cashflow Compass — HSA triple-tax advantage (run 1)",
+      "prompt": "Author a render-ready deck-spec JSON for the Cashflow Compass presentation pipeline.\n\nTOPIC FACTS:\n- Subject: the HSA triple-tax advantage.\n- The three parts to explain are: pre-tax contributions, tax-free growth, and tax-free qualified medical withdrawals.\n- This is general education for beginners, not personal tax advice.\n- Avoid current-year contribution limits, tax tables, or any claim that depends on a specific filing situation.\n\nAUDIENCE:\n- US beginners who have heard of an HSA but do not yet understand why people call it uniquely tax-efficient.\n\nGOAL:\n- Make the concept feel clear, calm, and useful without sounding like sales copy or personalized advice.\n- Target about a 50-second narrated deck.\n\nRETURN ONLY JSON with this exact outer shape:\n{\n  \"theme\": {\"name\":\"CASHFLOW <b>COMPASS</b>\", \"footerL\":\"cashflowcompass.co\"},\n  \"slides\": [\n    {\"type\":\"title\", ...},\n    {\"type\":\"bullets\", ...},\n    {\"type\":\"image\", ...},\n    {\"type\":\"quote\", ...},\n    {\"type\":\"title\", ...}\n  ]\n}\n\nHARD REQUIREMENTS:\n- Exactly 5 slides, in exactly that slide-type order.\n- Every slide must include a non-empty `vo` field.\n- The bullets slide must have exactly 3 bullets and each bullet should stay concise.\n- The image slide must set `image` to `/tmp/deck-placeholder.png`; use `body` and `caption` to describe the intended still/b-roll cue clearly enough that a human could source or recreate it later.\n- Do not invent a real-person quote or a fake statistic. If you need a quote slide, write a short original line and attribute it to the idea or saver perspective.\n- The closing title slide should land the takeaway; it must not simply repeat slide 1.\n- Spoken VO should sound calm and plain, 1-3 sentences per slide.\n- No markdown fences, no notes, no explanation outside the JSON.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "not_contains", "value": "```", "weight": 1 },
+          { "type": "json_path_len_equals", "path": "slides", "value": 5, "weight": 3 },
+          { "type": "json_path_equals", "path": "theme.footerL", "value": "cashflowcompass.co", "weight": 1 },
+          { "type": "json_path_equals", "path": "slides.0.type", "value": "title", "weight": 2 },
+          { "type": "json_path_equals", "path": "slides.1.type", "value": "bullets", "weight": 2 },
+          { "type": "json_path_equals", "path": "slides.2.type", "value": "image", "weight": 2 },
+          { "type": "json_path_equals", "path": "slides.3.type", "value": "quote", "weight": 2 },
+          { "type": "json_path_equals", "path": "slides.4.type", "value": "title", "weight": 2 },
+          { "type": "json_path_len_equals", "path": "slides.1.bullets", "value": 3, "weight": 2 },
+          { "type": "json_path_equals", "path": "slides.2.image", "value": "/tmp/deck-placeholder.png", "weight": 2 },
+          { "type": "json_path_exists", "path": "slides.2.caption", "weight": 1 },
+          { "type": "json_path_exists", "path": "slides.3.attribution", "weight": 1 },
+          { "type": "json_path_exists", "path": "slides.0.vo", "weight": 1 },
+          { "type": "json_path_exists", "path": "slides.4.vo", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "structure_pacing", "weight": 3, "guidance": "Feels like a real ~50-second explainer deck: strong hook, clean middle progression, and a close that lands. Information density is controlled slide to slide; nothing feels bloated or underwritten." },
+            { "name": "copy_tightness", "weight": 2, "guidance": "Titles, subtitle, bullets, caption, and quote are concise, specific, and plain-spoken. Penalize jargon, filler, fear tactics, or salesy language." },
+            { "name": "narration_naturalness", "weight": 2, "guidance": "VO sounds like calm spoken guidance, not compliance sludge or ad copy. Sentences transition cleanly between slides with no robotic repetition." },
+            { "name": "slide_type_fit", "weight": 2, "guidance": "Each slide type is used well for its beat: bullets clarify, image creates a visual moment, quote earns emphasis, closing title provides takeaway instead of recap filler." },
+            { "name": "image_cue_usefulness", "weight": 2, "guidance": "The image slide's body/caption describe a concrete, sourceable, non-cliche visual cue that supports the explanation. Penalize generic money imagery, piggy banks, or visuals that do not clarify the point." },
+            { "name": "accuracy_and_restraint", "weight": 2, "guidance": "Clearly explains the three HSA tax advantages (pre-tax in, tax-free growth, tax-free qualified medical spending) while staying educational rather than personalized. Penalize invented numbers, current-year limits, fake certainty, or advice that depends on an individual's tax situation." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cashflow-hsa-r2",
+      "title": "Cashflow Compass — HSA triple-tax advantage (run 2)",
+      "prompt": "Author a render-ready deck-spec JSON for the Cashflow Compass presentation pipeline.\n\nTOPIC FACTS:\n- Subject: the HSA triple-tax advantage.\n- The three parts to explain are: pre-tax contributions, tax-free growth, and tax-free qualified medical withdrawals.\n- This is general education for beginners, not personal tax advice.\n- Avoid current-year contribution limits, tax tables, or any claim that depends on a specific filing situation.\n\nAUDIENCE:\n- US beginners who have heard of an HSA but do not yet understand why people call it uniquely tax-efficient.\n\nGOAL:\n- Make the concept feel clear, calm, and useful without sounding like sales copy or personalized advice.\n- Target about a 50-second narrated deck.\n\nRETURN ONLY JSON with this exact outer shape:\n{\n  \"theme\": {\"name\":\"CASHFLOW <b>COMPASS</b>\", \"footerL\":\"cashflowcompass.co\"},\n  \"slides\": [\n    {\"type\":\"title\", ...},\n    {\"type\":\"bullets\", ...},\n    {\"type\":\"image\", ...},\n    {\"type\":\"quote\", ...},\n    {\"type\":\"title\", ...}\n  ]\n}\n\nHARD REQUIREMENTS:\n- Exactly 5 slides, in exactly that slide-type order.\n- Every slide must include a non-empty `vo` field.\n- The bullets slide must have exactly 3 bullets and each bullet should stay concise.\n- The image slide must set `image` to `/tmp/deck-placeholder.png`; use `body` and `caption` to describe the intended still/b-roll cue clearly enough that a human could source or recreate it later.\n- Do not invent a real-person quote or a fake statistic. If you need a quote slide, write a short original line and attribute it to the idea or saver perspective.\n- The closing title slide should land the takeaway; it must not simply repeat slide 1.\n- Spoken VO should sound calm and plain, 1-3 sentences per slide.\n- No markdown fences, no notes, no explanation outside the JSON.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "not_contains", "value": "```", "weight": 1 },
+          { "type": "json_path_len_equals", "path": "slides", "value": 5, "weight": 3 },
+          { "type": "json_path_equals", "path": "theme.footerL", "value": "cashflowcompass.co", "weight": 1 },
+          { "type": "json_path_equals", "path": "slides.0.type", "value": "title", "weight": 2 },
+          { "type": "json_path_equals", "path": "slides.1.type", "value": "bullets", "weight": 2 },
+          { "type": "json_path_equals", "path": "slides.2.type", "value": "image", "weight": 2 },
+          { "type": "json_path_equals", "path": "slides.3.type", "value": "quote", "weight": 2 },
+          { "type": "json_path_equals", "path": "slides.4.type", "value": "title", "weight": 2 },
+          { "type": "json_path_len_equals", "path": "slides.1.bullets", "value": 3, "weight": 2 },
+          { "type": "json_path_equals", "path": "slides.2.image", "value": "/tmp/deck-placeholder.png", "weight": 2 },
+          { "type": "json_path_exists", "path": "slides.2.caption", "weight": 1 },
+          { "type": "json_path_exists", "path": "slides.3.attribution", "weight": 1 },
+          { "type": "json_path_exists", "path": "slides.0.vo", "weight": 1 },
+          { "type": "json_path_exists", "path": "slides.4.vo", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "structure_pacing", "weight": 3, "guidance": "Feels like a real ~50-second explainer deck: strong hook, clean middle progression, and a close that lands. Information density is controlled slide to slide; nothing feels bloated or underwritten." },
+            { "name": "copy_tightness", "weight": 2, "guidance": "Titles, subtitle, bullets, caption, and quote are concise, specific, and plain-spoken. Penalize jargon, filler, fear tactics, or salesy language." },
+            { "name": "narration_naturalness", "weight": 2, "guidance": "VO sounds like calm spoken guidance, not compliance sludge or ad copy. Sentences transition cleanly between slides with no robotic repetition." },
+            { "name": "slide_type_fit", "weight": 2, "guidance": "Each slide type is used well for its beat: bullets clarify, image creates a visual moment, quote earns emphasis, closing title provides takeaway instead of recap filler." },
+            { "name": "image_cue_usefulness", "weight": 2, "guidance": "The image slide's body/caption describe a concrete, sourceable, non-cliche visual cue that supports the explanation. Penalize generic money imagery, piggy banks, or visuals that do not clarify the point." },
+            { "name": "accuracy_and_restraint", "weight": 2, "guidance": "Clearly explains the three HSA tax advantages (pre-tax in, tax-free growth, tax-free qualified medical spending) while staying educational rather than personalized. Penalize invented numbers, current-year limits, fake certainty, or advice that depends on an individual's tax situation." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cashflow-hsa-r3",
+      "title": "Cashflow Compass — HSA triple-tax advantage (run 3)",
+      "prompt": "Author a render-ready deck-spec JSON for the Cashflow Compass presentation pipeline.\n\nTOPIC FACTS:\n- Subject: the HSA triple-tax advantage.\n- The three parts to explain are: pre-tax contributions, tax-free growth, and tax-free qualified medical withdrawals.\n- This is general education for beginners, not personal tax advice.\n- Avoid current-year contribution limits, tax tables, or any claim that depends on a specific filing situation.\n\nAUDIENCE:\n- US beginners who have heard of an HSA but do not yet understand why people call it uniquely tax-efficient.\n\nGOAL:\n- Make the concept feel clear, calm, and useful without sounding like sales copy or personalized advice.\n- Target about a 50-second narrated deck.\n\nRETURN ONLY JSON with this exact outer shape:\n{\n  \"theme\": {\"name\":\"CASHFLOW <b>COMPASS</b>\", \"footerL\":\"cashflowcompass.co\"},\n  \"slides\": [\n    {\"type\":\"title\", ...},\n    {\"type\":\"bullets\", ...},\n    {\"type\":\"image\", ...},\n    {\"type\":\"quote\", ...},\n    {\"type\":\"title\", ...}\n  ]\n}\n\nHARD REQUIREMENTS:\n- Exactly 5 slides, in exactly that slide-type order.\n- Every slide must include a non-empty `vo` field.\n- The bullets slide must have exactly 3 bullets and each bullet should stay concise.\n- The image slide must set `image` to `/tmp/deck-placeholder.png`; use `body` and `caption` to describe the intended still/b-roll cue clearly enough that a human could source or recreate it later.\n- Do not invent a real-person quote or a fake statistic. If you need a quote slide, write a short original line and attribute it to the idea or saver perspective.\n- The closing title slide should land the takeaway; it must not simply repeat slide 1.\n- Spoken VO should sound calm and plain, 1-3 sentences per slide.\n- No markdown fences, no notes, no explanation outside the JSON.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "not_contains", "value": "```", "weight": 1 },
+          { "type": "json_path_len_equals", "path": "slides", "value": 5, "weight": 3 },
+          { "type": "json_path_equals", "path": "theme.footerL", "value": "cashflowcompass.co", "weight": 1 },
+          { "type": "json_path_equals", "path": "slides.0.type", "value": "title", "weight": 2 },
+          { "type": "json_path_equals", "path": "slides.1.type", "value": "bullets", "weight": 2 },
+          { "type": "json_path_equals", "path": "slides.2.type", "value": "image", "weight": 2 },
+          { "type": "json_path_equals", "path": "slides.3.type", "value": "quote", "weight": 2 },
+          { "type": "json_path_equals", "path": "slides.4.type", "value": "title", "weight": 2 },
+          { "type": "json_path_len_equals", "path": "slides.1.bullets", "value": 3, "weight": 2 },
+          { "type": "json_path_equals", "path": "slides.2.image", "value": "/tmp/deck-placeholder.png", "weight": 2 },
+          { "type": "json_path_exists", "path": "slides.2.caption", "weight": 1 },
+          { "type": "json_path_exists", "path": "slides.3.attribution", "weight": 1 },
+          { "type": "json_path_exists", "path": "slides.0.vo", "weight": 1 },
+          { "type": "json_path_exists", "path": "slides.4.vo", "weight": 1 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "structure_pacing", "weight": 3, "guidance": "Feels like a real ~50-second explainer deck: strong hook, clean middle progression, and a close that lands. Information density is controlled slide to slide; nothing feels bloated or underwritten." },
+            { "name": "copy_tightness", "weight": 2, "guidance": "Titles, subtitle, bullets, caption, and quote are concise, specific, and plain-spoken. Penalize jargon, filler, fear tactics, or salesy language." },
+            { "name": "narration_naturalness", "weight": 2, "guidance": "VO sounds like calm spoken guidance, not compliance sludge or ad copy. Sentences transition cleanly between slides with no robotic repetition." },
+            { "name": "slide_type_fit", "weight": 2, "guidance": "Each slide type is used well for its beat: bullets clarify, image creates a visual moment, quote earns emphasis, closing title provides takeaway instead of recap filler." },
+            { "name": "image_cue_usefulness", "weight": 2, "guidance": "The image slide's body/caption describe a concrete, sourceable, non-cliche visual cue that supports the explanation. Penalize generic money imagery, piggy banks, or visuals that do not clarify the point." },
+            { "name": "accuracy_and_restraint", "weight": 2, "guidance": "Clearly explains the three HSA tax advantages (pre-tax in, tax-free growth, tax-free qualified medical spending) while staying educational rather than personalized. Penalize invented numbers, current-year limits, fake certainty, or advice that depends on an individual's tax situation." }
+          ]
+        }
+      }
+    }
+  ]
+}

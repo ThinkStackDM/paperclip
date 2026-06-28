@@ -21,7 +21,7 @@ Env: PAPERCLIP_API_URL + PAPERCLIP_API_KEY (board token).
 Board-action stages (05 request-confirmation, 09 route, 11 board-approval) are
 excluded — they need the launchd janitors quieted (your terminal).
 """
-import json, os, sys
+import argparse, json, os, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -33,7 +33,9 @@ suite = json.load(open(os.path.join(HERE, "paperclip", "suite.json")))
 tasks_by_id = {t["id"]: t for t in suite["tasks"]}
 timeout = cfg["paperclip"].get("cellTimeoutSec", 900)
 models_by_id = {m["id"]: m for m in (cfg["models"] + cfg.get("models_catalog", []))}
-GROK_IDS = ["grok-4.3", "grok-4.20", "grok-4-fast", "grok-4.1-fast"]
+DEFAULT_MODEL_IDS = list((cfg.get("paperclip", {}).get("agents") or {}).keys())
+if not DEFAULT_MODEL_IDS:
+    DEFAULT_MODEL_IDS = sorted(models_by_id)
 
 RESULTS = os.path.join(HERE, "results", "_disposition_shadow.jsonl")
 os.makedirs(os.path.dirname(RESULTS), exist_ok=True)
@@ -45,13 +47,33 @@ ALL_STAGES = ["01-read-comment-done", "02-compute-comment-done", "03-read-extrac
 HARD_STAGES = ["04-in-review-handoff", "06-blocked-with-blocker", "07-delegate-subtasks",
                "08-plan-document", "10-compound-gauntlet", "12-idempotent-restraint"]
 
-mode = sys.argv[1] if len(sys.argv) > 1 else "all"
-if mode == "smoke":
-    STAGES, MODELS = ["01-read-comment-done"], ["grok-4.3"]
-elif mode == "hard":
-    STAGES, MODELS = HARD_STAGES, GROK_IDS
+ap = argparse.ArgumentParser(description="Shadow-measure Paperclip disposition execution gaps")
+ap.add_argument("mode", nargs="?", default="all", choices=["smoke", "hard", "all"])
+ap.add_argument(
+    "--models",
+    default=",".join(DEFAULT_MODEL_IDS),
+    help="comma list of model ids to run (defaults to config.paperclip.agents keys)",
+)
+ap.add_argument(
+    "--results",
+    default=RESULTS,
+    help="jsonl checkpoint file to append to",
+)
+args = ap.parse_args()
+
+MODELS = [item.strip() for item in args.models.split(",") if item.strip()]
+missing = [mid for mid in MODELS if mid not in models_by_id]
+if missing:
+    raise SystemExit(f"unknown model id(s): {', '.join(missing)}")
+if args.mode == "smoke":
+    STAGES = ["01-read-comment-done"]
+    MODELS = MODELS[:1]
+elif args.mode == "hard":
+    STAGES = HARD_STAGES
 else:
-    STAGES, MODELS = ALL_STAGES, GROK_IDS
+    STAGES = ALL_STAGES
+
+RESULTS = args.results
 
 
 def expected_status(task):
@@ -112,7 +134,7 @@ for sid in STAGES:
 records = load_records()
 print(f"\n================ SHADOW DISPOSITION REPORT ({len(records)} cells) ================")
 def pct(n, d): return f"{(100.0*n/d):.0f}%" if d else "-"
-for mid in GROK_IDS:
+for mid in MODELS:
     rs = [r for r in records if r["model"] == mid]
     if not rs: continue
     n = len(rs); tp = sum(r["tokenPresent"] for r in rs)

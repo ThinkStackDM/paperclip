@@ -37,6 +37,7 @@ const REMOTE_MANAGED_ADAPTERS = new Set<AgentAdapterType>([
   "cursor",
   "gemini_local",
   "opencode_local",
+  "ollama_local",
   "pi_local",
 ]);
 

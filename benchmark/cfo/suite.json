@@ -1,0 +1,121 @@
+{
+  "role": "cfo",
+  "description": "Portfolio-CFO judgment for ThinkStack Mission Control: unit economics, cost attribution, pricing/margin decisions, runway discipline, portfolio P&L synthesis, and capital-allocation tradeoffs under cash constraints. Tasks are failable and trap-laden: the answer that chases revenue instead of contribution, equal-splits shared cost without a driver, cuts runway for speculative upside, or funds the slow-payback vanity bet scores low. Deterministic checks anchor the math and the discrete decision; the strict blind judge grades whether the call is economically sound and actionable.",
+  "tasks": [
+    {
+      "id": "cfo-unit-economics-threshold",
+      "title": "Read unit economics and decide whether to scale",
+      "prompt": "You are the portfolio CFO reviewing a paid budgeting product. Current cohort economics:\n\n- ARPU after discounts: $24/month\n- Gross margin: 70%\n- Average retention: 5 months\n- Blended CAC: $40\n\nCompute gross LTV = ARPU x gross margin x retention, LTV/CAC, and CAC payback months = CAC / (ARPU x gross margin). Policy: if LTV/CAC < 3.0 OR payback > 2.0 months, decision = \"fix_before_scale\"; otherwise decision = \"scale\".\n\nReturn ONLY JSON: {\"ltv\": number, \"ltvToCac\": number, \"paybackMonths\": number, \"decision\": \"scale\"|\"fix_before_scale\", \"why\": string}. Round ratios to 1 decimal when needed. `why` <=30 words.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "ltv", "value": 84, "weight": 3 },
+          { "type": "json_path_equals", "path": "ltvToCac", "value": 2.1, "weight": 3 },
+          { "type": "json_path_equals", "path": "paybackMonths", "value": 2.4, "weight": 3 },
+          { "type": "json_path_equals", "path": "decision", "value": "fix_before_scale", "weight": 4 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "economic_judgment", "weight": 3, "guidance": "Math is correct: LTV = 24*0.70*5 = 84, LTV/CAC = 84/40 = 2.1, payback = 40/16.8 ≈ 2.4 months. Decision must be fix_before_scale because BOTH policy thresholds fail (LTV/CAC below 3.0 and payback above 2.0). Penalize scaling anyway, talking about top-line growth instead of unit economics, or citing only one threshold when both fail." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cfo-cost-attribution-driver",
+      "title": "Attribute shared cost using the right economic driver",
+      "prompt": "Three OpCos shared one $2,000 monthly model bill and one $900 shared CFO-ops overhead allocation.\n\nAllocate the MODEL bill by actual output-token usage:\n- Books: 12 million output tokens\n- Prints: 6 million output tokens\n- Recruitment: 2 million output tokens\n\nAllocate the CFO-ops overhead by revenue share:\n- Books: $8,000 revenue\n- Prints: $5,000 revenue\n- Recruitment: $7,000 revenue\n\nReturn ONLY JSON: {\"booksModel\": number, \"printsModel\": number, \"recruitmentModel\": number, \"booksOverhead\": number, \"printsOverhead\": number, \"recruitmentOverhead\": number, \"why\": string}. All numbers are whole dollars. The model allocations must sum to 2000 and the overhead allocations to 900. `why` <=30 words.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "booksModel", "value": 1200, "weight": 3 },
+          { "type": "json_path_equals", "path": "printsModel", "value": 600, "weight": 3 },
+          { "type": "json_path_equals", "path": "recruitmentModel", "value": 200, "weight": 3 },
+          { "type": "json_path_equals", "path": "booksOverhead", "value": 360, "weight": 2 },
+          { "type": "json_path_equals", "path": "printsOverhead", "value": 225, "weight": 2 },
+          { "type": "json_path_equals", "path": "recruitmentOverhead", "value": 315, "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "driver_choice", "weight": 3, "guidance": "Uses causal drivers: token spend by token usage (12/6/2M -> 1200/600/200) and finance overhead by revenue share (8k/5k/7k -> 360/225/315). Penalize equal-splitting, allocating the model bill by revenue, or allocating overhead by token usage without justification. The `why` must explain why each driver matches the underlying cost behavior." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cfo-pricing-margin-experiment",
+      "title": "Pick the pricing test that maximizes contribution, not revenue",
+      "prompt": "You can test one pricing option next month for a digital budgeting course. Variable cost to serve is $9 per order. Forecasts:\n\nA. $29 price, 220 orders\nB. $39 price, 170 orders\nC. $49 price, 120 orders\n\nPick the option with the highest MONTHLY CONTRIBUTION profit = (price - variable cost) x orders.\n\nReturn ONLY JSON: {\"pick\": \"A\"|\"B\"|\"C\", \"contributionA\": number, \"contributionB\": number, \"contributionC\": number, \"why\": string}. `why` <=30 words and must reference contribution, not just revenue.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "contributionA", "value": 4400, "weight": 3 },
+          { "type": "json_path_equals", "path": "contributionB", "value": 5100, "weight": 3 },
+          { "type": "json_path_equals", "path": "contributionC", "value": 4800, "weight": 3 },
+          { "type": "json_path_equals", "path": "pick", "value": "B", "weight": 5 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "margin_judgment", "weight": 3, "guidance": "Contribution math is right: A=20*220=4400, B=30*170=5100, C=40*120=4800, so B wins. Penalize picking A for volume or C for high ticket price. The `why` must explicitly use contribution/margin logic rather than top-line revenue or 'premium positioning' hand-waving." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cfo-runway-allocation-call",
+      "title": "Make the runway-aware cash allocation call",
+      "prompt": "You have $60,000 cash and current net burn is $10,000/month.\n\nYou may approve ONE request this month:\n- A: spend $5,000 one-time on automation that cuts burn by $2,000/month starting next month.\n- B: add a $6,000/month sponsorship with no revenue for at least 4 months.\n\nReturn ONLY JSON: {\"approve\": \"A\"|\"B\"|\"none\", \"runwayIfA\": number, \"runwayIfB\": number, \"why\": string}. `runwayIfA` = months of runway after paying the one-time cost and then operating at the new monthly burn. `runwayIfB` = months of runway if the sponsorship starts immediately. Round to 1 decimal if needed. `why` <=35 words.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "runwayIfA", "value": 6.9, "weight": 4 },
+          { "type": "json_path_equals", "path": "runwayIfB", "value": 3.8, "weight": 4 },
+          { "type": "json_path_equals", "path": "approve", "value": "A", "weight": 5 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "runway_discipline", "weight": 3, "guidance": "Correct call is A: after the $5k spend, cash is $55k and burn falls to $8k/month, giving ~6.9 months runway. B cuts runway to 60/16 ≈ 3.8 months for a spend with no payoff for at least four months. Penalize approving B on growth upside, or treating both as equivalent because they cost 'about the same'." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cfo-pnl-synthesis-portfolio",
+      "title": "Synthesize the portfolio P&L and identify the drag",
+      "prompt": "Monthly portfolio snapshot:\n\n- Books: revenue $8,400; variable costs $2,100; fixed overhead $1,700.\n- Prints: revenue $5,600; variable costs $2,900; fixed overhead $3,200.\n- Recruitment: revenue $7,500; variable costs $1,500; fixed overhead $2,000.\n\nCompute each line's monthly profit = revenue - variable costs - fixed overhead, the total portfolio profit, and identify the weakest line.\n\nReturn ONLY JSON: {\"booksProfit\": number, \"printsProfit\": number, \"recruitmentProfit\": number, \"portfolioProfit\": number, \"weakest\": \"Books\"|\"Prints\"|\"Recruitment\", \"why\": string}. `why` <=30 words.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "booksProfit", "value": 4600, "weight": 3 },
+          { "type": "json_path_equals", "path": "printsProfit", "value": -500, "weight": 4 },
+          { "type": "json_path_equals", "path": "recruitmentProfit", "value": 4000, "weight": 3 },
+          { "type": "json_path_equals", "path": "portfolioProfit", "value": 8100, "weight": 4 },
+          { "type": "json_path_equals", "path": "weakest", "value": "Prints", "weight": 4 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "pnl_readout", "weight": 3, "guidance": "Math is correct and the answer surfaces Prints as the drag because it is the only loss-making line at -$500, even though the overall portfolio is profitable at $8,100. Penalize forgetting fixed overhead, identifying the highest-revenue line as 'best' without reading profit, or failing to call out the negative line as the obvious follow-up." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cfo-portfolio-capital-allocation",
+      "title": "Choose the best capital allocation at the portfolio level",
+      "prompt": "You can fund ONE of two portfolio projects this quarter.\n\nA. Fix the checkout for the Recruitment wedge: costs $8,000 one-time, expected +$3,500 monthly contribution starting immediately, confidence 80%.\nB. Build a new AI planner for Books: costs $20,000 one-time, expected +$7,000 monthly contribution starting in 3 months, confidence 40%.\n\nCash is constrained, and the CFO's job is capital efficiency plus time-to-payback, not headline upside.\n\nReturn ONLY JSON: {\"pick\": \"A\"|\"B\", \"paybackMonthsA\": number, \"paybackMonthsB\": number, \"why\": string}. Compute simple payback = upfront cost / monthly contribution. Round to 1 decimal if needed. `why` <=35 words and must mention B's timing or confidence penalty.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "paybackMonthsA", "value": 2.3, "weight": 3 },
+          { "type": "json_path_equals", "path": "paybackMonthsB", "value": 2.9, "weight": 3 },
+          { "type": "json_path_equals", "path": "pick", "value": "A", "weight": 5 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "allocation_judgment", "weight": 3, "guidance": "Pick A. It has the faster payback (~2.3 vs ~2.9 months), starts immediately, and carries materially higher confidence. Penalize picking B for bigger upside while ignoring capital intensity, the 3-month delay, or lower certainty. The `why` must mention at least one of B's timing/confidence penalties." }
+          ]
+        }
+      }
+    }
+  ]
+}

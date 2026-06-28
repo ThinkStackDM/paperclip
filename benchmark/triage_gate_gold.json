@@ -1,0 +1,86 @@
+[
+  {
+    "identifier": "TSMC-13113",
+    "title": "Unblock liveness incident for TSMC-12021",
+    "description": "Paperclip detected a harness-level issue graph liveness incident. Source issue TSMC-12021 is blocked by TSMC-12056, but its assignee is paused. The task is to recover the blocked graph path.",
+    "gold": "OPUS",
+    "goldReason": "Cross-issue liveness recovery with harness invariants and blocked graph ownership is subtle multi-system debugging."
+  },
+  {
+    "identifier": "TSMC-12021",
+    "title": "Rollout: wire retry_dedup_guard into follow-up creation paths",
+    "description": "Integrate retry_dedup_guard across concrete follow-up creation sites in MC and at least DP, inventory the paths, and wire guard_create/mark_resolved without recreating errored-lane storms.",
+    "gold": "OPUS",
+    "goldReason": "Broad rollout across multiple creation paths with failure-mode sensitivity is a risky refactor, not a mechanical edit."
+  },
+  {
+    "identifier": "TSMC-13068",
+    "title": "Recover today's intake execution despite CEO-lane authorization boundary",
+    "description": "Restore the 2026-06-27 daily portfolio intake execution stranded on TSMC-12865. Direct reassignment fails with a 403 authorization-boundary error. Use the smallest technical recovery path that avoids board/manual intervention if an agent-owned workaround exists.",
+    "gold": "OPUS",
+    "goldReason": "Authorization-boundary recovery with multiple possible technical paths is ambiguous, high-risk operational judgment."
+  },
+  {
+    "identifier": "TSMC-13004",
+    "title": "Harden Codex lane auth: evaluate API-key auth to avoid rotating-refresh-token race",
+    "description": "Evaluate migrating the Codex lane from a shared ChatGPT OAuth token to OpenAI API-key auth. Confirm CLI/adapter support, model access, spend implications, fallback posture, and a migration plan that avoids taking the lane down.",
+    "gold": "OPUS",
+    "goldReason": "This is novel auth architecture with security, spend, and rollback considerations."
+  },
+  {
+    "identifier": "DP-2425",
+    "title": "Escalate MailerLite runtime secret exposure gap to TSMC and confirm supported injection path",
+    "description": "DP-2414 is blocked because MAILERLITE_API_KEY is not visible inside agent heartbeat runtimes. Determine whether runtime env injection is intended or whether another supported secret retrieval path should be used, and route the platform/runtime gap correctly.",
+    "gold": "OPUS",
+    "goldReason": "Platform runtime secret-surface diagnosis is subtle integration work with unclear underlying cause."
+  },
+  {
+    "identifier": "TSMC-13110",
+    "title": "Unblock liveness incident for TSMC-10161",
+    "description": "Paperclip detected a harness-level issue graph liveness incident. TSMC-10161 is blocked by TSMC-10163, but its assignee is paused. The recovery owner must repair the blocked graph path.",
+    "gold": "OPUS",
+    "goldReason": "Another multi-system harness recovery issue with blocked graph semantics."
+  },
+  {
+    "identifier": "TSMC-13102",
+    "title": "Run ack-reconcile handler for TSMC-13100",
+    "description": "Execute the ack-reconcile handler described on TSMC-13100 from the CTO instructions environment, record which trackers auto-close, which remain blocked, and the exact failure evidence if execution cannot complete.",
+    "gold": "ROUTINE",
+    "goldReason": "Clear documented workflow with explicit acceptance criteria and limited scope."
+  },
+  {
+    "identifier": "TSMC-13071",
+    "title": "Execute 2026-06-27 08:00 Europe/Dublin portfolio intake compile and board summary",
+    "description": "Collect the seven OpCo daily summaries, stage the daily compile document using the normal MC pattern, mirror the board summary, and name any missing reporters explicitly.",
+    "gold": "ROUTINE",
+    "goldReason": "Operational execution against an established pattern, not novel architecture or risky debugging."
+  },
+  {
+    "identifier": "DP-2415",
+    "title": "Wire Pinterest daily posting routine + token refresh cron (AroidAtlas)",
+    "description": "Once operator setup is complete, wire a daily Paperclip routine for posting staged Pinterest pins, a 25-day token refresh routine, and the required secrets-store env vars listed in the plan.",
+    "gold": "ROUTINE",
+    "goldReason": "Specified integration work with concrete commands, cadence, and required env vars."
+  },
+  {
+    "identifier": "DP-2150",
+    "title": "Publish 12 first-batch Etsy listings (unblocks after DP-2147 + DP-2148)",
+    "description": "After the dependent image issues finish, publish the prepared 12 Etsy listings using the attached design files, titles, prices, and listing-pack plan.",
+    "gold": "ROUTINE",
+    "goldReason": "Mechanical publishing workflow with clear prerequisites and acceptance."
+  },
+  {
+    "identifier": "TSM-3588",
+    "title": "Gemini TTS wire-up — use Gemini now or name the exact missing credential surface",
+    "description": "Use the existing hosted Gemini challenger implementation as the starting point. Produce the Gemini TTS path end-to-end if the required secrets exist; otherwise leave the exact credential blocker naming the missing key surface.",
+    "gold": "ROUTINE",
+    "goldReason": "The execution path is explicit and bounded: use the existing path or emit a precise blocker."
+  },
+  {
+    "identifier": "TSM-3688",
+    "title": "Sprint to 11:00 — replace Stack Lab #1 scratch VO with Gemini TTS and refresh captions",
+    "description": "Use the board-specified local Mac Gemini TTS tool to rebuild the voiceover, rerun whisper captions, replace the canonical MP4 on TSM-3563, and comment immediately with the exact blocker if anything fails.",
+    "gold": "ROUTINE",
+    "goldReason": "Concrete media-pipeline steps with explicit commands and deliverables."
+  }
+]
