@@ -29,6 +29,17 @@ Automated path: the `fallback-monitor` routine (every 15 min, deliberately run o
 4. Leaves a handover comment on every moved issue and writes the per-primary state file.
 5. Patches its own execution issue to `done` with a summary.
 
+### Pre-dispatch health gate for long creative jobs
+
+Before you launch or re-launch a long creative job on its primary lane (video generation, large renders, bulk asset generation, long Codex sessions, or any run that is expensive to restart), do a fast health-gate check against that lane's most recent runs:
+
+1. Look back at the recent run window for the target lane.
+2. If you see a repeated burst of `claude_transient_upstream`, `codex_transient_upstream`, or `adapter_failed` on that same lane, treat the lane as temporarily unhealthy for long jobs even if it is not yet hard-paused.
+3. Do not feed the long job into the unhealthy lane just because the queue is clear. Prefer the registered sister lane first, or defer launch until the reset / repair window if no safe sister exists.
+4. Leave an audit comment or handoff note that names the burst evidence and says the job was health-gated before launch.
+
+Operational rule: the health gate is for avoiding fail-plus-cancel churn on expensive work, not for every tiny issue. Use it when the cost of a bad launch is materially higher than the cost of a sister-lane handoff or a short delay.
+
 Manual operator path (`scripts/session-limit-watch.py`) is the fallback only when the route is disabled, the lane is not registry-wired yet, or you are doing recovery/backfill around the normal self-healing path. Always escalate force in this order, never start broad:
 
 1. Dry run: `--simulate-limit <primaryId> --simulate-reset-minutes 60 --max-issues 2` (expects JSON with `apply: false`, candidates under `moved`/`movedIssueTargets`; mutates nothing).
@@ -36,6 +47,8 @@ Manual operator path (`scripts/session-limit-watch.py`) is the fallback only whe
 3. Swap the test issue back (`--swap-back <primaryId> --max-issues 1 --apply --yes --force`) to prove the restore path.
 4. Only then uncapped (`--max-issues 0`) or `--watch --interval-seconds 60` continuous mode.
 5. `--reassign-all <primaryId>` drains a queue without a fresh limit event — dry-run first, respect the duplicate-storm preflight (10+ repeated title/body matches blocks apply; inspect with the duplicate-issue sweep, never cancel duplicates from the reassign path). Default apply skips `in_progress`/`in_review`/active runs; `--force` moves those too and leaves force evidence.
+
+When the pre-dispatch health gate trips, treat it like a narrow manual takeover: dry-run the move first, prove one issue on the sister lane, then expand. Do not bulk-drain long creative work onto an unhealthy lane and hope the next retry sticks.
 
 Context handoff: run `fallback-brief.py <issue>` for a low-token restart packet (identity, parent chain, scope snapshot, latest comments, suggested next action); paste key bullets plus one explicit next atomic action for the receiving sister. `--issue-comment --post-comment` posts it directly.
 

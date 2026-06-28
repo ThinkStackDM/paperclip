@@ -47,6 +47,14 @@ import { runningProcesses } from "../adapters/index.ts";
 const mockTelemetryClient = vi.hoisted(() => ({ track: vi.fn() }));
 const mockTrackAgentFirstHeartbeat = vi.hoisted(() => vi.fn());
 const mockTerminateLocalService = vi.hoisted(() => vi.fn());
+const mockAdapterTestEnvironment = vi.hoisted(() =>
+  vi.fn(async (ctx: { adapterType: string }) => ({
+    adapterType: ctx.adapterType,
+    status: "pass" as const,
+    checks: [],
+    testedAt: new Date("2026-03-19T00:00:00.000Z").toISOString(),
+  })),
+);
 const mockAdapterExecute = vi.hoisted(() =>
   vi.fn(async () => ({
     exitCode: 0,
@@ -90,6 +98,7 @@ vi.mock("../adapters/index.ts", async () => {
     ...actual,
     getServerAdapter: vi.fn(() => ({
       supportsLocalAgentJwt: false,
+      testEnvironment: mockAdapterTestEnvironment,
       execute: mockAdapterExecute,
     })),
   };
@@ -297,6 +306,12 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
       "../services/local-service-supervisor.js",
     );
     mockTerminateLocalService.mockImplementation(localServiceSupervisor.terminateLocalService);
+    mockAdapterTestEnvironment.mockImplementation(async (ctx: { adapterType: string }) => ({
+      adapterType: ctx.adapterType,
+      status: "pass",
+      checks: [],
+      testedAt: new Date("2026-03-19T00:00:00.000Z").toISOString(),
+    }));
     mockAdapterExecute.mockImplementation(async () => ({
       exitCode: 0,
       signal: null,
@@ -1914,6 +1929,92 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     expect(configurationComment).toBeTruthy();
   });
 
+  it("blocks before adapter dispatch when a process adapter is missing its command", async () => {
+    const { companyId, agentId, runId, issueId } = await seedQueuedIssueRunFixture();
+
+    await db
+      .update(agents)
+      .set({
+        adapterType: "process",
+        adapterConfig: {},
+      })
+      .where(eq(agents.id, agentId));
+
+    mockAdapterTestEnvironment.mockResolvedValueOnce({
+      adapterType: "process",
+      status: "fail",
+      checks: [
+        {
+          code: "process_command_missing",
+          level: "error",
+          message: "Process adapter requires a command.",
+          hint: "Set adapterConfig.command to an executable command.",
+        },
+      ],
+      testedAt: new Date("2026-03-19T00:00:00.000Z").toISOString(),
+    });
+
+    const heartbeat = heartbeatService(db);
+    await heartbeat.resumeQueuedRuns();
+    await waitForRunToSettle(heartbeat, runId, 5_000);
+
+    expect(mockAdapterExecute).not.toHaveBeenCalled();
+
+    const failedRun = await db
+      .select()
+      .from(heartbeatRuns)
+      .where(eq(heartbeatRuns.id, runId))
+      .then((rows) => rows[0] ?? null);
+    expect(failedRun).toMatchObject({
+      status: "failed",
+      errorCode: "configuration_incomplete",
+    });
+    expect(failedRun?.error).toContain("Process adapter requires a command.");
+    expect(failedRun?.resultJson).toMatchObject({
+      configurationIncomplete: {
+        reason: "adapter_environment_invalid",
+        adapterType: "process",
+        remediation: "Set adapterConfig.command to an executable command.",
+        blockingChecks: [
+          {
+            code: "process_command_missing",
+            level: "error",
+            message: "Process adapter requires a command.",
+            hint: "Set adapterConfig.command to an executable command.",
+          },
+        ],
+      },
+    });
+
+    const issue = await waitForValue(async () =>
+      db.select().from(issues).where(eq(issues.id, issueId)).then((rows) => {
+        const row = rows[0] ?? null;
+        return row?.status === "blocked" ? row : null;
+      }),
+    );
+    expect(issue?.executionRunId).toBeNull();
+
+    const recoveryAction = await db
+      .select()
+      .from(issueRecoveryActions)
+      .where(and(eq(issueRecoveryActions.companyId, companyId), eq(issueRecoveryActions.sourceIssueId, issueId)))
+      .then((rows) => rows[0] ?? null);
+    expect(recoveryAction).toMatchObject({
+      kind: "configuration_validation",
+      cause: "configuration_incomplete",
+      status: "active",
+      ownerAgentId: agentId,
+      recoveryIssueId: null,
+    });
+    expect(recoveryAction?.nextAction).toContain("Set adapterConfig.command to an executable command.");
+
+    const configurationComment = await waitForValue(async () => {
+      const rows = await db.select().from(issueComments).where(eq(issueComments.issueId, issueId));
+      return rows.find((comment) => comment.body.includes("command/cwd validation failed")) ?? null;
+    });
+    expect(configurationComment?.body).toContain("Process adapter requires a command.");
+  });
+
   it("queues one finish-handoff wake when a successful run leaves in-progress work without a next action", async () => {
     const { companyId, agentId, runId, issueId } = await seedQueuedIssueRunFixture();
     mockAdapterExecute.mockImplementationOnce(async (ctx: { runId: string }) => {
@@ -1995,6 +2096,51 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
       .from(activityLog)
       .where(eq(activityLog.entityId, issueId));
     expect(activity.some((event) => event.action === "issue.successful_run_handoff_required")).toBe(true);
+  });
+
+  it("applies a structured successful-run disposition instead of queuing missing-state recovery", async () => {
+    const { agentId, runId, issueId } = await seedQueuedIssueRunFixture();
+    mockAdapterExecute.mockResolvedValueOnce({
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+      errorMessage: null,
+      summary: "Fixed the issue and verified the targeted tests pass.",
+      resultJson: {
+        disposition: {
+          status: "done",
+          hasBlocker: false,
+        },
+      },
+      provider: "test",
+      model: "test-model",
+    });
+    const heartbeat = heartbeatService(db);
+
+    await heartbeat.resumeQueuedRuns();
+    await waitForRunToSettle(heartbeat, runId, 5_000);
+    await waitForHeartbeatIdle(db, 5_000);
+
+    const issue = await waitForValue(async () =>
+      db.select().from(issues).where(eq(issues.id, issueId)).then((rows) => {
+        const row = rows[0] ?? null;
+        return row?.status === "done" ? row : null;
+      }),
+    );
+    expect(issue?.status).toBe("done");
+
+    const wakeups = await db
+      .select()
+      .from(agentWakeupRequests)
+      .where(eq(agentWakeupRequests.agentId, agentId));
+    expect(wakeups.filter((wakeup) => wakeup.reason === "finish_successful_run_handoff")).toHaveLength(0);
+
+    const activity = await db
+      .select()
+      .from(activityLog)
+      .where(eq(activityLog.entityId, issueId));
+    expect(activity.some((event) => event.action === "issue.disposition_applied")).toBe(true);
+    expect(activity.some((event) => event.action === "issue.successful_run_handoff_required")).toBe(false);
   });
 
   it("requeues a missing-disposition handoff when the previous corrective wake was cancelled", async () => {
@@ -3197,6 +3343,96 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
       const actions = await db.select().from(issueRecoveryActions).where(eq(issueRecoveryActions.sourceIssueId, issueId));
       return actions.find((action) => action.ownerAgentId === agentId) ?? null;
     })).resolves.toBeNull();
+  });
+
+  it("keeps a non-routine stranded issue on its explicit capable assignee instead of a shell-handler catch-all", async () => {
+    const { companyId, agentId, issueId, runId } = await seedStrandedIssueFixture({
+      status: "todo",
+      runStatus: "failed",
+      retryReason: "assignment_recovery",
+      runErrorCode: "process_lost",
+    });
+    const routineOpsAgentId = randomUUID();
+    await db.insert(agents).values({
+      id: routineOpsAgentId,
+      companyId,
+      name: "RoutineOps",
+      role: "engineer",
+      status: "idle",
+      adapterType: "paperclip_shell_handler",
+      adapterConfig: {},
+      runtimeConfig: {},
+      permissions: {},
+    });
+
+    const heartbeat = heartbeatService(db);
+    const result = await heartbeat.reconcileStrandedAssignedIssues();
+
+    expect(result.dispatchRequeued).toBe(0);
+    expect(result.escalated).toBe(1);
+    expect(result.issueIds).toEqual([issueId]);
+
+    await expectSourceScopedStrandedRecoveryAction({
+      companyId,
+      agentId,
+      issueId,
+      runId,
+      previousStatus: "todo",
+      retryReason: "assignment_recovery",
+    });
+
+    const issue = await db.select().from(issues).where(eq(issues.id, issueId)).then((rows) => rows[0] ?? null);
+    expect(issue?.status).toBe("blocked");
+    expect(issue?.assigneeAgentId).toBe(agentId);
+
+    const routineWakeups = await db
+      .select()
+      .from(agentWakeupRequests)
+      .where(eq(agentWakeupRequests.agentId, routineOpsAgentId));
+    expect(routineWakeups.filter((wake) => wake.reason === "source_scoped_recovery_action")).toHaveLength(0);
+  });
+
+  it("still routes genuine routine execution recovery to the shell-handler catch-all", async () => {
+    const { companyId, agentId, issueId, runId } = await seedStrandedIssueFixture({
+      status: "todo",
+      runStatus: "failed",
+      retryReason: "assignment_recovery",
+      runErrorCode: "process_lost",
+    });
+    const routineOpsAgentId = randomUUID();
+    await db.insert(agents).values({
+      id: routineOpsAgentId,
+      companyId,
+      name: "RoutineOps",
+      role: "engineer",
+      status: "idle",
+      adapterType: "paperclip_shell_handler",
+      adapterConfig: {},
+      runtimeConfig: {},
+      permissions: {},
+    });
+    await db.update(issues).set({ originKind: "routine_execution" }).where(eq(issues.id, issueId));
+
+    const heartbeat = heartbeatService(db);
+    const result = await heartbeat.reconcileStrandedAssignedIssues();
+
+    expect(result.dispatchRequeued).toBe(0);
+    expect(result.escalated).toBe(1);
+    expect(result.issueIds).toEqual([issueId]);
+
+    await expectSourceScopedStrandedRecoveryAction({
+      companyId,
+      agentId: routineOpsAgentId,
+      previousOwnerAgentId: agentId,
+      returnOwnerAgentId: agentId,
+      issueId,
+      runId,
+      previousStatus: "todo",
+      retryReason: "assignment_recovery",
+    });
+
+    const issue = await db.select().from(issues).where(eq(issues.id, issueId)).then((rows) => rows[0] ?? null);
+    expect(issue?.assigneeAgentId).toBe(routineOpsAgentId);
   });
 
   it("falls back from a paused company recovery owner to an active CEO candidate", async () => {

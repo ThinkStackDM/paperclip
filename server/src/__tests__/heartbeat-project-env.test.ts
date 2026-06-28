@@ -205,6 +205,68 @@ describe("resolveExecutionRunAdapterConfig", () => {
     expect(JSON.stringify(result.resolvedConfig.env)).not.toContain("PAPERCLIP_");
   });
 
+  it("uses company-scoped environment overlay resolution when available", async () => {
+    const resolveAdapterConfigForRuntime = vi.fn().mockResolvedValue({
+      config: { env: { SHARED_KEY: "agent", AGENT_ONLY: "agent-only" } },
+      secretKeys: new Set<string>(),
+      manifest: [],
+    });
+    const resolveEnvironmentEnvForCompany = vi.fn().mockResolvedValue({
+      env: {
+        SHARED_KEY: "environment",
+        ENV_ONLY: "environment-only",
+      },
+      secretKeys: new Set(["ENV_SECRET"]),
+      manifest: [
+        {
+          configPath: "env.ENV_SECRET",
+          envKey: "ENV_SECRET",
+          secretId: "secret-environment",
+          secretKey: "environment-secret",
+          version: 1,
+          provider: "local_encrypted",
+          outcome: "success",
+        },
+      ],
+    });
+    const resolveEnvBindings = vi.fn();
+
+    const result = await resolveExecutionRunAdapterConfig({
+      companyId: "company-1",
+      agentId: "agent-1",
+      issueId: "issue-1",
+      heartbeatRunId: "run-1",
+      environmentId: "environment-1",
+      environmentEnv: { SHARED_KEY: "environment" },
+      executionRunConfig: { env: { SHARED_KEY: "agent", AGENT_ONLY: "agent-only" } },
+      projectEnv: null,
+      secretsSvc: {
+        resolveAdapterConfigForRuntime,
+        resolveEnvBindings,
+        resolveEnvironmentEnvForCompany,
+      } as any,
+    });
+
+    expect(resolveEnvironmentEnvForCompany).toHaveBeenCalledWith(
+      "company-1",
+      "environment-1",
+      { SHARED_KEY: "environment" },
+      expect.objectContaining({
+        actorType: "agent",
+        actorId: "agent-1",
+        issueId: "issue-1",
+        heartbeatRunId: "run-1",
+      }),
+    );
+    expect(resolveEnvBindings).not.toHaveBeenCalled();
+    expect(result.resolvedConfig.env).toEqual({
+      SHARED_KEY: "agent",
+      ENV_ONLY: "environment-only",
+      AGENT_ONLY: "agent-only",
+    });
+    expect(Array.from(result.secretKeys)).toEqual(["ENV_SECRET"]);
+  });
+
   it("skips project env resolution when the project has no bindings", async () => {
     const resolveAdapterConfigForRuntime = vi.fn().mockResolvedValue({
       config: { env: { AGENT_ONLY: "agent-only" } },

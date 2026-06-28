@@ -77,6 +77,7 @@ const mockStorageService = vi.hoisted(() => ({
 const mockIssueThreadInteractionService = vi.hoisted(() => ({
   expireRequestConfirmationsSupersededByComment: vi.fn(async () => []),
   expireStaleRequestConfirmationsForIssueDocument: vi.fn(async () => []),
+  expirePendingInteractionsForStaleIssueState: vi.fn(async () => []),
   expireRequestConfirmationsSupersededByHistoricalComments: vi.fn(async () => []),
   listForIssue: vi.fn(async () => []),
 }));
@@ -430,6 +431,8 @@ describe("agent issue mutation checkout ownership", () => {
     mockIssueThreadInteractionService.expireRequestConfirmationsSupersededByComment.mockResolvedValue([]);
     mockIssueThreadInteractionService.expireStaleRequestConfirmationsForIssueDocument.mockReset();
     mockIssueThreadInteractionService.expireStaleRequestConfirmationsForIssueDocument.mockResolvedValue([]);
+    mockIssueThreadInteractionService.expirePendingInteractionsForStaleIssueState.mockReset();
+    mockIssueThreadInteractionService.expirePendingInteractionsForStaleIssueState.mockResolvedValue([]);
     mockIssueThreadInteractionService.expireRequestConfirmationsSupersededByHistoricalComments.mockReset();
     mockIssueThreadInteractionService.expireRequestConfirmationsSupersededByHistoricalComments.mockResolvedValue([]);
     mockIssueThreadInteractionService.listForIssue.mockReset();
@@ -1988,7 +1991,7 @@ describe("agent issue mutation checkout ownership", () => {
       );
     });
 
-    it("lets a watchdog run reassign a watched issue to an active same-company agent", async () => {
+  it("lets a watchdog run reassign a watched issue to an active same-company agent", async () => {
       denyBaseBoundary();
       mockIssueService.getById.mockResolvedValue(makeIssue({ assigneeAgentId: ownerAgentId }));
       mockIssueService.update.mockImplementation(async (_id: string, patch: Record<string, unknown>) => ({
@@ -2005,6 +2008,49 @@ describe("agent issue mutation checkout ownership", () => {
         issueId,
         expect.objectContaining({ assigneeAgentId: peerAgentId }),
       );
+    });
+
+    it("rejects PATCH writes to derived boardActionRequired", async () => {
+      mockIssueService.getById.mockResolvedValue(makeIssue());
+
+      const app = await createApp(ownerActor());
+      const res = await request(app)
+        .patch(`/api/issues/${issueId}`)
+        .send({ boardActionRequired: false });
+
+      expect(res.status, JSON.stringify(res.body)).toBe(422);
+      expect(mockIssueService.update).not.toHaveBeenCalled();
+    });
+
+    it("reaps pending interactions after issue reassignment", async () => {
+      mockIssueService.getById.mockResolvedValue(makeIssue({ assigneeAgentId: ownerAgentId }));
+      mockIssueService.update.mockResolvedValue(makeIssue({ assigneeAgentId: peerAgentId }));
+      mockAgentService.resolveByReference.mockResolvedValue({ ambiguous: false, agent: makeAgent(peerAgentId) });
+
+      const app = await createApp(ownerActor());
+      const res = await request(app)
+        .patch(`/api/issues/${issueId}`)
+        .send({ assigneeAgentId: peerAgentId });
+
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+      expect(mockIssueThreadInteractionService.expirePendingInteractionsForStaleIssueState).toHaveBeenCalledWith({
+        previousIssue: expect.objectContaining({
+          id: issueId,
+          status: "in_progress",
+          assigneeAgentId: ownerAgentId,
+          assigneeUserId: null,
+        }),
+        issue: expect.objectContaining({
+          id: issueId,
+          status: "in_progress",
+          assigneeAgentId: peerAgentId,
+          assigneeUserId: null,
+        }),
+        actor: {
+          agentId: ownerAgentId,
+          userId: null,
+        },
+      });
     });
 
     it("still denies a watchdog run mutating an issue outside the watched subtree", async () => {

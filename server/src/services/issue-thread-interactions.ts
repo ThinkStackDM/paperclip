@@ -73,6 +73,14 @@ type IssueResolutionContext = {
   assigneeUserId: string | null;
 };
 
+type IssueInteractionStateSnapshot = {
+  id: string;
+  companyId: string;
+  status: string;
+  assigneeAgentId: string | null;
+  assigneeUserId: string | null;
+};
+
 const REQUEST_CONFIRMATION_INTERACTION_KINDS = [
   "request_confirmation",
   "request_checkbox_confirmation",
@@ -216,6 +224,25 @@ function isCommentAtOrAfterInteraction(args: {
   const interactionCreatedAtMs = new Date(args.interactionCreatedAt).getTime();
   if (!Number.isFinite(commentCreatedAtMs) || !Number.isFinite(interactionCreatedAtMs)) return false;
   return commentCreatedAtMs >= interactionCreatedAtMs;
+}
+
+function staleIssueInteractionReason(args: {
+  previousIssue: IssueInteractionStateSnapshot;
+  issue: IssueInteractionStateSnapshot;
+}) {
+  if (
+    isTerminalIssueStatus(args.issue.status)
+    && args.issue.status !== args.previousIssue.status
+  ) {
+    return `Issue closed as ${args.issue.status}.`;
+  }
+  if (
+    args.issue.assigneeAgentId !== args.previousIssue.assigneeAgentId
+    || args.issue.assigneeUserId !== args.previousIssue.assigneeUserId
+  ) {
+    return "Issue reassigned to a different owner.";
+  }
+  return null;
 }
 
 function buildTaskCreationOrder(tasks: ReadonlyArray<SuggestTasksInteraction["payload"]["tasks"][number]>) {
@@ -1340,6 +1367,80 @@ export function issueThreadInteractionService(db: Db) {
         await touchIssue(db, issue.id);
       }
       return expired;
+    },
+
+    expirePendingInteractionsForStaleIssueState: async (args: {
+      previousIssue: IssueInteractionStateSnapshot;
+      issue: IssueInteractionStateSnapshot;
+      actor: InteractionActor;
+    }) => {
+      const reason = staleIssueInteractionReason(args);
+      if (!reason) return [];
+
+      const rows = await db
+        .select()
+        .from(issueThreadInteractions)
+        .where(and(
+          eq(issueThreadInteractions.companyId, args.issue.companyId),
+          eq(issueThreadInteractions.issueId, args.issue.id),
+          eq(issueThreadInteractions.status, "pending"),
+        ));
+
+      if (rows.length === 0) return [];
+
+      const now = new Date();
+      const resolved: IssueThreadInteraction[] = [];
+      for (const row of rows) {
+        const patch =
+          row.kind === "ask_user_questions"
+            ? {
+                status: "cancelled" as const,
+                result: {
+                  version: 1 as const,
+                  answers: [],
+                  cancelled: true as const,
+                  cancellationReason: reason,
+                  summaryMarkdown: null,
+                },
+              }
+            : row.kind === "suggest_tasks"
+              ? {
+                  status: "expired" as const,
+                  result: {
+                    version: 1 as const,
+                    rejectionReason: reason,
+                  },
+                }
+              : {
+                  status: "expired" as const,
+                  result: {
+                    version: 1 as const,
+                    outcome: "stale_issue_state" as const,
+                    reason,
+                  },
+                };
+
+        const [updated] = await db
+          .update(issueThreadInteractions)
+          .set({
+            ...patch,
+            resolvedByAgentId: args.actor.agentId ?? null,
+            resolvedByUserId: args.actor.userId ?? null,
+            resolvedAt: now,
+            updatedAt: now,
+          })
+          .where(and(
+            eq(issueThreadInteractions.id, row.id),
+            eq(issueThreadInteractions.status, "pending"),
+          ))
+          .returning();
+        if (updated) resolved.push(hydrateInteraction(updated));
+      }
+
+      if (resolved.length > 0) {
+        await touchIssue(db, args.issue.id);
+      }
+      return resolved;
     },
 
     answerQuestions: async (

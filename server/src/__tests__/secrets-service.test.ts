@@ -262,6 +262,71 @@ describeEmbeddedPostgres("secretService", () => {
     expect(JSON.stringify(events)).not.toContain("runtime-secret");
   });
 
+  it("resolves a shared local environment to per-company secrets without cross-company leakage", async () => {
+    const sharedLocalEnvId = randomUUID();
+    const dpCompanyId = await seedCompany("DP");
+    const tsmcCompanyId = await seedCompany("TSMC");
+    const svc = secretService(db);
+
+    const dpMailerLiteSecret = await svc.create(dpCompanyId, {
+      name: `mailerlite-${randomUUID()}`,
+      provider: "local_encrypted",
+      value: "dp-mailerlite-live-key",
+    });
+    await svc.createBinding({
+      companyId: dpCompanyId,
+      secretId: dpMailerLiteSecret.id,
+      targetType: "environment",
+      targetId: sharedLocalEnvId,
+      configPath: "env.MAILERLITE_API_KEY",
+    });
+
+    const sharedEnvVars = { PAPERCLIP_REGION: "local" };
+
+    const dpResolution = await svc.resolveEnvironmentEnvForCompany(
+      dpCompanyId,
+      sharedLocalEnvId,
+      sharedEnvVars,
+      {
+        actorType: "agent",
+        actorId: "dp-agent",
+      },
+    );
+    expect(dpResolution.env.MAILERLITE_API_KEY).toBe("dp-mailerlite-live-key");
+    expect(dpResolution.env.PAPERCLIP_REGION).toBe("local");
+    expect(dpResolution.manifest).toEqual([
+      expect.objectContaining({
+        envKey: "MAILERLITE_API_KEY",
+        secretId: dpMailerLiteSecret.id,
+        outcome: "success",
+      }),
+    ]);
+
+    const tsmcResolution = await svc.resolveEnvironmentEnvForCompany(
+      tsmcCompanyId,
+      sharedLocalEnvId,
+      sharedEnvVars,
+      {
+        actorType: "agent",
+        actorId: "tsmc-agent",
+      },
+    );
+    expect(tsmcResolution.env.PAPERCLIP_REGION).toBe("local");
+    expect(tsmcResolution.env).not.toHaveProperty("MAILERLITE_API_KEY");
+    expect(tsmcResolution.secretKeys.size).toBe(0);
+    expect(tsmcResolution.manifest).toEqual([]);
+
+    const accessEvents = await svc.listAccessEvents(dpCompanyId, dpMailerLiteSecret.id);
+    expect(accessEvents).toHaveLength(1);
+    expect(accessEvents[0]).toMatchObject({
+      companyId: dpCompanyId,
+      consumerType: "environment",
+      outcome: "success",
+    });
+    expect(accessEvents.every((event) => event.companyId === dpCompanyId)).toBe(true);
+    expect(JSON.stringify(accessEvents)).not.toContain("dp-mailerlite-live-key");
+  });
+
   it("collects declared secret refs that have no binding without resolving values", async () => {
     const companyId = await seedCompany();
     const svc = secretService(db);

@@ -537,6 +537,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
           resultJson: {
             stopReason: attempt.parsed.stopReason,
             requestId: attempt.parsed.requestId,
+            ...(attempt.parsed.disposition ? { disposition: attempt.parsed.disposition } : {}),
           },
           clearSession: clearSessionOnMissingSession,
         };
@@ -622,6 +623,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         resultJson: {
           stopReason: attempt.parsed.stopReason,
           requestId: attempt.parsed.requestId,
+          ...(attempt.parsed.disposition ? { disposition: attempt.parsed.disposition } : {}),
           ...(transientUpstream ? { errorFamily: "transient_upstream" } : {}),
           ...(failed ? { stderr: attempt.proc.stderr } : {}),
         },

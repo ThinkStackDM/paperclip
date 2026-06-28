@@ -153,6 +153,7 @@ import { externalObjectService } from "../services/external-objects.js";
 
 const MAX_ISSUE_COMMENT_LIMIT = 500;
 const updateIssueRouteSchema = updateIssueSchema.extend({
+  boardActionRequired: z.never().optional(),
   interrupt: z.boolean().optional(),
 });
 const refreshExternalObjectsSchema = z.object({
@@ -168,6 +169,13 @@ const promoteLowTrustOutputSchema = z.object({
   title: z.string().trim().min(1).max(200),
   summary: z.string().trim().min(1).max(8_000),
 });
+
+function hasExplicitExternalOwnerAction(description: unknown): boolean {
+  if (typeof description !== "string" || description.trim().length === 0) return false;
+  const owner = description.match(/^\s*external owner\s*:\s*(.+)$/im)?.[1]?.trim();
+  const action = description.match(/^\s*external action\s*:\s*(.+)$/im)?.[1]?.trim();
+  return Boolean(owner && action);
+}
 
 type ParsedExecutionState = NonNullable<ReturnType<typeof parseIssueExecutionState>>;
 type NormalizedExecutionPolicy = NonNullable<ReturnType<typeof normalizeIssueExecutionPolicy>>;
@@ -1863,7 +1871,7 @@ export function issueRoutes(
   }
 
   async function logExpiredRequestConfirmations(input: {
-    issue: { id: string; companyId: string; identifier?: string | null };
+    issue: { id: string; companyId: string; identifier?: string | null; assigneeUserId?: string | null };
     interactions: Array<{ id: string; kind: string; status: string; result?: unknown }>;
     actor: ReturnType<typeof getActorInfo>;
     source: string;
@@ -1887,9 +1895,9 @@ export function issueRoutes(
           result: interaction.result ?? null,
         },
       });
-      // Superseded confirmations are always board-action interactions
-      // (request_confirmation). Post the symmetric resolution notice so the
-      // earlier "Board action required" comment does not dangle.
+      if (!isBoardActionResolutionInteraction(interaction, input.issue)) {
+        continue;
+      }
       try {
         await svc.addComment(
           input.issue.id,
@@ -6666,6 +6674,25 @@ export function issueRoutes(
       }
     }
 
+    const nextStatus = typeof updateFields.status === "string" ? updateFields.status : existing.status;
+    const enteringBlocked = existing.status !== "blocked" && nextStatus === "blocked";
+    if (enteringBlocked) {
+      const nextBlockedByIssueIds = Array.isArray(req.body.blockedByIssueIds)
+        ? req.body.blockedByIssueIds.filter((value): value is string => typeof value === "string" && value.length > 0)
+        : null;
+      const nextDescription =
+        updateFields.description === undefined ? existing.description : updateFields.description;
+      const unresolvedBlockedByIssueIds = nextBlockedByIssueIds !== null
+        ? await svc.listUnresolvedBlockerIssueIds(existing.companyId, nextBlockedByIssueIds)
+        : (await svc.getDependencyReadiness(existing.id)).unresolvedBlockerIssueIds;
+      if (unresolvedBlockedByIssueIds.length === 0 && !hasExplicitExternalOwnerAction(nextDescription)) {
+        res.status(409).json({
+          error: "Issue cannot enter blocked without unresolved blockedByIssueIds or external owner/action",
+        });
+        return;
+      }
+    }
+
     await assertAgentInReviewReviewPath({
       existing,
       updateFields,
@@ -6847,6 +6874,33 @@ export function issueRoutes(
       await heartbeat.reportRunActivity(actor.runId).catch((err) =>
         logger.warn({ err, runId: actor.runId }, "failed to clear detached run warning after issue activity"));
     }
+
+    const staleInteractions = await issueThreadInteractionService(db).expirePendingInteractionsForStaleIssueState({
+      previousIssue: {
+        id: existing.id,
+        companyId: existing.companyId,
+        status: existing.status,
+        assigneeAgentId: existing.assigneeAgentId,
+        assigneeUserId: existing.assigneeUserId,
+      },
+      issue: {
+        id: issue.id,
+        companyId: issue.companyId,
+        status: issue.status,
+        assigneeAgentId: issue.assigneeAgentId,
+        assigneeUserId: issue.assigneeUserId,
+      },
+      actor: {
+        agentId: actor.agentId,
+        userId: actor.actorType === "user" ? actor.actorId : null,
+      },
+    });
+    await logExpiredRequestConfirmations({
+      issue,
+      interactions: staleInteractions,
+      actor,
+      source: "issue.state_changed",
+    });
 
     // Build activity details with previous values for changed fields
     const previous: Record<string, unknown> = {};

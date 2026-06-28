@@ -17,6 +17,67 @@ const CLAUDE_TRANSIENT_UPSTREAM_RE =
 
 const CLAUDE_EXTRA_USAGE_RESET_RE =
   /(?:out\s+of\s+extra\s+usage|extra\s+usage|usage\s+limit\s+reached|usage\s+cap\s+reached|5[-\s]?hour\s+limit\s+reached|weekly\s+limit\s+reached|claude\s+usage\s+limit\s+reached)[\s\S]{0,80}?\bresets?\s+(?:at\s+)?([^\n()]+?)(?:\s*\(([^)]+)\))?(?:[.!]|\n|$)/i;
+const PAPERCLIP_DISPOSITION_RE = /(?:^|\n)\s*PAPERCLIP_DISPOSITION:\s*(\{[^\n]*\})\s*(?=$|\n)/g;
+
+function extractPaperclipDisposition(text: string): {
+  disposition: {
+    status: string;
+    hasBlocker: boolean;
+    blocker?: string;
+    reviewer?: string;
+  } | null;
+  cleanedText: string;
+} {
+  let match: RegExpExecArray | null = null;
+  let lastValid:
+    | {
+        disposition: {
+          status: string;
+          hasBlocker: boolean;
+          blocker?: string;
+          reviewer?: string;
+        };
+        index: number;
+        fullMatch: string;
+      }
+    | null = null;
+
+  while ((match = PAPERCLIP_DISPOSITION_RE.exec(text)) !== null) {
+    try {
+      const parsed = JSON.parse(match[1] ?? "null") as Record<string, unknown> | null;
+      const status = typeof parsed?.status === "string" ? parsed.status.trim() : "";
+      if (!status) continue;
+      lastValid = {
+        disposition: {
+          status,
+          hasBlocker: parsed?.hasBlocker === true,
+          ...(typeof parsed?.blocker === "string" && parsed.blocker.trim().length > 0
+            ? { blocker: parsed.blocker.trim() }
+            : {}),
+          ...(typeof parsed?.reviewer === "string" && parsed.reviewer.trim().length > 0
+            ? { reviewer: parsed.reviewer.trim() }
+            : {}),
+        },
+        index: match.index,
+        fullMatch: match[0],
+      };
+    } catch {
+      continue;
+    }
+  }
+
+  if (!lastValid) {
+    return { disposition: null, cleanedText: text.trim() };
+  }
+
+  const cleanedText = `${text.slice(0, lastValid.index)}${text.slice(lastValid.index + lastValid.fullMatch.length)}`
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return {
+    disposition: lastValid.disposition,
+    cleanedText,
+  };
+}
 
 export function parseClaudeStreamJson(stdout: string) {
   let sessionId: string | null = null;
@@ -77,15 +138,23 @@ export function parseClaudeStreamJson(stdout: string) {
   };
   const costRaw = finalResult.total_cost_usd;
   const costUsd = typeof costRaw === "number" && Number.isFinite(costRaw) ? costRaw : null;
-  const summary = asString(finalResult.result, assistantTexts.join("\n\n")).trim();
+  const rawSummary = asString(finalResult.result, assistantTexts.join("\n\n")).trim();
+  const { disposition, cleanedText } = extractPaperclipDisposition(rawSummary);
+  const mergedResultJson = disposition
+    ? {
+        ...finalResult,
+        result: cleanedText,
+        disposition,
+      }
+    : finalResult;
 
   return {
     sessionId,
     model,
     costUsd,
     usage,
-    summary,
-    resultJson: finalResult,
+    summary: cleanedText,
+    resultJson: mergedResultJson,
   };
 }
 

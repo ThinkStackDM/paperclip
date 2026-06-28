@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  parseClaudeStreamJson,
   extractClaudeRetryNotBefore,
   isClaudeTransientUpstreamError,
   isClaudePoisonedPreviousMessageIdError,
@@ -7,6 +8,57 @@ import {
   isClaudeUnknownSessionError,
   isClaudeImageProcessingError,
 } from "./parse.js";
+
+describe("parseClaudeStreamJson", () => {
+  it("extracts and strips the final PAPERCLIP_DISPOSITION token", () => {
+    const stdout = [
+      JSON.stringify({
+        type: "system",
+        subtype: "init",
+        session_id: "session-123",
+        model: "claude-sonnet",
+      }),
+      JSON.stringify({
+        type: "assistant",
+        session_id: "session-123",
+        message: {
+          content: [
+            {
+              type: "text",
+              text: "Interim commentary that should not override the final result.",
+            },
+          ],
+        },
+      }),
+      JSON.stringify({
+        type: "result",
+        session_id: "session-123",
+        result: [
+          "Fixed the issue and verified the targeted tests pass.",
+          'PAPERCLIP_DISPOSITION: {"status":"done","hasBlocker":false}',
+        ].join("\n"),
+        usage: {
+          input_tokens: 10,
+          cache_read_input_tokens: 2,
+          output_tokens: 4,
+        },
+      }),
+    ].join("\n");
+
+    expect(parseClaudeStreamJson(stdout)).toMatchObject({
+      sessionId: "session-123",
+      model: "claude-sonnet",
+      summary: "Fixed the issue and verified the targeted tests pass.",
+      resultJson: expect.objectContaining({
+        result: "Fixed the issue and verified the targeted tests pass.",
+        disposition: {
+          status: "done",
+          hasBlocker: false,
+        },
+      }),
+    });
+  });
+});
 
 describe("isClaudeTransientUpstreamError", () => {
   it("classifies the 'out of extra usage' subscription window failure as transient", () => {

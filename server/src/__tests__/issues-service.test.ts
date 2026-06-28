@@ -5797,6 +5797,100 @@ describeEmbeddedPostgres("board action requirements", () => {
     );
   });
 
+  it("ignores stale self-created request_confirmation interactions when deriving board action", async () => {
+    const { companyId, issueId } = await seedBoardActionIssue();
+    const documentId = randomUUID();
+    const staleRevisionId = randomUUID();
+    const currentRevisionId = randomUUID();
+
+    await db.insert(documents).values({
+      id: documentId,
+      companyId,
+      latestBody: "Current plan",
+      latestRevisionId: currentRevisionId,
+      latestRevisionNumber: 2,
+    });
+    await db.insert(documentRevisions).values([
+      {
+        id: staleRevisionId,
+        companyId,
+        documentId,
+        revisionNumber: 1,
+        title: "Plan",
+        format: "markdown",
+        body: "v1",
+      },
+      {
+        id: currentRevisionId,
+        companyId,
+        documentId,
+        revisionNumber: 2,
+        title: "Plan",
+        format: "markdown",
+        body: "v2",
+      },
+    ]);
+    await db.insert(issueDocuments).values({
+      companyId,
+      issueId,
+      documentId,
+      key: "plan",
+    });
+    await db.insert(issueThreadInteractions).values({
+      id: randomUUID(),
+      companyId,
+      issueId,
+      kind: "request_confirmation",
+      status: "pending",
+      continuationPolicy: "wake_assignee_on_accept",
+      payload: {
+        version: 1,
+        prompt: "Approve the rollout?",
+        target: {
+          type: "issue_document",
+          issueId,
+          documentId,
+          key: "plan",
+          revisionId: staleRevisionId,
+          revisionNumber: 1,
+        },
+      },
+      createdByAgentId: "self-agent",
+    });
+
+    const result = await svc.getBoardActionRequirements(companyId, [{ id: issueId }]);
+    expect(result.has(issueId)).toBe(false);
+  });
+
+  it("ignores request_confirmation interactions superseded by a later board comment", async () => {
+    const { companyId, issueId } = await seedBoardActionIssue();
+
+    await db.insert(issueThreadInteractions).values({
+      id: randomUUID(),
+      companyId,
+      issueId,
+      kind: "request_confirmation",
+      status: "pending",
+      continuationPolicy: "wake_assignee_on_accept",
+      payload: {
+        version: 1,
+        prompt: "Approve the rollout?",
+      },
+      createdByAgentId: "self-agent",
+      createdAt: new Date("2026-06-28T12:00:00.000Z"),
+    });
+    await db.insert(issueComments).values({
+      companyId,
+      issueId,
+      authorUserId: "local-board",
+      body: "Use the updated plan instead.",
+      createdAt: new Date("2026-06-28T12:05:00.000Z"),
+    });
+
+    const result = await svc.getBoardActionRequirements(companyId, [{ id: issueId }]);
+    expect(result.has(issueId)).toBe(false);
+  });
+
   it("does not flag ask-user-questions interactions already assigned to a specific user as board actions", async () => {
     const { companyId, issueId } = await seedBoardActionIssue({
       assigneeAgentId: null,

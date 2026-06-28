@@ -2359,6 +2359,43 @@ type BoardActionRequirement = {
   resumeText: string;
 };
 
+type RequestConfirmationIssueDocumentTarget = {
+  issueId: string;
+  documentId: string | null;
+  key: string;
+  revisionId: string;
+  revisionNumber: number | null;
+};
+
+function readRequestConfirmationIssueDocumentTarget(
+  payload: unknown,
+  fallbackIssueId: string,
+): RequestConfirmationIssueDocumentTarget | null {
+  const parsedPayload = parseObject(payload);
+  const parsedTarget = parseObject(parsedPayload?.target);
+  if (!parsedTarget || parsedTarget.type !== "issue_document") return null;
+  if (typeof parsedTarget.key !== "string" || parsedTarget.key.trim().length === 0) return null;
+  if (typeof parsedTarget.revisionId !== "string" || parsedTarget.revisionId.trim().length === 0) return null;
+
+  const issueId = typeof parsedTarget.issueId === "string" && parsedTarget.issueId.trim().length > 0
+    ? parsedTarget.issueId
+    : fallbackIssueId;
+  const documentId = typeof parsedTarget.documentId === "string" && parsedTarget.documentId.trim().length > 0
+    ? parsedTarget.documentId
+    : null;
+  const revisionNumber = typeof parsedTarget.revisionNumber === "number" && Number.isFinite(parsedTarget.revisionNumber)
+    ? parsedTarget.revisionNumber
+    : null;
+
+  return {
+    issueId,
+    documentId,
+    key: parsedTarget.key,
+    revisionId: parsedTarget.revisionId,
+    revisionNumber,
+  };
+}
+
 type BlockedInboxIssueRow = IssueRow & { labels?: IssueLabelRow[]; labelIds?: string[] };
 type BlockedInboxInteractionRow = {
   id: string;
@@ -2621,7 +2658,7 @@ async function listIssueBoardActionRequirementMap(
   const issueIds = [...new Set(issueRows.map((row) => row.id))];
   if (issueIds.length === 0) return result;
   const issueById = new Map(issueRows.map((row) => [row.id, row]));
-  const [pendingInteractions, pendingApprovals] = await Promise.all([
+  const [pendingInteractions, pendingApprovals, latestUserCommentRows] = await Promise.all([
     dbOrTx
       .select({
         id: issueThreadInteractions.id,
@@ -2629,6 +2666,7 @@ async function listIssueBoardActionRequirementMap(
         kind: issueThreadInteractions.kind,
         title: issueThreadInteractions.title,
         summary: issueThreadInteractions.summary,
+        payload: issueThreadInteractions.payload,
         createdAt: issueThreadInteractions.createdAt,
       })
       .from(issueThreadInteractions)
@@ -2654,7 +2692,26 @@ async function listIssueBoardActionRequirementMap(
         inArray(issueApprovals.issueId, issueIds),
       ))
       .orderBy(desc(approvals.createdAt)),
+    dbOrTx
+      .select({
+        issueId: issueComments.issueId,
+        latestCreatedAt: sql<Date>`max(${issueComments.createdAt})`,
+      })
+      .from(issueComments)
+      .where(and(
+        eq(issueComments.companyId, companyId),
+        inArray(issueComments.issueId, issueIds),
+        sql`${issueComments.authorUserId} is not null`,
+      ))
+      .groupBy(issueComments.issueId),
   ]);
+  const latestUserCommentAtByIssue = new Map(
+    latestUserCommentRows.map((row) => [row.issueId, row.latestCreatedAt]),
+  );
+  const targetSnapshotCache = new Map<
+    string,
+    { latestRevisionId: string | null; latestRevisionNumber: number | null } | null
+  >();
 
   const issueRowsToHydrate = [...issueById.values()].filter((issue) => issue.assigneeUserId === undefined).map((issue) => issue.id);
   if (issueRowsToHydrate.length > 0) {
@@ -2680,6 +2737,45 @@ async function listIssueBoardActionRequirementMap(
     const issue = issueById.get(interaction.issueId);
     if (!issue || !isBoardActionInteraction(interaction, issue) || result.has(interaction.issueId)) {
       continue;
+    }
+    if (interaction.kind === "request_confirmation") {
+      const latestUserCommentAt = latestUserCommentAtByIssue.get(interaction.issueId);
+      if (latestUserCommentAt && latestUserCommentAt >= interaction.createdAt) {
+        continue;
+      }
+
+      const target = readRequestConfirmationIssueDocumentTarget(interaction.payload, interaction.issueId);
+      if (target) {
+        const cacheKey = `${target.issueId}:${target.documentId ?? ""}:${target.key}`;
+        let snapshot = targetSnapshotCache.get(cacheKey);
+        if (snapshot === undefined) {
+          const rows = await dbOrTx
+            .select({
+              latestRevisionId: documents.latestRevisionId,
+              latestRevisionNumber: documents.latestRevisionNumber,
+            })
+            .from(issueDocuments)
+            .innerJoin(documents, eq(issueDocuments.documentId, documents.id))
+            .where(and(
+              eq(issueDocuments.companyId, companyId),
+              eq(issueDocuments.issueId, target.issueId),
+              target.documentId
+                ? eq(issueDocuments.documentId, target.documentId)
+                : eq(issueDocuments.key, target.key),
+            ))
+            .limit(1);
+          snapshot = rows[0] ?? null;
+          targetSnapshotCache.set(cacheKey, snapshot);
+        }
+
+        if (
+          !snapshot
+          || snapshot.latestRevisionId !== target.revisionId
+          || (target.revisionNumber != null && snapshot.latestRevisionNumber !== target.revisionNumber)
+        ) {
+          continue;
+        }
+      }
     }
     result.set(interaction.issueId, {
       source: "interaction",

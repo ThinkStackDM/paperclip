@@ -11,6 +11,8 @@ const mockIssueService = vi.hoisted(() => ({
   addComment: vi.fn(),
   findMentionedAgents: vi.fn(),
   getRelationSummaries: vi.fn(),
+  getDependencyReadiness: vi.fn(),
+  listUnresolvedBlockerIssueIds: vi.fn(),
   listWakeableBlockedDependents: vi.fn(),
   getWakeableParentAfterChildCompletion: vi.fn(),
 }));
@@ -176,6 +178,11 @@ describe("issue activity event routes", () => {
     mockIssueService.assertCheckoutOwner.mockResolvedValue({ adoptedFromRunId: null });
     mockIssueService.findMentionedAgents.mockResolvedValue([]);
     mockIssueService.getRelationSummaries.mockResolvedValue({ blockedBy: [], blocks: [] });
+    mockIssueService.getDependencyReadiness.mockResolvedValue({
+      unresolvedBlockerCount: 0,
+      unresolvedBlockerIssueIds: [],
+    });
+    mockIssueService.listUnresolvedBlockerIssueIds.mockResolvedValue([]);
     mockIssueService.listWakeableBlockedDependents.mockResolvedValue([]);
     mockIssueService.getWakeableParentAfterChildCompletion.mockResolvedValue(null);
     mockAccessService.canUser.mockResolvedValue(false);
@@ -345,6 +352,25 @@ describe("issue activity event routes", () => {
         }),
       );
     });
+  });
+
+  it("rejects entering blocked when the proposed blockers are already resolved", async () => {
+    const issue = makeIssue();
+    mockIssueService.getById.mockResolvedValue(issue);
+    mockIssueService.listUnresolvedBlockerIssueIds.mockResolvedValue([]);
+
+    const res = await request(await createApp())
+      .patch("/api/issues/11111111-1111-4111-8111-111111111111")
+      .send({
+        status: "blocked",
+        blockedByIssueIds: ["bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"],
+      });
+
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe(
+      "Issue cannot enter blocked without unresolved blockedByIssueIds or external owner/action",
+    );
+    expect(mockIssueService.update).not.toHaveBeenCalled();
   });
 
   it("logs successful_run_handoff_resolved when an in_progress issue transitions to done with a pending required handoff", async () => {

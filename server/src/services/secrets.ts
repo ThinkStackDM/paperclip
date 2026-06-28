@@ -507,6 +507,80 @@ export function secretService(db: Db) {
     return providerConfig;
   }
 
+  async function resolveEnvRecord(
+    companyId: string,
+    record: Record<string, unknown>,
+    context?: Omit<SecretConsumerContext, "configPath">,
+  ): Promise<{ env: Record<string, string>; secretKeys: Set<string>; manifest: RuntimeSecretManifestEntry[] }> {
+    const resolved: Record<string, string> = {};
+    const secretKeys = new Set<string>();
+    const manifest: RuntimeSecretManifestEntry[] = [];
+
+    for (const [key, rawBinding] of Object.entries(record)) {
+      if (!ENV_KEY_RE.test(key)) {
+        throw unprocessable(`Invalid environment variable name: ${key}`);
+      }
+      const parsed = envBindingSchema.safeParse(rawBinding);
+      if (!parsed.success) {
+        throw unprocessable(`Invalid environment binding for key: ${key}`);
+      }
+      const binding = canonicalizeBinding(parsed.data as EnvBinding);
+      if (binding.type === "plain") {
+        resolved[key] = binding.value;
+      } else {
+        const secretResolution = await resolveSecretValueInternal(
+          companyId,
+          binding.secretId,
+          binding.version,
+          context
+            ? {
+                bindingContext: { ...context, configPath: `env.${key}` },
+                accessContext: { ...context, configPath: `env.${key}` },
+              }
+            : undefined,
+        );
+        resolved[key] = secretResolution.value;
+        manifest.push(secretResolution.manifestEntry);
+        secretKeys.add(key);
+      }
+    }
+
+    return { env: resolved, secretKeys, manifest };
+  }
+
+  async function loadEnvironmentBindingOverlay(
+    companyId: string,
+    environmentId: string,
+  ): Promise<Record<string, { type: "secret_ref"; secretId: string; version: number | "latest" }>> {
+    const rows = await db
+      .select()
+      .from(companySecretBindings)
+      .where(
+        and(
+          eq(companySecretBindings.companyId, companyId),
+          eq(companySecretBindings.targetType, "environment"),
+          eq(companySecretBindings.targetId, environmentId),
+        ),
+      );
+
+    const overlay: Record<string, { type: "secret_ref"; secretId: string; version: number | "latest" }> = {};
+    for (const row of rows) {
+      if (!row.configPath.startsWith("env.")) continue;
+      const key = row.configPath.slice("env.".length);
+      if (!ENV_KEY_RE.test(key)) continue;
+      const parsedVersion = row.versionSelector && row.versionSelector !== "latest"
+        ? Number.parseInt(row.versionSelector, 10)
+        : Number.NaN;
+      overlay[key] = {
+        type: "secret_ref",
+        secretId: row.secretId,
+        version: Number.isInteger(parsedVersion) && parsedVersion > 0 ? parsedVersion : "latest",
+      };
+    }
+
+    return overlay;
+  }
+
   function toProviderVaultRuntimeConfig(
     providerConfig: Awaited<ReturnType<typeof getProviderConfigById>> | null,
   ): SecretProviderVaultRuntimeConfig | null {
@@ -2384,39 +2458,29 @@ export function secretService(db: Db) {
     ): Promise<{ env: Record<string, string>; secretKeys: Set<string>; manifest: RuntimeSecretManifestEntry[] }> => {
       const record = asRecord(envValue);
       if (!record) return { env: {} as Record<string, string>, secretKeys: new Set<string>(), manifest: [] };
-      const resolved: Record<string, string> = {};
-      const secretKeys = new Set<string>();
-      const manifest: RuntimeSecretManifestEntry[] = [];
+      return resolveEnvRecord(companyId, record, context);
+    },
 
-      for (const [key, rawBinding] of Object.entries(record)) {
-        if (!ENV_KEY_RE.test(key)) {
-          throw unprocessable(`Invalid environment variable name: ${key}`);
-        }
-        const parsed = envBindingSchema.safeParse(rawBinding);
-        if (!parsed.success) {
-          throw unprocessable(`Invalid environment binding for key: ${key}`);
-        }
-        const binding = canonicalizeBinding(parsed.data as EnvBinding);
-        if (binding.type === "plain") {
-          resolved[key] = binding.value;
-        } else {
-          const secretResolution = await resolveSecretValueInternal(
-            companyId,
-            binding.secretId,
-            binding.version,
-            context
-              ? {
-                  bindingContext: { ...context, configPath: `env.${key}` },
-                  accessContext: { ...context, configPath: `env.${key}` },
-                }
-              : undefined,
-          );
-          resolved[key] = secretResolution.value;
-          manifest.push(secretResolution.manifestEntry);
-          secretKeys.add(key);
+    resolveEnvironmentEnvForCompany: async (
+      companyId: string,
+      environmentId: string | null,
+      baseEnvVars: unknown,
+      context?: Omit<SecretConsumerContext, "configPath" | "consumerType" | "consumerId">,
+    ): Promise<{ env: Record<string, string>; secretKeys: Set<string>; manifest: RuntimeSecretManifestEntry[] }> => {
+      const merged: Record<string, unknown> = { ...(asRecord(baseEnvVars) ?? {}) };
+      if (environmentId) {
+        const overlay = await loadEnvironmentBindingOverlay(companyId, environmentId);
+        for (const [key, binding] of Object.entries(overlay)) {
+          merged[key] = binding;
         }
       }
-      return { env: resolved, secretKeys, manifest };
+      if (Object.keys(merged).length === 0) {
+        return { env: {} as Record<string, string>, secretKeys: new Set<string>(), manifest: [] };
+      }
+      const consumerContext: Omit<SecretConsumerContext, "configPath"> | undefined = environmentId
+        ? { ...(context ?? {}), consumerType: "environment", consumerId: environmentId }
+        : undefined;
+      return resolveEnvRecord(companyId, merged, consumerContext);
     },
 
     // Pre-dispatch validation: list declared secret refs in an env-like config

@@ -63,6 +63,7 @@ import { getRunLogStore, type RunLogHandle } from "./run-log-store.js";
 import { getServerAdapter, listAdapterModelProfiles, runningProcesses } from "../adapters/index.js";
 import type {
   AdapterExecutionResult,
+  AdapterEnvironmentTestResult,
   AdapterInvocationMeta,
   AdapterModelProfileDefinition,
   AdapterSessionCodec,
@@ -334,6 +335,117 @@ export class ConfigurationIncompleteFailure extends Error {
   }
 }
 
+function serializeAdapterEnvironmentChecks(checks: AdapterEnvironmentTestResult["checks"]) {
+  return checks.map((check) => ({
+    code: check.code,
+    level: check.level,
+    message: check.message,
+    ...(readNonEmptyString(check.detail) ? { detail: readNonEmptyString(check.detail) } : {}),
+    ...(readNonEmptyString(check.hint) ? { hint: readNonEmptyString(check.hint) } : {}),
+  }));
+}
+
+function readConfigurationIncompleteMetadata(
+  resultJson: Record<string, unknown> | null | undefined,
+) {
+  const parsed = parseObject(resultJson?.configurationIncomplete);
+  const blockingChecks = Array.isArray(parsed.blockingChecks)
+    ? parsed.blockingChecks
+        .map((value) => {
+          const check = parseObject(value);
+          const message = readNonEmptyString(check.message);
+          if (!message) return null;
+          return {
+            message,
+            hint: readNonEmptyString(check.hint),
+          };
+        })
+        .filter((value): value is { message: string; hint: string | null } => value !== null)
+    : [];
+  return {
+    reason: readNonEmptyString(parsed.reason),
+    remediation: readNonEmptyString(parsed.remediation),
+    blockingChecks,
+  };
+}
+
+function buildAdapterEnvironmentConfigurationIncompleteFailure(input: {
+  companyId: string;
+  agentId: string;
+  issueId: string | null;
+  projectId: string | null;
+  adapterType: string;
+  environmentName: string | null;
+  executionTargetKind: string | null;
+  result: AdapterEnvironmentTestResult;
+}) {
+  const serializedChecks = serializeAdapterEnvironmentChecks(input.result.checks);
+  const blockingChecks = serializedChecks.filter((check) => check.level === "error");
+  const detail = blockingChecks
+    .map((check) => check.message.trim())
+    .filter((value) => value.length > 0)
+    .join("; ") || `Adapter environment validation failed for ${input.adapterType}.`;
+  const hints = [...new Set(
+    blockingChecks
+      .map((check) => readNonEmptyString(check.hint))
+      .filter((value): value is string => value !== null),
+  )];
+  const remediation = hints.join(" ") || "Repair the adapter configuration before retrying the run.";
+  return new ConfigurationIncompleteFailure(
+    `configuration incomplete: ${detail}${hints.length > 0 ? ` ${hints.join(" ")}` : ""}`,
+    {
+      configurationIncomplete: {
+        reason: "adapter_environment_invalid",
+        companyId: input.companyId,
+        agentId: input.agentId,
+        issueId: input.issueId,
+        projectId: input.projectId,
+        adapterType: input.adapterType,
+        environmentName: input.environmentName,
+        executionTargetKind: input.executionTargetKind ?? "local",
+        testedAt: input.result.testedAt,
+        remediation,
+        checks: serializedChecks,
+        blockingChecks,
+      },
+    },
+  );
+}
+
+async function assertProcessAdapterDispatchReady(input: {
+  adapter: {
+    testEnvironment(ctx: any): Promise<AdapterEnvironmentTestResult>;
+  };
+  companyId: string;
+  agentId: string;
+  issueId: string | null;
+  projectId: string | null;
+  adapterType: string;
+  config: Record<string, unknown>;
+  executionTarget: { kind?: unknown } | null | undefined;
+  environmentName: string | null;
+}) {
+  if (input.adapterType !== "process") return;
+  const result = await input.adapter.testEnvironment({
+    companyId: input.companyId,
+    adapterType: input.adapterType,
+    config: input.config,
+    executionTarget: input.executionTarget ?? null,
+    environmentName: input.environmentName,
+  });
+  if (result.status !== "fail") return;
+  throw buildAdapterEnvironmentConfigurationIncompleteFailure({
+    companyId: input.companyId,
+    agentId: input.agentId,
+    issueId: input.issueId,
+    projectId: input.projectId,
+    adapterType: input.adapterType,
+    environmentName: input.environmentName,
+    executionTargetKind: readNonEmptyString(input.executionTarget?.kind) ?? "local",
+    result,
+  });
+}
+
 function resolveCodexTransientFallbackMode(attempt: number): CodexTransientFallbackMode {
   if (attempt <= 1) return "same_session";
   if (attempt === 2) return "safer_invocation";
@@ -420,7 +532,7 @@ const INLINE_BASE64_IMAGE_DATA_RE = /("type":"image","source":\{"type":"base64",
 type RuntimeConfigSecretResolver = Pick<
   ReturnType<typeof secretService>,
   "resolveAdapterConfigForRuntime" | "resolveEnvBindings" | "collectMissingRuntimeBindings"
->;
+> & Partial<Pick<ReturnType<typeof secretService>, "resolveEnvironmentEnvForCompany">>;
 
 function formatMissingBindingForOperator(missing: MissingRuntimeBinding): string {
   const secretLabel = missing.secretName
@@ -642,23 +754,33 @@ export async function resolveExecutionRunAdapterConfig(input: {
       });
     }
   }
-  const environmentEnvResolution = environmentEnv
-    ? await input.secretsSvc.resolveEnvBindings(
+  const environmentRuntimeContext = {
+    actorType: "agent" as const,
+    actorId: input.agentId ?? null,
+    issueId: input.issueId ?? null,
+    heartbeatRunId: input.heartbeatRunId ?? null,
+    ...(lowTrustAllowedBindingIds !== undefined ? { allowedBindingIds: lowTrustAllowedBindingIds } : {}),
+  };
+  const environmentEnvResolution = input.environmentId && typeof input.secretsSvc.resolveEnvironmentEnvForCompany === "function"
+    ? await input.secretsSvc.resolveEnvironmentEnvForCompany(
         input.companyId,
+        input.environmentId,
         environmentEnv,
-        input.environmentId
-          ? {
-              consumerType: "environment",
-              consumerId: input.environmentId,
-              actorType: "agent",
-              actorId: input.agentId ?? null,
-              issueId: input.issueId ?? null,
-              heartbeatRunId: input.heartbeatRunId ?? null,
-              ...(lowTrustAllowedBindingIds !== undefined ? { allowedBindingIds: lowTrustAllowedBindingIds } : {}),
-            }
-          : undefined,
+        environmentRuntimeContext,
       )
-    : { env: {}, secretKeys: new Set<string>(), manifest: [] };
+    : environmentEnv
+      ? await input.secretsSvc.resolveEnvBindings(
+          input.companyId,
+          environmentEnv,
+          input.environmentId
+            ? {
+                consumerType: "environment",
+                consumerId: input.environmentId,
+                ...environmentRuntimeContext,
+              }
+            : undefined,
+        )
+      : { env: {}, secretKeys: new Set<string>(), manifest: [] };
   const { config: resolvedConfig, secretKeys, manifest } = await input.secretsSvc.resolveAdapterConfigForRuntime(
     input.companyId,
     executionRunConfig,
@@ -5753,36 +5875,18 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
         : Promise.resolve(null),
     ]);
 
-    const decision = decideSuccessfulRunHandoff({
-      run,
-      issue,
-      agent,
-      livenessState: run.livenessState as RunLivenessState | null,
-      detectedProgressSummary,
-      taskKey,
-      hasActiveExecutionPath: Boolean(activeExecutionPath),
-      hasQueuedWake: Boolean(queuedWake),
-      hasPendingInteractionOrApproval: Boolean(pendingInteraction || pendingApproval),
-      hasExplicitBlockerPath: Boolean(explicitBlocker),
-      hasOpenRecoveryIssue: Boolean(openRecoveryIssue),
-      hasPauseHold: Boolean(pauseHold),
-      hasActiveRoutineContinuation: Boolean(activeRoutineContinuation),
-      budgetBlocked: Boolean(budgetBlock),
-      idempotentWakeExists: Boolean(existingWake),
-    });
+    if (!issue) return;
 
-    if (decision.kind !== "enqueue" || !issue) return;
-
-    // --- Disposition enforcement (SHADOW only — measures, applies nothing) ---
-    // The source run is stuck `in_progress` with a missing disposition. If the agent
-    // stated a PAPERCLIP_DISPOSITION token (hermes adapter prompt step 7 → resultJson
-    // .disposition), record what a deterministic apply WOULD do, so we can measure on
-    // live traffic how often it would close the gap before enabling enforcement. The
-    // model still re-wakes below — shadow mode changes nothing about behaviour.
-    const statedDisposition =
-      run.resultJson && typeof run.resultJson === "object"
-        ? (run.resultJson as { disposition?: { status?: unknown; hasBlocker?: unknown; blocker?: unknown; reviewer?: unknown } | null }).disposition
-        : null;
+    // --- Disposition enforcement ---
+    // Structured dispositions are self-contained next-action choices that can close
+    // the issue immediately, even when the successful-run handoff heuristics would
+    // otherwise skip the missing-state path. Record the token presence either way,
+    // then apply the stated disposition before considering a corrective re-wake.
+    const statedDisposition = (
+      parseObject(run.resultJson) as {
+        disposition?: { status?: unknown; hasBlocker?: unknown; blocker?: unknown; reviewer?: unknown } | null;
+      }
+    ).disposition ?? null;
     const statedStatus =
       statedDisposition && typeof statedDisposition.status === "string"
         ? statedDisposition.status
@@ -5795,7 +5899,11 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       statedDisposition && typeof statedDisposition.reviewer === "string" && statedDisposition.reviewer.trim()
         ? statedDisposition.reviewer.trim()
         : null;
-    const enforceDisposition = process.env.PAPERCLIP_DISPOSITION_ENFORCE === "1";
+    const dispositionForceDisabled = process.env.PAPERCLIP_DISPOSITION_ENFORCE === "0";
+    const dispositionForceEnabled = process.env.PAPERCLIP_DISPOSITION_ENFORCE === "1";
+    const enforceDisposition =
+      !dispositionForceDisabled &&
+      (dispositionForceEnabled || Boolean(statedStatus));
     // Isolated harness companies (e.g. the agentic-bench company) exercise the disposition
     // workflow on fixtures, which floods the shadow measurement and would trigger spurious
     // enforcement. Skip both for them; the corrective re-wake below still runs unchanged.
@@ -5823,16 +5931,6 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
         },
       });
     }
-
-    // --- Enforcement (gated by PAPERCLIP_DISPOSITION_ENFORCE; default OFF = shadow) ---
-    // Apply only what's self-contained or whose supporting structure we can build:
-    //   done/cancelled → set the agent's explicit terminal decision.
-    //   blocked + named blocker → create the prerequisite the agent reported, link it as
-    //     a first-class blocker, then set blocked (a real, non-dangling blocked state).
-    //   in_review → hand to a real reviewer (agent-named if valid, else the source agent's
-    //     manager) so it is not a dangling review. blocked WITHOUT a named blocker falls
-    //     through to the corrective re-wake. No token also falls through (never guess `done`).
-    // Best-effort: a failed apply never breaks the handler.
     if (enforceDisposition && !dispositionExcluded) {
       try {
         let appliedStatus: string | null = null;
@@ -5905,10 +6003,39 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
           });
           return; // gap closed deterministically — skip the corrective re-wake
         }
-      } catch {
+      } catch (err) {
+        logger.warn(
+          {
+            err,
+            runId: run.id,
+            issueId: issue.id,
+            statedStatus,
+          },
+          "failed to apply stated disposition",
+        );
         // fall through to the existing re-wake recovery
       }
     }
+
+    const decision = decideSuccessfulRunHandoff({
+      run,
+      issue,
+      agent,
+      livenessState: run.livenessState as RunLivenessState | null,
+      detectedProgressSummary,
+      taskKey,
+      hasActiveExecutionPath: Boolean(activeExecutionPath),
+      hasQueuedWake: Boolean(queuedWake),
+      hasPendingInteractionOrApproval: Boolean(pendingInteraction || pendingApproval),
+      hasExplicitBlockerPath: Boolean(explicitBlocker),
+      hasOpenRecoveryIssue: Boolean(openRecoveryIssue),
+      hasPauseHold: Boolean(pauseHold),
+      hasActiveRoutineContinuation: Boolean(activeRoutineContinuation),
+      budgetBlocked: Boolean(budgetBlock),
+      idempotentWakeExists: Boolean(existingWake),
+    });
+
+    if (decision.kind !== "enqueue") return;
 
     const handoffRun = await enqueueWakeup(run.agentId, {
       source: "automation",
@@ -10506,6 +10633,17 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       };
 
       const adapter = getServerAdapter(agent.adapterType);
+      await assertProcessAdapterDispatchReady({
+        adapter,
+        companyId: agent.companyId,
+        agentId: agent.id,
+        issueId: issueId ?? null,
+        projectId: executionWorkspace.projectId ?? issueRef?.projectId ?? null,
+        adapterType: agent.adapterType,
+        config: runtimeConfig,
+        executionTarget,
+        environmentName: selectedEnvironment.name,
+      });
       const authToken = adapter.supportsLocalAgentJwt
         ? createLocalAgentJwt(agent.id, agent.companyId, agent.adapterType, run.id)
         : null;
@@ -11150,9 +11288,22 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
   }
 
   function buildConfigurationIncompleteRecoveryComment(input: {
-    latestRun: Pick<typeof heartbeatRuns.$inferSelect, "error" | "errorCode"> | null | undefined;
+    latestRun: Pick<typeof heartbeatRuns.$inferSelect, "error" | "errorCode" | "resultJson"> | null | undefined;
   }) {
     const failureSummary = summarizeRunFailureForIssueComment(input.latestRun);
+    const configurationIncomplete = readConfigurationIncompleteMetadata(input.latestRun?.resultJson);
+    if (configurationIncomplete.reason === "adapter_environment_invalid") {
+      const blockingMessage = configurationIncomplete.blockingChecks[0]?.message ?? null;
+      const remediation =
+        configurationIncomplete.remediation ??
+        "Repair the adapter command, working directory, or PATH before resuming.";
+      return (
+        "Paperclip stopped before dispatching the adapter because its command/cwd validation failed. " +
+        `Resolving it as a runtime failure would only produce repeated setup failures.${blockingMessage ? ` Validation error: \`${blockingMessage}\`.` : failureSummary ?? ""} ` +
+        `${remediation} ` +
+        "Moving it to `blocked` with a source-scoped recovery action so the configuration can be repaired before resuming."
+      );
+    }
     return (
       "Paperclip stopped before dispatching the adapter because required secret/env bindings are missing. " +
       `Resolving them as a runtime failure would only produce repeated opaque setup failures.${failureSummary ?? ""} ` +

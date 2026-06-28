@@ -5,23 +5,126 @@ import {
   asStringArray,
   parseObject,
   buildPaperclipEnv,
+  stringifyPaperclipWakePayload,
+  readPaperclipIssueWorkModeFromContext,
   buildInvocationEnvForLogs,
   ensurePathInEnv,
   resolveCommandForLogs,
   runChildProcess,
 } from "../utils.js";
 
+const PAPERCLIP_DISPOSITION_RE = /(?:^|\n)\s*PAPERCLIP_DISPOSITION:\s*(\{[^\n]*\})\s*(?=$|\n)/g;
+
+type ParsedDisposition = {
+  status: string;
+  hasBlocker: boolean;
+  blocker?: string;
+  reviewer?: string;
+};
+
+function extractPaperclipDisposition(text: string): {
+  disposition: ParsedDisposition | null;
+  cleanedText: string;
+} {
+  let match: RegExpExecArray | null = null;
+  let lastValid:
+    | {
+        disposition: ParsedDisposition;
+        index: number;
+        fullMatch: string;
+      }
+    | null = null;
+
+  while ((match = PAPERCLIP_DISPOSITION_RE.exec(text)) !== null) {
+    try {
+      const parsed = JSON.parse(match[1] ?? "null") as Record<string, unknown> | null;
+      const status = typeof parsed?.status === "string" ? parsed.status.trim() : "";
+      if (!status) continue;
+      lastValid = {
+        disposition: {
+          status,
+          hasBlocker: parsed?.hasBlocker === true,
+          ...(typeof parsed?.blocker === "string" && parsed.blocker.trim().length > 0
+            ? { blocker: parsed.blocker.trim() }
+            : {}),
+          ...(typeof parsed?.reviewer === "string" && parsed.reviewer.trim().length > 0
+            ? { reviewer: parsed.reviewer.trim() }
+            : {}),
+        },
+        index: match.index,
+        fullMatch: match[0],
+      };
+    } catch {
+      continue;
+    }
+  }
+
+  if (!lastValid) {
+    return { disposition: null, cleanedText: text.trim() };
+  }
+
+  const cleanedText = `${text.slice(0, lastValid.index)}${text.slice(lastValid.index + lastValid.fullMatch.length)}`
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  return {
+    disposition: lastValid.disposition,
+    cleanedText,
+  };
+}
+
 export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExecutionResult> {
-  const { runId, agent, config, onLog, onMeta } = ctx;
+  const { runId, agent, config, context, authToken, onLog, onMeta } = ctx;
   const command = asString(config.command, "");
   if (!command) throw new Error("Process adapter missing command");
 
   const args = asStringArray(config.args);
   const cwd = asString(config.cwd, process.cwd());
   const envConfig = parseObject(config.env);
-  const env: Record<string, string> = { ...buildPaperclipEnv(agent) };
+  const env: Record<string, string> = { ...buildPaperclipEnv(agent), PAPERCLIP_RUN_ID: runId };
+  const wakeTaskId =
+    (typeof context.taskId === "string" && context.taskId.trim().length > 0 && context.taskId.trim()) ||
+    (typeof context.issueId === "string" && context.issueId.trim().length > 0 && context.issueId.trim()) ||
+    null;
+  const wakeReason =
+    typeof context.wakeReason === "string" && context.wakeReason.trim().length > 0
+      ? context.wakeReason.trim()
+      : null;
+  const wakeCommentId =
+    (typeof context.wakeCommentId === "string" && context.wakeCommentId.trim().length > 0 && context.wakeCommentId.trim()) ||
+    (typeof context.commentId === "string" && context.commentId.trim().length > 0 && context.commentId.trim()) ||
+    null;
+  const approvalId =
+    typeof context.approvalId === "string" && context.approvalId.trim().length > 0
+      ? context.approvalId.trim()
+      : null;
+  const approvalStatus =
+    typeof context.approvalStatus === "string" && context.approvalStatus.trim().length > 0
+      ? context.approvalStatus.trim()
+      : null;
+  const linkedIssueIds = Array.isArray(context.issueIds)
+    ? context.issueIds.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    : [];
+  const wakePayloadJson = stringifyPaperclipWakePayload(context.paperclipWake);
+  const issueWorkMode = readPaperclipIssueWorkModeFromContext(context);
+
+  if (wakeTaskId) env.PAPERCLIP_TASK_ID = wakeTaskId;
+  if (issueWorkMode) env.PAPERCLIP_ISSUE_WORK_MODE = issueWorkMode;
+  if (wakeReason) env.PAPERCLIP_WAKE_REASON = wakeReason;
+  if (wakeCommentId) env.PAPERCLIP_WAKE_COMMENT_ID = wakeCommentId;
+  if (approvalId) env.PAPERCLIP_APPROVAL_ID = approvalId;
+  if (approvalStatus) env.PAPERCLIP_APPROVAL_STATUS = approvalStatus;
+  if (linkedIssueIds.length > 0) env.PAPERCLIP_LINKED_ISSUE_IDS = linkedIssueIds.join(",");
+  if (wakePayloadJson) env.PAPERCLIP_WAKE_PAYLOAD_JSON = wakePayloadJson;
+
   for (const [k, v] of Object.entries(envConfig)) {
     if (typeof v === "string") env[k] = v;
+  }
+  if (
+    authToken &&
+    !(typeof envConfig.PAPERCLIP_API_KEY === "string" && envConfig.PAPERCLIP_API_KEY.trim().length > 0)
+  ) {
+    env.PAPERCLIP_API_KEY = authToken;
   }
   const runtimeEnv = ensurePathInEnv({ ...process.env, ...env });
   const resolvedCommand = await resolveCommandForLogs(command, cwd, runtimeEnv);
@@ -51,6 +154,12 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     graceSec,
     onLog,
   });
+  const { disposition, cleanedText } = extractPaperclipDisposition(proc.stdout ?? "");
+  const resultJson = {
+    stdout: cleanedText,
+    stderr: proc.stderr,
+    ...(disposition ? { disposition } : {}),
+  };
 
   if (proc.timedOut) {
     return {
@@ -67,10 +176,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       signal: proc.signal,
       timedOut: false,
       errorMessage: `Process exited with code ${proc.exitCode ?? -1}`,
-      resultJson: {
-        stdout: proc.stdout,
-        stderr: proc.stderr,
-      },
+      resultJson,
     };
   }
 
@@ -78,9 +184,6 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     exitCode: proc.exitCode,
     signal: proc.signal,
     timedOut: false,
-    resultJson: {
-      stdout: proc.stdout,
-      stderr: proc.stderr,
-    },
+    resultJson,
   };
 }

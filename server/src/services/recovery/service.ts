@@ -128,7 +128,7 @@ type RecoveryWakeup = (
 
 type LatestIssueRun = Pick<
   typeof heartbeatRuns.$inferSelect,
-  "id" | "agentId" | "status" | "error" | "errorCode" | "contextSnapshot" | "livenessState"
+  "id" | "agentId" | "status" | "error" | "errorCode" | "contextSnapshot" | "livenessState" | "resultJson"
 > | null;
 type SuccessfulLatestIssueRun = NonNullable<LatestIssueRun> & { status: "succeeded" };
 
@@ -168,6 +168,11 @@ export type RunOutputSilenceSummary = {
 
 function readNonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function readConfigurationIncompleteRemediation(run: LatestIssueRun) {
+  const configurationIncomplete = parseObject(parseObject(run?.resultJson).configurationIncomplete);
+  return readNonEmptyString(configurationIncomplete.remediation);
 }
 
 function summarizeRunFailureForIssueComment(run: LatestIssueRun) {
@@ -273,6 +278,19 @@ function successfulRunHandoffRecoveryEvidence(latestRun: LatestIssueRun): Succes
     handoffAttempt,
     maxHandoffAttempts,
   };
+}
+
+function canRouteSourceRecoveryToShellHandler(issue: Pick<typeof issues.$inferSelect, "originKind">) {
+  return issue.originKind === "routine_execution";
+}
+
+function canOwnSourceScopedRecovery(
+  issue: Pick<typeof issues.$inferSelect, "originKind">,
+  candidate: Pick<typeof agents.$inferSelect, "adapterType"> | null | undefined,
+) {
+  if (!candidate) return false;
+  if (candidate.adapterType !== "paperclip_shell_handler") return true;
+  return canRouteSourceRecoveryToShellHandler(issue);
 }
 
 function isExhaustedSuccessfulRunHandoff(latestRun: LatestIssueRun) {
@@ -513,6 +531,7 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
         status: heartbeatRuns.status,
         error: heartbeatRuns.error,
         errorCode: heartbeatRuns.errorCode,
+        resultJson: heartbeatRuns.resultJson,
         contextSnapshot: heartbeatRuns.contextSnapshot,
         livenessState: heartbeatRuns.livenessState,
       })
@@ -2241,12 +2260,14 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
 
   async function resolveStrandedIssueRecoveryOwnerAgentId(issue: typeof issues.$inferSelect) {
     const candidateIds: string[] = [];
-    // Cheap-lane first: deterministic shell-handler Compiler triages the stranded
-    // case and only escalates after repeated unresolved reviews. The configured
-    // per-company strandedRecoveryOwnerAgentId and the leadership chain remain as
-    // fallbacks when no cheap reviewer is available.
-    const cheapReviewerId = await resolveCheapRecoveryReviewerAgentId(db, issue.companyId);
-    if (cheapReviewerId) candidateIds.push(cheapReviewerId);
+    const allowShellHandlerCatchAll = canRouteSourceRecoveryToShellHandler(issue);
+    // Cheap-lane first only for genuine routine-op work. For non-routine issues,
+    // preserve the explicit capable assignee/recovery chain instead of
+    // overwriting it with a shell-handler catch-all.
+    if (allowShellHandlerCatchAll) {
+      const cheapReviewerId = await resolveCheapRecoveryReviewerAgentId(db, issue.companyId);
+      if (cheapReviewerId) candidateIds.push(cheapReviewerId);
+    }
     const company = await db
       .select({ strandedRecoveryOwnerAgentId: companies.strandedRecoveryOwnerAgentId })
       .from(companies)
@@ -2279,6 +2300,7 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
       seen.add(agentId);
       const candidate = await getAgent(agentId);
       if (!candidate || candidate.companyId !== issue.companyId) continue;
+      if (!canOwnSourceScopedRecovery(issue, candidate)) continue;
       const budgetBlock = await budgets.getInvocationBlock(issue.companyId, candidate.id, {
         issueId: issue.id,
         projectId: issue.projectId,
@@ -2530,7 +2552,10 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
         : recoveryCause === "workspace_validation_failed"
           ? "Repair the source issue workspace link, project workspace cwd, or git checkout before resuming adapter execution."
         : recoveryCause === "configuration_incomplete"
-          ? "Bind the missing secret(s) named in the run failure to the agent/project/routine env before resuming adapter execution."
+          ? (
+            readConfigurationIncompleteRemediation(input.latestRun) ??
+            "Bind the missing secret(s) named in the run failure to the agent/project/routine env before resuming adapter execution."
+          )
         : "Restore a live execution path, fix the runtime/adapter failure, or record an intentional manual resolution.",
       wakePolicy: recoveryCause === "workspace_validation_failed" || recoveryCause === "configuration_incomplete"
         ? {

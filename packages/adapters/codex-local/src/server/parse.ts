@@ -10,6 +10,64 @@ const CODEX_TRANSIENT_UPSTREAM_RE =
 const CODEX_REMOTE_COMPACTION_RE = /remote\s+compact\s+task/i;
 const CODEX_USAGE_LIMIT_RE =
   /you(?:'|’)ve hit your usage limit for .+\.\s+switch to another model now,\s+or try again at\s+([^.!\n]+)(?:[.!]|\n|$)/i;
+const PAPERCLIP_DISPOSITION_RE = /(?:^|\n)\s*PAPERCLIP_DISPOSITION:\s*(\{[^\n]*\})\s*(?=$|\n)/g;
+
+type ParsedDisposition = {
+  status: string;
+  hasBlocker: boolean;
+  blocker?: string;
+  reviewer?: string;
+};
+
+function extractPaperclipDisposition(text: string): {
+  disposition: ParsedDisposition | null;
+  cleanedText: string;
+} {
+  let match: RegExpExecArray | null = null;
+  let lastValid:
+    | {
+        disposition: ParsedDisposition;
+        index: number;
+        fullMatch: string;
+      }
+    | null = null;
+
+  while ((match = PAPERCLIP_DISPOSITION_RE.exec(text)) !== null) {
+    try {
+      const parsed = JSON.parse(match[1] ?? "null") as Record<string, unknown> | null;
+      const status = typeof parsed?.status === "string" ? parsed.status.trim() : "";
+      if (!status) continue;
+      lastValid = {
+        disposition: {
+          status,
+          hasBlocker: parsed?.hasBlocker === true,
+          ...(typeof parsed?.blocker === "string" && parsed.blocker.trim().length > 0
+            ? { blocker: parsed.blocker.trim() }
+            : {}),
+          ...(typeof parsed?.reviewer === "string" && parsed.reviewer.trim().length > 0
+            ? { reviewer: parsed.reviewer.trim() }
+            : {}),
+        },
+        index: match.index,
+        fullMatch: match[0],
+      };
+    } catch {
+      continue;
+    }
+  }
+
+  if (!lastValid) {
+    return { disposition: null, cleanedText: text.trim() };
+  }
+
+  const cleanedText = `${text.slice(0, lastValid.index)}${text.slice(lastValid.index + lastValid.fullMatch.length)}`
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return {
+    disposition: lastValid.disposition,
+    cleanedText,
+  };
+}
 
 export function parseCodexJsonl(stdout: string) {
   let sessionId: string | null = null;
@@ -64,11 +122,14 @@ export function parseCodexJsonl(stdout: string) {
     }
   }
 
+  const { disposition, cleanedText } = extractPaperclipDisposition(finalMessage?.trim() ?? "");
+
   return {
     sessionId,
-    summary: finalMessage?.trim() ?? "",
+    summary: cleanedText,
     usage,
     errorMessage,
+    disposition,
   };
 }
 

@@ -30,6 +30,7 @@ describe("parseCodexJsonl", () => {
         outputTokens: 4,
       },
       errorMessage: "resume failed",
+      disposition: null,
     });
   });
 
@@ -63,6 +64,42 @@ describe("parseCodexJsonl", () => {
         outputTokens: 4,
       },
       errorMessage: null,
+      disposition: null,
+    });
+  });
+
+  it("extracts and strips the final PAPERCLIP_DISPOSITION token", () => {
+    const stdout = [
+      JSON.stringify({ type: "thread.started", thread_id: "thread_123" }),
+      JSON.stringify({
+        type: "item.completed",
+        item: {
+          type: "agent_message",
+          text: [
+            "Fixed the issue and verified the targeted tests pass.",
+            'PAPERCLIP_DISPOSITION: {"status":"done","hasBlocker":false}',
+          ].join("\n"),
+        },
+      }),
+      JSON.stringify({
+        type: "turn.completed",
+        usage: { input_tokens: 10, cached_input_tokens: 2, output_tokens: 4 },
+      }),
+    ].join("\n");
+
+    expect(parseCodexJsonl(stdout)).toEqual({
+      sessionId: "thread_123",
+      summary: "Fixed the issue and verified the targeted tests pass.",
+      usage: {
+        inputTokens: 10,
+        cachedInputTokens: 2,
+        outputTokens: 4,
+      },
+      errorMessage: null,
+      disposition: {
+        status: "done",
+        hasBlocker: false,
+      },
     });
   });
 });

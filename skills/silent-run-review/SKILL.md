@@ -31,6 +31,14 @@ Work down; stop at the first match.
    - **Pid dead** but run still `running`: the run handle is stranded. Note the evidence, let/ask the recovery path re-dispatch the source issue (move it back to `todo` with a next action if you own it), close the review.
    - **Pid alive but silent**: decide harm vs. patience. If it may be mutating external state or is clearly wedged (silent well past the critical threshold with no side-effect evidence), kill it, move the source issue back to `todo` with a precise next action, close the review. If in doubt and the source issue is blocked on this evaluation, prefer recovery over indefinite waiting — the watchdog blocked the source issue precisely so someone decides.
 
+### Codex liveness exit contract
+
+Treat `process_lost` and `codex_output_inactivity_monitor` as deterministic recovery cases, not "maybe rerun it on the same lane until it works":
+
+- **`process_lost`**: allow one bounded retry path only. If the recovery service has not yet spent the single retry, let that retry stand and close the review with the retry evidence. If the same source issue comes back after the one retry, stop same-lane reruns: move the source issue to a healthy next action (`todo` with a restart step, or a sister-lane transfer when the job is long/expensive) and close the review with that transfer/restart decision.
+- **`codex_output_inactivity_monitor`**: do not keep rearming the same Codex lane after repeated silent exits on the same case. For long or expensive work, prefer sister-lane transfer via `fallback-lane-ops`; for short work, allow one clean restart with a precise next action, then transfer/block instead of looping.
+- The reviewer's job is to force an exit from the liveness loop: one retry if the contract still allows it, otherwise a transfer, reroute, or explicit healthy waiting path.
+
 **4. Benign long-runner?** Builds, big test suites, long agent sessions that are genuinely working. Record an explicit watchdog decision rather than just commenting:
    - `continue` — current evidence is acceptable; does not touch the run; re-arms the watchdog after a 30-minute default window.
    - `snooze` — known time-bounded quiet period; suppresses further scan-created review work until the chosen quiet-until time. Prefer this for known long jobs so the watchdog does not re-file.
@@ -54,6 +62,7 @@ For productivity reviews specifically, the manager decision menu is in the issue
 - Do not edit or remove the `Recovery review cycle tracker.` marker comment by hand — it carries the consecutive-review count and escalation state. Closing the review clean lets the recovery service reset it; tampering breaks the escalate-after-3 contract.
 - One review per run is the invariant — if you find duplicates, keep the canonical one and cancel the rest with a link to the keeper.
 - Critical-level reviews may have **blocked the source issue** on the evaluation. Closing the review must also restore the source issue's path: clear the blocker and leave the source in a healthy state (`todo` with a next action, an active run, or a real waiting path).
+- For `process_lost` or `codex_output_inactivity_monitor`, "healthy state" never means indefinite same-lane rerun churn. Record whether the single retry was consumed, or where the work was transferred next.
 
 ## When to escalate instead
 

@@ -18,6 +18,28 @@ describe("parseGrokJsonl", () => {
       errorMessage: null,
       stopReason: "EndTurn",
       requestId: "req-1",
+      disposition: null,
+    });
+  });
+
+  it("extracts and strips the final PAPERCLIP_DISPOSITION token", () => {
+    const stdout = [
+      JSON.stringify({ type: "text", data: "Fixed the issue and verified the targeted tests pass.\n" }),
+      JSON.stringify({ type: "text", data: 'PAPERCLIP_DISPOSITION: {"status":"done","hasBlocker":false}' }),
+      JSON.stringify({ type: "end", stopReason: "EndTurn", sessionId: "sess-1", requestId: "req-1" }),
+    ].join("\n");
+
+    expect(parseGrokJsonl(stdout)).toEqual({
+      sessionId: "sess-1",
+      summary: "Fixed the issue and verified the targeted tests pass.",
+      thought: "",
+      errorMessage: null,
+      stopReason: "EndTurn",
+      requestId: "req-1",
+      disposition: {
+        status: "done",
+        hasBlocker: false,
+      },
     });
   });
 
@@ -30,8 +52,6 @@ describe("parseGrokJsonl", () => {
   });
 
   it("separates reasoning turns that grok streaming-json glues together", () => {
-    // PAPA-349: at turn boundaries grok drops the newline between turns; the
-    // aggregated thought should still read as two paragraphs.
     const parsed = parseGrokJsonl([
       JSON.stringify({ type: "thought", data: "The user uses `" }),
       JSON.stringify({ type: "thought", data: "ls" }),
@@ -47,10 +67,7 @@ describe("parseGrokJsonl", () => {
     expect(parsed.thought).toBe("The user uses `ls`\nThe `ls` returned");
   });
 
-  it("preserves assistant `text` chunks verbatim (no boundary heuristic)", () => {
-    // PAPA-349 review feedback: the turn-boundary helper is scoped to the
-    // reasoning stream only. Final assistant text is stored unmodified so
-    // user-visible responses cannot be reshaped by the heuristic.
+  it("preserves assistant text chunks verbatim", () => {
     const parsed = parseGrokJsonl([
       JSON.stringify({ type: "text", data: "Done." }),
       JSON.stringify({ type: "text", data: "Next" }),

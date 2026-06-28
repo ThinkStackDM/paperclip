@@ -1355,6 +1355,181 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
     });
   });
 
+  it("reaps pending interactions when an issue is closed", async () => {
+    const companyId = randomUUID();
+    const goalId = randomUUID();
+    const issueId = randomUUID();
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+    await instanceSettingsService(db).updateExperimental({ enableIsolatedWorkspaces: false });
+    await db.insert(goals).values({
+      id: goalId,
+      companyId,
+      title: "Close pending interactions",
+      level: "task",
+      status: "active",
+    });
+    await db.insert(issues).values({
+      id: issueId,
+      companyId,
+      goalId,
+      title: "Issue with pending interactions",
+      status: "done",
+      priority: "medium",
+      assigneeAgentId: "11111111-1111-4111-8111-111111111111",
+    });
+
+    const confirmation = await interactionsSvc.create({ id: issueId, companyId }, {
+      kind: "request_confirmation",
+      continuationPolicy: "wake_assignee",
+      payload: {
+        version: 1,
+        prompt: "Ship it?",
+      },
+      summary: "ASK: approve. WHY: pending. ACTION: decide.",
+    }, {
+      agentId: "11111111-1111-4111-8111-111111111111",
+    });
+    const questions = await interactionsSvc.create({ id: issueId, companyId }, {
+      kind: "ask_user_questions",
+      continuationPolicy: "wake_assignee",
+      payload: {
+        version: 1,
+        questions: [{
+          id: "ship",
+          prompt: "Ship now?",
+          selectionMode: "single",
+          options: [{ id: "yes", label: "Yes" }],
+        }],
+      },
+      summary: "ASK: answer. WHY: unblock. ACTION: choose.",
+    }, {
+      userId: "local-board",
+    });
+
+    const expired = await interactionsSvc.expirePendingInteractionsForStaleIssueState({
+      previousIssue: {
+        id: issueId,
+        companyId,
+        status: "in_progress",
+        assigneeAgentId: "11111111-1111-4111-8111-111111111111",
+        assigneeUserId: null,
+      },
+      issue: {
+        id: issueId,
+        companyId,
+        status: "done",
+        assigneeAgentId: "11111111-1111-4111-8111-111111111111",
+        assigneeUserId: null,
+      },
+      actor: {
+        userId: "local-board",
+      },
+    });
+
+    expect(expired).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: confirmation.id,
+        status: "expired",
+        result: expect.objectContaining({
+          version: 1,
+          outcome: "stale_issue_state",
+          reason: "Issue closed as done.",
+        }),
+      }),
+      expect.objectContaining({
+        id: questions.id,
+        status: "cancelled",
+        result: expect.objectContaining({
+          version: 1,
+          cancelled: true,
+          cancellationReason: "Issue closed as done.",
+        }),
+      }),
+    ]));
+  });
+
+  it("reaps pending interactions when an issue is reassigned", async () => {
+    const companyId = randomUUID();
+    const goalId = randomUUID();
+    const issueId = randomUUID();
+    const fromAgentId = "11111111-1111-4111-8111-111111111111";
+    const toAgentId = "22222222-2222-4222-8222-222222222222";
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+    await instanceSettingsService(db).updateExperimental({ enableIsolatedWorkspaces: false });
+    await db.insert(goals).values({
+      id: goalId,
+      companyId,
+      title: "Reassign pending interactions",
+      level: "task",
+      status: "active",
+    });
+    await db.insert(issues).values({
+      id: issueId,
+      companyId,
+      goalId,
+      title: "Issue with pending confirmation",
+      status: "in_progress",
+      priority: "medium",
+      assigneeAgentId: toAgentId,
+    });
+
+    const confirmation = await interactionsSvc.create({ id: issueId, companyId }, {
+      kind: "request_confirmation",
+      continuationPolicy: "wake_assignee",
+      payload: {
+        version: 1,
+        prompt: "Approve reassignment?",
+      },
+      summary: "ASK: approve. WHY: stale owner. ACTION: decide.",
+    }, {
+      agentId: fromAgentId,
+    });
+
+    const expired = await interactionsSvc.expirePendingInteractionsForStaleIssueState({
+      previousIssue: {
+        id: issueId,
+        companyId,
+        status: "in_progress",
+        assigneeAgentId: fromAgentId,
+        assigneeUserId: null,
+      },
+      issue: {
+        id: issueId,
+        companyId,
+        status: "in_progress",
+        assigneeAgentId: toAgentId,
+        assigneeUserId: null,
+      },
+      actor: {
+        agentId: toAgentId,
+      },
+    });
+
+    expect(expired).toEqual([
+      expect.objectContaining({
+        id: confirmation.id,
+        status: "expired",
+        result: expect.objectContaining({
+          version: 1,
+          outcome: "stale_issue_state",
+          reason: "Issue reassigned to a different owner.",
+        }),
+      }),
+    ]);
+  });
+
   describe("workspace_finalize accept gate", () => {
     type AcceptGateInteractionKind = "request_confirmation" | "request_checkbox_confirmation";
 
