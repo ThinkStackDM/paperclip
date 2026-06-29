@@ -20,6 +20,8 @@ export interface InstanceRunControls {
    * key applies to any adapter type without an explicit entry.
    */
   adapterConcurrency: Record<string, number>;
+  /** Max simultaneously running heartbeat runs across the whole instance. */
+  globalConcurrency: number;
 }
 
 export const DEFAULT_ADAPTER_CONCURRENCY: Record<string, number> = {
@@ -27,6 +29,8 @@ export const DEFAULT_ADAPTER_CONCURRENCY: Record<string, number> = {
   codex_local: 3,
   default: 2,
 };
+
+export const DEFAULT_GLOBAL_CONCURRENCY = 20;
 
 /** Adapter types never throttled by concurrency caps (deterministic, near-zero cost). */
 export const CONCURRENCY_EXEMPT_ADAPTER_TYPES = ["paperclip_shell_handler"] as const;

@@ -1,6 +1,7 @@
 import { Router, type Request } from "express";
 import type { Db } from "@paperclipai/db";
 import {
+  DEFAULT_GLOBAL_CONCURRENCY,
   issueGraphLivenessAutoRecoveryRequestSchema,
   patchInstanceAdapterConcurrencySchema,
   patchInstanceSettingsSchema,
@@ -255,7 +256,11 @@ export function instanceSettingsRoutes(db: Db) {
     validate(patchInstanceAdapterConcurrencySchema),
     async (req, res) => {
       assertCanManageInstanceSettings(req);
-      const patch = req.body.adapterConcurrency as Record<string, number | null>;
+      const patch = (req.body.adapterConcurrency ?? {}) as Record<string, number | null>;
+      const globalConcurrency =
+        Object.prototype.hasOwnProperty.call(req.body, "globalConcurrency")
+          ? (req.body.globalConcurrency as number | null | undefined)
+          : undefined;
       const updated = await svc.updateRunControls((current): InstanceRunControls => {
         const adapterConcurrency = { ...current.adapterConcurrency };
         for (const [adapterType, cap] of Object.entries(patch)) {
@@ -265,10 +270,17 @@ export function instanceSettingsRoutes(db: Db) {
             adapterConcurrency[adapterType] = cap;
           }
         }
-        return { ...current, adapterConcurrency };
+        return {
+          ...current,
+          adapterConcurrency,
+          ...(globalConcurrency === undefined
+            ? {}
+            : { globalConcurrency: globalConcurrency ?? DEFAULT_GLOBAL_CONCURRENCY }),
+        };
       });
       await logRunControlsChange(req, "instance.run_controls.concurrency_updated", {
         adapterConcurrency: patch,
+        ...(globalConcurrency === undefined ? {} : { globalConcurrency }),
       });
       res.json(updated);
     },

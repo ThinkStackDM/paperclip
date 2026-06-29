@@ -942,6 +942,7 @@ export {
 } from "./types/company-activity-window.js";
 export {
   DEFAULT_ADAPTER_CONCURRENCY,
+  DEFAULT_GLOBAL_CONCURRENCY,
   CONCURRENCY_EXEMPT_ADAPTER_TYPES,
   type InstanceRunPause,
   type InstanceRunControls,
