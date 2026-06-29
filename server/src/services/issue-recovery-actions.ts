@@ -33,6 +33,7 @@ export type UpsertIssueRecoveryActionInput = {
   wakePolicy?: Record<string, unknown> | null;
   monitorPolicy?: Record<string, unknown> | null;
   maxAttempts?: number | null;
+  initialAttemptCount?: number | null;
   timeoutAt?: Date | null;
   lastAttemptAt?: Date | null;
 };
@@ -178,6 +179,7 @@ export function issueRecoveryActionService(db: Db) {
     const existing = await getActiveForIssue(input.companyId, input.sourceIssueId);
     const now = new Date();
     const ownerType = input.ownerType ?? (input.ownerAgentId ? "agent" : "board");
+    const initialAttemptCount = Math.max(1, Math.floor(input.initialAttemptCount ?? 1));
     if (existing) {
       const [updated] = await db
         .update(issueRecoveryActions)
@@ -238,7 +240,7 @@ export function issueRecoveryActionService(db: Db) {
           nextAction: input.nextAction,
           wakePolicy: input.wakePolicy ?? null,
           monitorPolicy: input.monitorPolicy ?? null,
-          attemptCount: 1,
+          attemptCount: initialAttemptCount,
           maxAttempts: input.maxAttempts ?? null,
           timeoutAt: input.timeoutAt ?? null,
           lastAttemptAt: input.lastAttemptAt ?? now,

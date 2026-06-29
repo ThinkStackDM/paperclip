@@ -152,6 +152,48 @@ describe("issue graph liveness classifier", () => {
     expect(findings).toEqual([]);
   });
 
+  it("prefers a media-capable specialist for image generation unblock work", () => {
+    const mediaSpecialistId = "designer-media";
+
+    const findings = classifyIssueGraphLiveness({
+      issues: [
+        issue(),
+        issue({
+          id: blockerId,
+          identifier: "PAP-1704",
+          title: "Generate launch hero image",
+          description: "Requires image_gen output for the landing page.",
+          status: "todo",
+          assigneeAgentId: null,
+        }),
+      ],
+      relations: blocks,
+      agents: [
+        agent(),
+        manager,
+        agent({
+          id: mediaSpecialistId,
+          name: "Designer-Media",
+          title: "Designer / Media (grok-imagine)",
+          adapterType: "hermes_local",
+          adapterConfig: { toolsets: "image_gen,video_gen" },
+          reportsTo: null,
+        }),
+      ],
+    });
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({
+      state: "blocked_by_unassigned_issue",
+      recommendedOwnerAgentId: mediaSpecialistId,
+    });
+    expect(findings[0]?.recommendedOwnerCandidates[0]).toMatchObject({
+      agentId: mediaSpecialistId,
+      reason: "required_tool_match",
+      sourceIssueId: blockerId,
+    });
+  });
+
   it("detects an assigned backlog blocker leaf with no action path", () => {
     const findings = classifyIssueGraphLiveness({
       issues: [

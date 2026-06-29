@@ -1,5 +1,10 @@
 import { getAgentWorkEligibility, isAgentInvokable } from "@paperclipai/shared";
 import { buildIssueGraphLivenessIncidentKey } from "./origins.js";
+import {
+  agentSatisfiesIssueToolRequirements,
+  compareAgentsByIssueToolRequirements,
+  inferIssueToolRequirements,
+} from "../issue-capability-routing.js";
 
 export type IssueLivenessSeverity = "warning" | "critical";
 
@@ -17,6 +22,7 @@ export interface IssueLivenessIssueInput {
   companyId: string;
   identifier: string | null;
   title: string;
+  description?: string | null;
   status: string;
   projectId?: string | null;
   goalId?: string | null;
@@ -30,6 +36,7 @@ export interface IssueLivenessIssueInput {
   monitorNextCheckAt?: Date | string | null;
   monitorAttemptCount?: number | null;
   updatedAt?: Date | string | null;
+  labels?: string[] | null;
 }
 
 export interface IssueLivenessRelationInput {
@@ -44,6 +51,9 @@ export interface IssueLivenessAgentInput {
   name: string;
   role: string;
   title?: string | null;
+  capabilities?: string | null;
+  adapterType?: string | null;
+  adapterConfig?: Record<string, unknown> | null;
   status: string;
   reportsTo?: string | null;
 }
@@ -69,6 +79,7 @@ export interface IssueLivenessDependencyPathEntry {
 }
 
 export type IssueLivenessOwnerCandidateReason =
+  | "required_tool_match"
   | "stalled_blocker_assignee"
   | "assignee_reporting_chain"
   | "creator_reporting_chain"
@@ -265,6 +276,31 @@ function ownerCandidatesForRecoveryIssue(
 ) {
   const candidates: IssueLivenessOwnerCandidate[] = [];
   const seen = new Set<string>();
+  const requirements = inferIssueToolRequirements({
+    title: issue.title,
+    description: issue.description ?? null,
+    labels: issue.labels ?? [],
+  });
+
+  if (requirements.requiresMediaTools) {
+    const capableAgents = orderedInvokableAgents(agents, agentsById, issue.companyId)
+      .filter((agent) => agentSatisfiesIssueToolRequirements(agent, requirements))
+      .sort((left, right) => compareAgentsByIssueToolRequirements(left, right, requirements));
+    for (const agent of capableAgents) {
+      addOwnerCandidate(
+        candidates,
+        seen,
+        agentsById,
+        issue.companyId,
+        agent.id,
+        "required_tool_match",
+        issue.id,
+      );
+    }
+    if (candidates.length > 0) {
+      return candidates;
+    }
+  }
 
   if (options.includeStalledAssignee && issue.status !== "cancelled" && issue.status !== "done") {
     addOwnerCandidate(

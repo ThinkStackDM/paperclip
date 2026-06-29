@@ -22,7 +22,9 @@ import {
   issueRecoveryActions,
   issueRelations,
   issueThreadInteractions,
+  issueLabels,
   issues,
+  labels,
 } from "@paperclipai/db";
 import { parseObject, asBoolean, asNumber } from "../../adapters/utils.js";
 import { runningProcesses } from "../../adapters/index.js";
@@ -39,6 +41,12 @@ import { issueTreeControlService } from "../issue-tree-control.js";
 import { TERMINAL_HEARTBEAT_RUN_STATUSES, issueService } from "../issues.js";
 import { evaluateAgentInvokabilityFromDb } from "../agent-invokability.js";
 import { getRunLogStore } from "../run-log-store.js";
+import {
+  agentSatisfiesIssueToolRequirements,
+  compareAgentsByIssueToolRequirements,
+  inferIssueToolRequirements,
+  type AgentCapabilityRoutingInput,
+} from "../issue-capability-routing.js";
 import {
   DEFAULT_MAX_SUCCESSFUL_RUN_HANDOFF_ATTEMPTS,
   FINISH_SUCCESSFUL_RUN_HANDOFF_REASON,
@@ -87,6 +95,8 @@ const ISSUE_GRAPH_LIVENESS_BLOCKED_STALE_HOURS = 48;
 // that prompted pausing auto-recovery). Remaining findings are picked up on
 // subsequent runs.
 const ISSUE_GRAPH_LIVENESS_MAX_ESCALATIONS_PER_RUN = 10;
+const ISSUE_GRAPH_LIVENESS_BASE_BACKOFF_MS = 15 * 60 * 1000;
+const ISSUE_GRAPH_LIVENESS_MAX_ATTEMPTS = 3;
 const DEFERRED_WAKE_CONTEXT_KEY = "_paperclipWakeContext";
 const SESSIONED_LOCAL_ADAPTERS = new Set([
   "claude_local",
@@ -517,6 +527,64 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
 
   async function getAgent(agentId: string) {
     return db.select().from(agents).where(eq(agents.id, agentId)).then((rows) => rows[0] ?? null);
+  }
+
+  async function listCompanyAgentsForToolRouting(companyId: string): Promise<AgentCapabilityRoutingInput[]> {
+    return db
+      .select({
+        id: agents.id,
+        name: agents.name,
+        title: agents.title,
+        capabilities: agents.capabilities,
+        adapterType: agents.adapterType,
+        adapterConfig: agents.adapterConfig,
+      })
+      .from(agents)
+      .where(eq(agents.companyId, companyId));
+  }
+
+  async function findCapabilityMatchedRecoveryOwner(input: {
+    companyId: string;
+    title: string;
+    description?: string | null;
+    labels?: string[] | null;
+    excludeAgentIds?: string[];
+  }) {
+    const requirements = inferIssueToolRequirements({
+      title: input.title,
+      description: input.description ?? null,
+      labels: input.labels ?? [],
+    });
+    if (!requirements.requiresMediaTools) return null;
+
+    const excluded = new Set(input.excludeAgentIds ?? []);
+    const candidates = await listCompanyAgentsForToolRouting(input.companyId);
+    const capable = candidates
+      .filter((candidate) => !excluded.has(candidate.id))
+      .filter((candidate) => agentSatisfiesIssueToolRequirements(candidate, requirements))
+      .sort((left, right) => compareAgentsByIssueToolRequirements(left, right, requirements));
+    if (capable.length === 0) return {
+      requirements,
+      selectedAgentId: null,
+      candidateAgentIds: [],
+    };
+
+    for (const candidate of capable) {
+      const fullAgent = await getAgent(candidate.id);
+      if (!fullAgent || fullAgent.companyId !== input.companyId) continue;
+      if (!(await isAgentInvokable(fullAgent))) continue;
+      return {
+        requirements,
+        selectedAgentId: fullAgent.id,
+        candidateAgentIds: capable.map((entry) => entry.id),
+      };
+    }
+
+    return {
+      requirements,
+      selectedAgentId: null,
+      candidateAgentIds: capable.map((entry) => entry.id),
+    };
   }
 
   async function isAgentInvokable(agent: typeof agents.$inferSelect | null | undefined) {
@@ -2258,6 +2326,23 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
   }
 
   async function resolveStrandedIssueRecoveryOwnerAgentId(issue: typeof issues.$inferSelect) {
+    const issueLabelNames = await db
+      .select({ name: labels.name })
+      .from(issueLabels)
+      .innerJoin(labels, eq(issueLabels.labelId, labels.id))
+      .where(and(eq(issueLabels.companyId, issue.companyId), eq(issueLabels.issueId, issue.id)))
+      .then((rows) => rows.map((row) => row.name));
+    const capabilityMatchedOwner = await findCapabilityMatchedRecoveryOwner({
+      companyId: issue.companyId,
+      title: issue.title,
+      description: issue.description ?? null,
+      labels: issueLabelNames,
+      excludeAgentIds: issue.assigneeAgentId ? [issue.assigneeAgentId] : [],
+    });
+    if (capabilityMatchedOwner?.selectedAgentId) {
+      return capabilityMatchedOwner.selectedAgentId;
+    }
+
     const candidateIds: string[] = [];
     const allowShellHandlerCatchAll = canRouteSourceRecoveryToShellHandler(issue);
     // Cheap-lane first only for genuine routine-op work. For non-routine issues,
@@ -3417,6 +3502,7 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
         companyId: issues.companyId,
         identifier: issues.identifier,
         title: issues.title,
+        description: issues.description,
         status: issues.status,
         projectId: issues.projectId,
         goalId: issues.goalId,
@@ -3442,6 +3528,7 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
     const [
       issueRows,
       relationRows,
+      issueLabelRows,
       agentRows,
       activeRunRows,
       activeIssueRunRows,
@@ -3449,7 +3536,6 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
       interactionRows,
       approvalRows,
       recoveryIssueRows,
-      recoveryActionRows,
     ] = await Promise.all([
       issueRowsPromise,
       db
@@ -3460,6 +3546,19 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
         })
         .from(issueRelations)
         .where(eq(issueRelations.type, "blocks")),
+      issueRowsPromise.then((rows) => {
+        const issueIds = rows.map((row) => row.id);
+        return issueIds.length === 0
+          ? []
+          : db
+            .select({
+              issueId: issueLabels.issueId,
+              name: labels.name,
+            })
+            .from(issueLabels)
+            .innerJoin(labels, eq(issueLabels.labelId, labels.id))
+            .where(inArray(issueLabels.issueId, issueIds));
+      }),
       db
         .select({
           id: agents.id,
@@ -3467,6 +3566,9 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
           name: agents.name,
           role: agents.role,
           title: agents.title,
+          capabilities: agents.capabilities,
+          adapterType: agents.adapterType,
+          adapterConfig: agents.adapterConfig,
           status: agents.status,
           reportsTo: agents.reportsTo,
         })
@@ -3541,24 +3643,6 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
             notInArray(issues.status, ["done", "cancelled"]),
           ),
         ),
-      issueRowsPromise.then((rows) => {
-        const issueIdsUnderAnalysis = rows.map((row) => row.id);
-        return issueIdsUnderAnalysis.length === 0
-          ? []
-          : db
-            .select({
-              companyId: issueRecoveryActions.companyId,
-              issueId: issueRecoveryActions.sourceIssueId,
-              status: issueRecoveryActions.status,
-            })
-            .from(issueRecoveryActions)
-            .where(
-              and(
-                inArray(issueRecoveryActions.status, ["active", "escalated"]),
-                inArray(issueRecoveryActions.sourceIssueId, issueIdsUnderAnalysis),
-              ),
-            );
-      }),
     ]);
 
     const openRecoveryIssues = recoveryIssueRows.flatMap((row) => {
@@ -3588,12 +3672,22 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
       }];
     });
 
+    const labelNamesByIssueId = new Map<string, string[]>();
+    for (const row of issueLabelRows) {
+      const existing = labelNamesByIssueId.get(row.issueId) ?? [];
+      existing.push(row.name);
+      labelNamesByIssueId.set(row.issueId, existing);
+    }
+
     const scopedIssueRows = excludedCompanyIds.size === 0
       ? issueRows
       : issueRows.filter((row) => !excludedCompanyIds.has(row.companyId));
 
     return classifyIssueGraphLiveness({
-      issues: scopedIssueRows,
+      issues: scopedIssueRows.map((row) => ({
+        ...row,
+        labels: labelNamesByIssueId.get(row.id) ?? [],
+      })),
       relations: relationRows,
       agents: agentRows,
       activeRuns: activeRunRows.map((row) => ({
@@ -3615,7 +3709,7 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
       })),
       pendingInteractions: interactionRows,
       pendingApprovals: approvalRows,
-      openRecoveryIssues: openRecoveryIssues.concat(recoveryActionRows),
+      openRecoveryIssues,
       now: new Date(),
       blockedStaleHours: ISSUE_GRAPH_LIVENESS_BLOCKED_STALE_HOURS,
     });
@@ -3671,6 +3765,92 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
       const parsed = parseLivenessIncidentKey(row.originId);
       return parsed?.state === finding.state && parsed.leafIssueId === leafIssueId;
     }) ?? null;
+  }
+
+  function livenessRecoveryActionCause(finding: IssueLivenessFinding) {
+    return `issue_graph_liveness:${finding.state}`;
+  }
+
+  function livenessRecoveryActionFingerprint(finding: IssueLivenessFinding) {
+    return finding.incidentKey;
+  }
+
+  function livenessRecoveryBackoffMs(attemptCount: number) {
+    return ISSUE_GRAPH_LIVENESS_BASE_BACKOFF_MS * Math.pow(2, Math.max(0, attemptCount - 1));
+  }
+
+  async function getLatestLivenessRecoveryAction(finding: IssueLivenessFinding) {
+    return db
+      .select()
+      .from(issueRecoveryActions)
+      .where(
+        and(
+          eq(issueRecoveryActions.companyId, finding.companyId),
+          eq(issueRecoveryActions.sourceIssueId, finding.issueId),
+          eq(issueRecoveryActions.kind, "issue_graph_liveness"),
+          eq(issueRecoveryActions.cause, livenessRecoveryActionCause(finding)),
+          eq(issueRecoveryActions.fingerprint, livenessRecoveryActionFingerprint(finding)),
+        ),
+      )
+      .orderBy(desc(issueRecoveryActions.updatedAt), desc(issueRecoveryActions.createdAt))
+      .limit(1)
+      .then((rows) => rows[0] ?? null);
+  }
+
+  async function ensureLivenessNeedsHumanThrottle(input: {
+    finding: IssueLivenessFinding;
+    actionId: string;
+    currentRecoveryIssueId: string | null;
+    runId?: string | null;
+  }) {
+    const [action] = await db
+      .update(issueRecoveryActions)
+      .set({
+        ownerType: "board",
+        ownerAgentId: null,
+        recoveryIssueId: input.currentRecoveryIssueId,
+        status: "escalated",
+        maxAttempts: ISSUE_GRAPH_LIVENESS_MAX_ATTEMPTS,
+        nextAction:
+          `Manual intervention required. Automatic liveness retries stopped after ${ISSUE_GRAPH_LIVENESS_MAX_ATTEMPTS} attempts for ${input.finding.incidentKey}.`,
+        evidence: {
+          incidentKey: input.finding.incidentKey,
+          state: input.finding.state,
+          dependencyPath: input.finding.dependencyPath,
+          cappedAtAttempts: ISSUE_GRAPH_LIVENESS_MAX_ATTEMPTS,
+        },
+        updatedAt: new Date(),
+      })
+      .where(eq(issueRecoveryActions.id, input.actionId))
+      .returning();
+
+    if (!action) return;
+    const evidence = parseObject(action.evidence);
+    if (asBoolean(evidence.livenessNeedsHumanCommented, false)) return;
+
+    await issuesSvc.addComment(
+      input.finding.issueId,
+      [
+        "Paperclip stopped automatic liveness retry creation for this incident.",
+        "",
+        `- Incident key: \`${input.finding.incidentKey}\``,
+        `- Finding: \`${input.finding.state}\``,
+        `- Attempts used: ${action.attemptCount}/${ISSUE_GRAPH_LIVENESS_MAX_ATTEMPTS}`,
+        `- Next action: manual owner intervention is now required to unblock ${input.finding.identifier ?? input.finding.issueId}.`,
+      ].join("\n"),
+      { runId: input.runId ?? null },
+    );
+
+    await db
+      .update(issueRecoveryActions)
+      .set({
+        evidence: {
+          ...evidence,
+          livenessNeedsHumanCommented: true,
+        },
+        updatedAt: new Date(),
+      })
+      .where(eq(issueRecoveryActions.id, input.actionId));
   }
 
   async function removeRecoveryBlockerFromSource(recovery: typeof issues.$inferSelect) {
@@ -4029,6 +4209,8 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
     finding: IssueLivenessFinding;
     runId?: string | null;
   }) {
+    const recoveryActionCause = livenessRecoveryActionCause(input.finding);
+    const recoveryActionFingerprint = livenessRecoveryActionFingerprint(input.finding);
     const issue = await db
       .select()
       .from(issues)
@@ -4046,10 +4228,40 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
       .then((rows) => rows[0] ?? null);
     if (!recoveryIssue) return { kind: "skipped" as const };
 
+    const activeRecoveryAction = await recoveryActionsSvc.getActiveForIssue(issue.companyId, issue.id);
+    if (activeRecoveryAction && activeRecoveryAction.kind !== "issue_graph_liveness") {
+      return { kind: "skipped" as const };
+    }
+    const latestRecoveryAction = activeRecoveryAction?.kind === "issue_graph_liveness"
+      ? activeRecoveryAction
+      : await getLatestLivenessRecoveryAction(input.finding);
+
     const existing =
       await findOpenLivenessEscalation(issue.companyId, input.finding.incidentKey) ??
       await findOpenLivenessRecoveryIssueForLeaf(input.finding);
     if (existing) {
+      if (!activeRecoveryAction) {
+        await recoveryActionsSvc.upsertSourceScoped({
+          companyId: issue.companyId,
+          sourceIssueId: issue.id,
+          recoveryIssueId: existing.id,
+          kind: "issue_graph_liveness",
+          ownerType: existing.assigneeAgentId ? "agent" : "board",
+          ownerAgentId: existing.assigneeAgentId ?? null,
+          cause: recoveryActionCause,
+          fingerprint: recoveryActionFingerprint,
+          evidence: {
+            incidentKey: input.finding.incidentKey,
+            state: input.finding.state,
+            dependencyPath: input.finding.dependencyPath,
+            openEscalationIssueId: existing.id,
+          },
+          nextAction: input.finding.recommendedAction,
+          maxAttempts: ISSUE_GRAPH_LIVENESS_MAX_ATTEMPTS,
+          initialAttemptCount: latestRecoveryAction?.attemptCount ?? 1,
+          lastAttemptAt: latestRecoveryAction?.lastAttemptAt ?? existing.updatedAt,
+        });
+      }
       await ensureIssueBlockedByEscalation({
         issue,
         escalationIssueId: existing.id,
@@ -4057,6 +4269,48 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
         runId: input.runId ?? null,
       });
       return { kind: "existing" as const, escalationIssueId: existing.id };
+    }
+
+    if (latestRecoveryAction) {
+      const maxAttempts = latestRecoveryAction.maxAttempts ?? ISSUE_GRAPH_LIVENESS_MAX_ATTEMPTS;
+      if (latestRecoveryAction.attemptCount >= maxAttempts) {
+        const durableAction = activeRecoveryAction?.kind === "issue_graph_liveness"
+          ? activeRecoveryAction
+          : await recoveryActionsSvc.upsertSourceScoped({
+            companyId: issue.companyId,
+            sourceIssueId: issue.id,
+            recoveryIssueId: null,
+            kind: "issue_graph_liveness",
+            ownerType: "board",
+            ownerAgentId: null,
+            cause: recoveryActionCause,
+            fingerprint: recoveryActionFingerprint,
+            evidence: {
+              incidentKey: input.finding.incidentKey,
+              state: input.finding.state,
+              dependencyPath: input.finding.dependencyPath,
+              cappedAtAttempts: maxAttempts,
+            },
+            nextAction:
+              `Manual intervention required. Automatic liveness retries stopped after ${maxAttempts} attempts for ${input.finding.incidentKey}.`,
+            maxAttempts,
+            initialAttemptCount: latestRecoveryAction.attemptCount,
+            lastAttemptAt: latestRecoveryAction.lastAttemptAt ?? latestRecoveryAction.updatedAt,
+          });
+        await ensureLivenessNeedsHumanThrottle({
+          finding: input.finding,
+          actionId: durableAction.id,
+          currentRecoveryIssueId: durableAction.recoveryIssueId ?? null,
+          runId: input.runId ?? null,
+        });
+        return { kind: "capped" as const };
+      }
+
+      const lastAttemptAt = latestRecoveryAction.lastAttemptAt ?? latestRecoveryAction.updatedAt;
+      const retryNotBefore = lastAttemptAt.getTime() + livenessRecoveryBackoffMs(latestRecoveryAction.attemptCount);
+      if (retryNotBefore > Date.now()) {
+        return { kind: "rate_limited" as const, retryNotBefore: new Date(retryNotBefore).toISOString() };
+      }
     }
 
     const ownerSelection = await resolveEscalationOwnerAgentId(input.finding, recoveryIssue);
@@ -4105,6 +4359,28 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
       });
       return { kind: "existing" as const, escalationIssueId: raced.id };
     }
+
+    await recoveryActionsSvc.upsertSourceScoped({
+      companyId: issue.companyId,
+      sourceIssueId: issue.id,
+      recoveryIssueId: escalation.id,
+      kind: "issue_graph_liveness",
+      ownerType: "agent",
+      ownerAgentId: ownerSelection.agentId,
+      cause: recoveryActionCause,
+      fingerprint: recoveryActionFingerprint,
+      evidence: {
+        incidentKey: input.finding.incidentKey,
+        state: input.finding.state,
+        dependencyPath: input.finding.dependencyPath,
+        escalationIssueId: escalation.id,
+        escalationIdentifier: escalation.identifier,
+      },
+      nextAction: input.finding.recommendedAction,
+      maxAttempts: ISSUE_GRAPH_LIVENESS_MAX_ATTEMPTS,
+      initialAttemptCount: latestRecoveryAction ? latestRecoveryAction.attemptCount + 1 : 1,
+      lastAttemptAt: new Date(),
+    });
 
     await ensureIssueBlockedByEscalation({
       issue,
@@ -4261,6 +4537,10 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
         result.existingEscalations += 1;
         result.issueIds.push(finding.issueId);
         result.escalationIssueIds.push(escalation.escalationIssueId);
+      } else if (escalation.kind === "rate_limited" || escalation.kind === "capped") {
+        result.skippedRateLimited += 1;
+        result.skipped += 1;
+        result.rateLimited = true;
       } else {
         result.skipped += 1;
       }

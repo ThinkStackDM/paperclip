@@ -11,6 +11,7 @@ import {
   executionWorkspaces,
   heartbeatRuns,
   issueComments,
+  issueRecoveryActions,
   issueRelations,
   issueTreeHolds,
   issues,
@@ -799,6 +800,69 @@ describeEmbeddedPostgres("heartbeat issue graph liveness escalation", () => {
       .where(eq(issueRelations.relatedIssueId, blockedIssueId));
     expect(blockers.some((row) => row.blockerIssueId === closedEscalationId)).toBe(false);
     expect(blockers.some((row) => row.blockerIssueId === freshEscalation?.id)).toBe(true);
+  });
+
+  it("rate-limits repeated liveness re-escalation and converges to one needs-human recovery action", async () => {
+    await enableAutoRecovery();
+    const { companyId, blockedIssueId } = await seedBlockedChain();
+    const heartbeat = heartbeatService(db);
+
+    const first = await heartbeat.reconcileIssueGraphLiveness();
+    expect(first.escalationsCreated).toBe(1);
+
+    const [firstEscalation] = await db
+      .select()
+      .from(issues)
+      .where(and(eq(issues.companyId, companyId), eq(issues.originKind, "harness_liveness_escalation")));
+    expect(firstEscalation).toBeTruthy();
+
+    await db
+      .update(issues)
+      .set({ status: "done", blockedByIssueIds: [] })
+      .where(eq(issues.id, firstEscalation!.id));
+
+    const immediateRetry = await heartbeat.reconcileIssueGraphLiveness();
+    expect(immediateRetry.escalationsCreated).toBe(0);
+    expect(immediateRetry.skippedRateLimited).toBe(1);
+
+    const [activeAction] = await db
+      .select()
+      .from(issueRecoveryActions)
+      .where(eq(issueRecoveryActions.sourceIssueId, blockedIssueId));
+    expect(activeAction).toMatchObject({
+      kind: "issue_graph_liveness",
+      attemptCount: 1,
+      status: "active",
+    });
+
+    await db
+      .update(issueRecoveryActions)
+      .set({
+        attemptCount: 3,
+        lastAttemptAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      })
+      .where(eq(issueRecoveryActions.id, activeAction!.id));
+
+    const cappedRetry = await heartbeat.reconcileIssueGraphLiveness();
+    expect(cappedRetry.escalationsCreated).toBe(0);
+    expect(cappedRetry.skippedRateLimited).toBe(1);
+
+    const [cappedAction] = await db
+      .select()
+      .from(issueRecoveryActions)
+      .where(eq(issueRecoveryActions.id, activeAction!.id));
+    expect(cappedAction).toMatchObject({
+      status: "escalated",
+      ownerType: "board",
+      ownerAgentId: null,
+      attemptCount: 3,
+    });
+
+    const sourceComments = await db
+      .select({ body: issueComments.body })
+      .from(issueComments)
+      .where(eq(issueComments.issueId, blockedIssueId));
+    expect(sourceComments.some((comment) => comment.body.includes("stopped automatic liveness retry creation"))).toBe(true);
   });
 
   it("removes closed liveness escalations from blocker relations during reconciliation", async () => {

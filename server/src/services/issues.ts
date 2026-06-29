@@ -79,6 +79,13 @@ import { getRunLogStore } from "./run-log-store.js";
 import { getDefaultCompanyGoal } from "./goals.js";
 import { assertAssignableAgent } from "./agent-assignability.js";
 import {
+  agentSatisfiesIssueToolRequirements,
+  compareAgentsByIssueToolRequirements,
+  describeIssueToolRequirements,
+  inferIssueToolRequirements,
+  type AgentCapabilityRoutingInput,
+} from "./issue-capability-routing.js";
+import {
   summarizeIssueWatchdog,
   upsertIssueWatchdogForIssue,
 } from "./task-watchdogs.js";
@@ -3985,6 +3992,84 @@ export function issueService(db: Db) {
     );
   }
 
+  async function loadLabelNames(
+    companyId: string,
+    labelIds: string[] | undefined,
+    dbOrTx: DbReader = db,
+  ) {
+    const deduped = [...new Set(labelIds ?? [])];
+    if (deduped.length === 0) return [];
+    return dbOrTx
+      .select({ name: labels.name })
+      .from(labels)
+      .where(and(eq(labels.companyId, companyId), inArray(labels.id, deduped)))
+      .then((rows) => rows.map((row) => row.name));
+  }
+
+  async function loadIssueLabelNamesForIssue(
+    companyId: string,
+    issueId: string,
+    dbOrTx: DbReader = db,
+  ) {
+    return dbOrTx
+      .select({ name: labels.name })
+      .from(issueLabels)
+      .innerJoin(labels, eq(issueLabels.labelId, labels.id))
+      .where(and(eq(issueLabels.companyId, companyId), eq(issueLabels.issueId, issueId)))
+      .then((rows) => rows.map((row) => row.name));
+  }
+
+  async function listCapabilityRoutingAgents(
+    companyId: string,
+    dbOrTx: DbReader = db,
+  ): Promise<AgentCapabilityRoutingInput[]> {
+    return dbOrTx
+      .select({
+        id: agents.id,
+        name: agents.name,
+        title: agents.title,
+        capabilities: agents.capabilities,
+        adapterType: agents.adapterType,
+        adapterConfig: agents.adapterConfig,
+      })
+      .from(agents)
+      .where(eq(agents.companyId, companyId));
+  }
+
+  async function assertIssueToolCapabilityAssignment(input: {
+    companyId: string;
+    issueId?: string | null;
+    title?: string | null;
+    description?: string | null;
+    labels?: Array<string | { name?: string | null }> | null;
+    assigneeAgentId: string;
+    dbOrTx?: DbReader;
+  }) {
+    const requirements = inferIssueToolRequirements({
+      title: input.title,
+      description: input.description,
+      labels: input.labels,
+    });
+    if (!requirements.requiresMediaTools) return;
+
+    const candidateAgents = await listCapabilityRoutingAgents(input.companyId, input.dbOrTx ?? db);
+    const assignee = candidateAgents.find((agent) => agent.id === input.assigneeAgentId) ?? null;
+    if (assignee && agentSatisfiesIssueToolRequirements(assignee, requirements)) return;
+
+    const suggestedAgentIds = candidateAgents
+      .filter((agent) => agentSatisfiesIssueToolRequirements(agent, requirements))
+      .sort((left, right) => compareAgentsByIssueToolRequirements(left, right, requirements))
+      .map((agent) => agent.id);
+    throw unprocessable("Assigned agent does not satisfy the issue's required tool capabilities", {
+      issueId: input.issueId ?? null,
+      assigneeAgentId: input.assigneeAgentId,
+      requiredToolsets: requirements.requiredToolsets,
+      requiredToolsetSummary: describeIssueToolRequirements(requirements),
+      matchedSignals: requirements.matchedSignals,
+      suggestedAgentIds,
+    });
+  }
+
   async function getIssueRelationSummaryMap(
     companyId: string,
     issueIds: string[],
@@ -4903,6 +4988,14 @@ export function issueService(db: Db) {
       return readiness.get(issueId) ?? createIssueDependencyReadiness(issueId);
     },
 
+    listUnresolvedBlockerIssueIds: async (
+      companyId: string,
+      blockerIssueIds: string[],
+      dbOrTx: any = db,
+    ) => {
+      return listUnresolvedBlockerIssueIds(dbOrTx, companyId, blockerIssueIds);
+    },
+
     listDependencyReadiness: async (companyId: string, issueIds: string[], dbOrTx: any = db) => {
       return listIssueDependencyReadinessMap(dbOrTx, companyId, issueIds);
     },
@@ -5402,6 +5495,13 @@ export function issueService(db: Db) {
       }
       if (data.assigneeAgentId) {
         await assertAssignableAgent(db, companyId, data.assigneeAgentId, { kind: "work" });
+        await assertIssueToolCapabilityAssignment({
+          companyId,
+          title: issueData.title,
+          description: issueData.description ?? null,
+          labels: await loadLabelNames(companyId, inputLabelIds),
+          assigneeAgentId: data.assigneeAgentId,
+        });
       }
       if (data.assigneeUserId) {
         await assertAssignableUser(companyId, data.assigneeUserId);
@@ -5720,6 +5820,19 @@ export function issueService(db: Db) {
         (issueData.assigneeAgentId !== undefined || patch.status === "in_progress");
       if (shouldValidateNextAssignee) {
         await assertAssignableAgent(dbOrTx as Db, existing.companyId, nextAssigneeAgentId, { kind: "work" });
+        await assertIssueToolCapabilityAssignment({
+          companyId: existing.companyId,
+          issueId: existing.id,
+          title: issueData.title !== undefined ? issueData.title : existing.title,
+          description: issueData.description !== undefined ? issueData.description : existing.description,
+          labels: (
+            nextLabelIds !== undefined
+              ? await loadLabelNames(existing.companyId, nextLabelIds, dbOrTx)
+              : await loadIssueLabelNamesForIssue(existing.companyId, existing.id, dbOrTx)
+          ),
+          assigneeAgentId: nextAssigneeAgentId,
+          dbOrTx,
+        });
       }
       if (issueData.assigneeUserId) {
         await assertAssignableUser(existing.companyId, issueData.assigneeUserId);
@@ -5908,6 +6021,8 @@ export function issueService(db: Db) {
             id: issues.id,
             companyId: issues.companyId,
             identifier: issues.identifier,
+            title: issues.title,
+            description: issues.description,
             assigneeAgentId: issues.assigneeAgentId,
           })
           .from(issues)
@@ -5930,6 +6045,15 @@ export function issueService(db: Db) {
             assigneeAgentId: current.assigneeAgentId,
           });
         }
+        await assertIssueToolCapabilityAssignment({
+          companyId: current.companyId,
+          issueId: current.id,
+          title: current.title,
+          description: current.description,
+          labels: await loadIssueLabelNamesForIssue(current.companyId, current.id, tx),
+          assigneeAgentId: sister.id,
+          dbOrTx: tx,
+        });
 
         const updated = await tx
           .update(issues)

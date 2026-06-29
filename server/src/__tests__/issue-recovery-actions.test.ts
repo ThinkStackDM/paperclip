@@ -265,6 +265,26 @@ describeEmbeddedPostgres("issue recovery actions", () => {
     expect(await svc.getActiveForIssue(randomUUID(), sourceIssueId)).toBeNull();
   });
 
+  it("seeds a new active action from an explicit initial attempt count", async () => {
+    const { companyId, managerId, sourceIssueId } = await seedCompany();
+    const svc = issueRecoveryActionService(db);
+
+    const action = await svc.upsertSourceScoped({
+      companyId,
+      sourceIssueId,
+      kind: "issue_graph_liveness",
+      ownerType: "agent",
+      ownerAgentId: managerId,
+      cause: "issue_graph_liveness:blocked_by_unassigned_issue",
+      fingerprint: "graph-liveness:attempt-3",
+      evidence: { incidentKey: "incident-1" },
+      nextAction: "Retry the liveness escalation after backoff.",
+      initialAttemptCount: 3,
+    });
+
+    expect(action.attemptCount).toBe(3);
+  });
+
   it("escalates stranded assigned work into a source action instead of a recovery issue", async () => {
     const { companyId, managerId, coderId, sourceIssue } = await seedCompany();
     const enqueueWakeup = vi.fn(async () => null);
