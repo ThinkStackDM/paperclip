@@ -107,9 +107,13 @@ function monthKey(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function dayKey(date: Date): string {
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+}
+
 /**
  * Tiered backup pruning:
- * - Daily tier: keep ALL backups from the last `dailyDays` days
+ * - Daily tier: keep the NEWEST backup per calendar day for the last `dailyDays` days
  * - Weekly tier: keep the NEWEST backup per calendar week for `weeklyWeeks` weeks
  * - Monthly tier: keep the NEWEST backup per calendar month for `monthlyMonths` months
  * - Everything else is deleted
@@ -136,17 +140,26 @@ function pruneOldBackups(backupDir: string, retention: BackupRetentionPolicy, fi
   // Sort newest first so the first entry per week/month bucket is the one we keep
   entries.sort((a, b) => b.mtimeMs - a.mtimeMs);
 
+  const keepDayBuckets = new Set<string>();
   const keepWeekBuckets = new Set<string>();
   const keepMonthBuckets = new Set<string>();
   const toDelete: string[] = [];
 
   for (const entry of entries) {
-    // Daily tier — keep everything within dailyDays
-    if (entry.mtimeMs >= dailyCutoff) continue;
-
     const date = new Date(entry.mtimeMs);
+    const day = dayKey(date);
     const week = isoWeekKey(date);
     const month = monthKey(date);
+
+    // Daily tier — keep newest per calendar day
+    if (entry.mtimeMs >= dailyCutoff) {
+      if (keepDayBuckets.has(day)) {
+        toDelete.push(entry.fullPath);
+      } else {
+        keepDayBuckets.add(day);
+      }
+      continue;
+    }
 
     // Weekly tier — keep newest per calendar week
     if (entry.mtimeMs >= weeklyCutoff) {

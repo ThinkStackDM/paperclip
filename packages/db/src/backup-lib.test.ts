@@ -73,6 +73,51 @@ describe("createBufferedTextFileWriter", () => {
   });
 });
 
+describe("backup retention pruning", () => {
+  it("keeps one recent backup per day when backups run hourly", async () => {
+    const backupDir = createTempDir("paperclip-db-retention-prune-");
+    const prefix = "paperclip-test";
+    const now = Date.now();
+
+    const createBackupAt = (name: string, ageHours: number) => {
+      const fullPath = path.join(backupDir, name);
+      fs.writeFileSync(fullPath, "stub");
+      const when = new Date(now - ageHours * 60 * 60 * 1000);
+      fs.utimesSync(fullPath, when, when);
+    };
+
+    createBackupAt(`${prefix}-recent-a.sql.gz`, 2);
+    createBackupAt(`${prefix}-recent-b.sql.gz`, 6);
+    createBackupAt(`${prefix}-yesterday-a.sql.gz`, 26);
+    createBackupAt(`${prefix}-yesterday-b.sql.gz`, 30);
+    createBackupAt(`${prefix}-older-week.sql.gz`, 24 * 8);
+
+    const sourceConnectionString = await createTempDatabase();
+    const result = await runDatabaseBackup({
+      connectionString: sourceConnectionString,
+      backupDir,
+      retention: { dailyDays: 7, weeklyWeeks: 4, monthlyMonths: 1 },
+      filenamePrefix: prefix,
+      backupEngine: "javascript",
+    });
+
+    expect(result.prunedCount).toBe(3);
+
+    const remaining = fs.readdirSync(backupDir).sort();
+    expect(remaining.filter((name) => name.startsWith(prefix))).toHaveLength(3);
+    expect(remaining).toEqual(expect.arrayContaining([
+      "paperclip-test-older-week.sql.gz",
+      "paperclip-test-yesterday-a.sql.gz",
+      path.basename(result.backupFile),
+    ]));
+    expect(remaining).not.toEqual(expect.arrayContaining([
+      "paperclip-test-recent-a.sql.gz",
+      "paperclip-test-recent-b.sql.gz",
+      "paperclip-test-yesterday-b.sql.gz",
+    ]));
+  });
+});
+
 describeEmbeddedPostgres("runDatabaseBackup", () => {
   it(
     "backs up and restores large table payloads without materializing one giant string",
