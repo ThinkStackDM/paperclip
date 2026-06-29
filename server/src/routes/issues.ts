@@ -6678,7 +6678,9 @@ export function issueRoutes(
     const enteringBlocked = existing.status !== "blocked" && nextStatus === "blocked";
     if (enteringBlocked) {
       const nextBlockedByIssueIds = Array.isArray(req.body.blockedByIssueIds)
-        ? req.body.blockedByIssueIds.filter((value): value is string => typeof value === "string" && value.length > 0)
+        ? req.body.blockedByIssueIds.filter(
+          (value: unknown): value is string => typeof value === "string" && value.length > 0,
+        )
         : null;
       const nextDescription =
         updateFields.description === undefined ? existing.description : updateFields.description;

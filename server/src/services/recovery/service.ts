@@ -3775,6 +3775,12 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
     return finding.incidentKey;
   }
 
+  function normalizeRecoveryTimestamp(value: Date | string | null | undefined) {
+    if (!value) return null;
+    const parsed = value instanceof Date ? value : new Date(value);
+    return Number.isFinite(parsed.getTime()) ? parsed : null;
+  }
+
   function livenessRecoveryBackoffMs(attemptCount: number) {
     return ISSUE_GRAPH_LIVENESS_BASE_BACKOFF_MS * Math.pow(2, Math.max(0, attemptCount - 1));
   }
@@ -4259,7 +4265,7 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
           nextAction: input.finding.recommendedAction,
           maxAttempts: ISSUE_GRAPH_LIVENESS_MAX_ATTEMPTS,
           initialAttemptCount: latestRecoveryAction?.attemptCount ?? 1,
-          lastAttemptAt: latestRecoveryAction?.lastAttemptAt ?? existing.updatedAt,
+          lastAttemptAt: normalizeRecoveryTimestamp(latestRecoveryAction?.lastAttemptAt ?? existing.updatedAt),
         });
       }
       await ensureIssueBlockedByEscalation({
@@ -4295,7 +4301,9 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
               `Manual intervention required. Automatic liveness retries stopped after ${maxAttempts} attempts for ${input.finding.incidentKey}.`,
             maxAttempts,
             initialAttemptCount: latestRecoveryAction.attemptCount,
-            lastAttemptAt: latestRecoveryAction.lastAttemptAt ?? latestRecoveryAction.updatedAt,
+            lastAttemptAt: normalizeRecoveryTimestamp(
+              latestRecoveryAction.lastAttemptAt ?? latestRecoveryAction.updatedAt,
+            ),
           });
         await ensureLivenessNeedsHumanThrottle({
           finding: input.finding,
@@ -4306,8 +4314,10 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
         return { kind: "capped" as const };
       }
 
-      const lastAttemptAt = latestRecoveryAction.lastAttemptAt ?? latestRecoveryAction.updatedAt;
-      const retryNotBefore = lastAttemptAt.getTime() + livenessRecoveryBackoffMs(latestRecoveryAction.attemptCount);
+      const lastAttemptAtMs = normalizeRecoveryTimestamp(
+        latestRecoveryAction.lastAttemptAt ?? latestRecoveryAction.updatedAt,
+      )?.getTime() ?? Date.now();
+      const retryNotBefore = lastAttemptAtMs + livenessRecoveryBackoffMs(latestRecoveryAction.attemptCount);
       if (retryNotBefore > Date.now()) {
         return { kind: "rate_limited" as const, retryNotBefore: new Date(retryNotBefore).toISOString() };
       }

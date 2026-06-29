@@ -2712,8 +2712,8 @@ async function listIssueBoardActionRequirementMap(
       ))
       .groupBy(issueComments.issueId),
   ]);
-  const latestUserCommentAtByIssue = new Map(
-    latestUserCommentRows.map((row) => [row.issueId, row.latestCreatedAt]),
+  const latestUserCommentAtByIssue = new Map<string, Date>(
+    latestUserCommentRows.map((row: { issueId: string; latestCreatedAt: Date }) => [row.issueId, row.latestCreatedAt]),
   );
   const targetSnapshotCache = new Map<
     string,
@@ -2754,8 +2754,8 @@ async function listIssueBoardActionRequirementMap(
       const target = readRequestConfirmationIssueDocumentTarget(interaction.payload, interaction.issueId);
       if (target) {
         const cacheKey = `${target.issueId}:${target.documentId ?? ""}:${target.key}`;
-        let snapshot = targetSnapshotCache.get(cacheKey);
-        if (snapshot === undefined) {
+        let snapshot = targetSnapshotCache.has(cacheKey) ? targetSnapshotCache.get(cacheKey) ?? null : null;
+        if (!targetSnapshotCache.has(cacheKey)) {
           const rows = await dbOrTx
             .select({
               latestRevisionId: documents.latestRevisionId,
@@ -2771,8 +2771,10 @@ async function listIssueBoardActionRequirementMap(
                 : eq(issueDocuments.key, target.key),
             ))
             .limit(1);
-          snapshot = rows[0] ?? null;
-          targetSnapshotCache.set(cacheKey, snapshot);
+          const fetchedSnapshot: { latestRevisionId: string | null; latestRevisionNumber: number | null } | null =
+            rows[0] ?? null;
+          snapshot = fetchedSnapshot;
+          targetSnapshotCache.set(cacheKey, fetchedSnapshot);
         }
 
         if (
