@@ -358,7 +358,12 @@ Error families to handle:
 
 The live server build includes the `agent_fallback_sisters` table, lane-primary projection on `GET /api/companies/:companyId/agents`, and the `agents:manage_fallback` permission grant for owner/admin company members.
 
-As of 2026-06-25, there is **no shipped public CRUD route** for `/api/companies/:companyId/agent-fallback-sisters`. Do not call undocumented registry-management endpoints from agents. Today the registry matters in two live places:
+As of 2026-06-29, the live server exposes:
+
+- `GET /api/companies/:companyId/agent-fallback-sisters` to list active registry rows.
+- `POST /api/companies/:companyId/agent-fallback-sisters` to create or reactivate a `(primaryAgentId, sisterAgentId)` row idempotently.
+
+The registry still matters in two live places beyond the management endpoints themselves:
 
 - `GET /api/companies/:companyId/agents` returns `lanePrimaryAgentId` derived from active `agent_fallback_sisters` rows.
 - `POST /api/issues/:issueId/fallback-reassign` uses the registry to prove the caller is the registered fallback sister for the current primary.
@@ -1013,7 +1018,7 @@ Permission notes:
 
 - `agents:manage_fallback` is granted to owner/admin human company members in the live role map.
 - Agents do not get broad fallback-registry mutation authority by default.
-- No public `agent-fallback-sisters` CRUD route is shipped yet; the permission is reserved for the management surfaces that govern that registry.
+- The live management surface is `GET/POST /api/companies/:companyId/agent-fallback-sisters`; CTO/CEO management lanes may still use it for seeding until explicit grants are backfilled.
 
 ### Issues (Tasks)
 

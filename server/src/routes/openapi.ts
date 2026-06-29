@@ -10,6 +10,9 @@ import {
   updateAgentInstructionsBundleSchema,
   upsertAgentInstructionsFileSchema,
   createAgentKeySchema,
+  agentFallbackSisterSchema,
+  agentFallbackSisterListSchema,
+  createAgentFallbackSisterSchema,
   wakeAgentSchema,
   resetAgentSessionSchema,
   agentSkillSyncSchema,
@@ -952,6 +955,37 @@ registry.registerPath({
   summary: "List agents in a company",
   request: { params: z.object({ companyId: z.string() }) },
   responses: { 200: r.ok(), 401: r.unauthorized },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/companies/{companyId}/agent-fallback-sisters",
+  tags: ["agents"],
+  summary: "List fallback sister relationships for a company",
+  request: { params: z.object({ companyId: z.string() }) },
+  responses: {
+    200: r.ok(agentFallbackSisterListSchema),
+    401: r.unauthorized,
+    403: r.forbidden,
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/companies/{companyId}/agent-fallback-sisters",
+  tags: ["agents"],
+  summary: "Create or reactivate a fallback sister relationship",
+  request: {
+    params: z.object({ companyId: z.string() }),
+    body: jsonBody(createAgentFallbackSisterSchema),
+  },
+  responses: {
+    201: r.ok(agentFallbackSisterSchema),
+    401: r.unauthorized,
+    403: r.forbidden,
+    404: r.notFound,
+    422: r.unprocessable,
+  },
 });
 
 registry.registerPath({

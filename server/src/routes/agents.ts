@@ -9,6 +9,7 @@ import {
   agentMineInboxQuerySchema,
   AGENT_DEFAULT_MAX_CONCURRENT_RUNS,
   createAgentKeySchema,
+  createAgentFallbackSisterSchema,
   createAgentHireSchema,
   createAgentSchema,
   deriveAgentUrlKey,
@@ -192,6 +193,16 @@ export function agentRoutes(
   const workspaceOperations = workspaceOperationService(db);
   const instanceSettings = instanceSettingsService(db);
   const strictSecretsMode = process.env.PAPERCLIP_SECRETS_STRICT_MODE === "true";
+  const fallbackSisterRowSelection = {
+    id: agentFallbackSisters.id,
+    companyId: agentFallbackSisters.companyId,
+    primaryAgentId: agentFallbackSisters.primaryAgentId,
+    sisterAgentId: agentFallbackSisters.sisterAgentId,
+    priority: agentFallbackSisters.priority,
+    createdBy: agentFallbackSisters.createdBy,
+    createdAt: agentFallbackSisters.createdAt,
+    revokedAt: agentFallbackSisters.revokedAt,
+  } as const;
 
   async function assertAgentEnvironmentSelection(
     companyId: string,
@@ -756,6 +767,37 @@ export function agentRoutes(
       return actorAgent;
     }
     return null;
+  }
+
+  async function assertCanManageFallbackRegistry(req: Request, companyId: string) {
+    assertCompanyAccess(req, companyId);
+
+    const actorAgent = req.actor.type === "agent" && req.actor.agentId
+      ? await svc.getById(req.actor.agentId)
+      : null;
+
+    if (req.actor.type === "agent" && (!actorAgent || actorAgent.companyId !== companyId)) {
+      throw forbidden("Agent key cannot access another company");
+    }
+
+    const decision = await access.decide({
+      actor: req.actor,
+      action: "agents:manage_fallback",
+      resource: { type: "company", companyId },
+    });
+    if (decision.allowed) return actorAgent;
+
+    // Preserve the existing seed/import workflow for executive lanes that own
+    // fallback-lane management but may not have an explicit
+    // agents:manage_fallback grant backfilled yet.
+    if (
+      actorAgent &&
+      (actorAgent.role === "ceo" || actorAgent.role === "cto" || canCreateAgents(actorAgent))
+    ) {
+      return actorAgent;
+    }
+
+    throw forbidden(decision.explanation);
   }
 
   async function getAccessibleAgent(req: Request, res: Response, id: string) {
@@ -1953,6 +1995,89 @@ export function agentRoutes(
     }
     res.json(result.map((agent) => redactForRestrictedAgentView(agent)));
   });
+
+  router.get("/companies/:companyId/agent-fallback-sisters", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    await assertCanManageFallbackRegistry(req, companyId);
+    const rows = await db
+      .select(fallbackSisterRowSelection)
+      .from(agentFallbackSisters)
+      .where(and(eq(agentFallbackSisters.companyId, companyId), isNull(agentFallbackSisters.revokedAt)))
+      .orderBy(
+        agentFallbackSisters.primaryAgentId,
+        agentFallbackSisters.priority,
+        agentFallbackSisters.createdAt,
+      );
+    res.json(rows);
+  });
+
+  router.post(
+    "/companies/:companyId/agent-fallback-sisters",
+    validate(createAgentFallbackSisterSchema),
+    async (req, res) => {
+      const companyId = req.params.companyId as string;
+      await assertCanManageFallbackRegistry(req, companyId);
+
+      const {
+        primaryAgentId,
+        sisterAgentId,
+        priority,
+        createdBy,
+      } = req.body as {
+        primaryAgentId: string;
+        sisterAgentId: string;
+        priority: number;
+        createdBy?: string;
+      };
+
+      if (primaryAgentId === sisterAgentId) {
+        throw unprocessable("primaryAgentId and sisterAgentId must differ");
+      }
+
+      const relatedAgents = await db
+        .select({ id: agentsTable.id })
+        .from(agentsTable)
+        .where(and(
+          eq(agentsTable.companyId, companyId),
+          inArray(agentsTable.id, [primaryAgentId, sisterAgentId]),
+        ));
+      const relatedAgentIds = new Set(relatedAgents.map((row) => row.id));
+      if (!relatedAgentIds.has(primaryAgentId)) {
+        throw notFound("Primary agent not found");
+      }
+      if (!relatedAgentIds.has(sisterAgentId)) {
+        throw notFound("Sister agent not found");
+      }
+
+      const actor = getActorInfo(req);
+      const actorLabel = `${actor.actorType}:${actor.actorId}`;
+      const [row] = await db
+        .insert(agentFallbackSisters)
+        .values({
+          companyId,
+          primaryAgentId,
+          sisterAgentId,
+          priority,
+          createdBy: createdBy ?? actorLabel,
+          revokedAt: null,
+        })
+        .onConflictDoUpdate({
+          target: [
+            agentFallbackSisters.companyId,
+            agentFallbackSisters.primaryAgentId,
+            agentFallbackSisters.sisterAgentId,
+          ],
+          set: {
+            priority,
+            createdBy: createdBy ?? actorLabel,
+            revokedAt: null,
+          },
+        })
+        .returning(fallbackSisterRowSelection);
+
+      res.status(201).json(row);
+    },
+  );
 
   router.get("/instance/scheduler-heartbeats", async (req, res) => {
     assertInstanceAdmin(req);

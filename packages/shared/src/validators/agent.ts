@@ -120,6 +120,29 @@ export const createAgentKeySchema = z.object({
 
 export type CreateAgentKey = z.infer<typeof createAgentKeySchema>;
 
+export const agentFallbackSisterSchema = z.object({
+  id: z.string().uuid(),
+  companyId: z.string().uuid(),
+  primaryAgentId: z.string().uuid(),
+  sisterAgentId: z.string().uuid(),
+  priority: z.number().int(),
+  createdBy: z.string().nullable(),
+  createdAt: z.coerce.date(),
+  revokedAt: z.coerce.date().nullable(),
+});
+
+export const agentFallbackSisterListSchema = z.array(agentFallbackSisterSchema);
+
+export const createAgentFallbackSisterSchema = z.object({
+  primaryAgentId: z.string().uuid(),
+  sisterAgentId: z.string().uuid(),
+  priority: z.number().int().optional().default(0),
+  createdBy: z.string().trim().min(1).optional(),
+}).strict();
+
+export type AgentFallbackSister = z.infer<typeof agentFallbackSisterSchema>;
+export type CreateAgentFallbackSister = z.infer<typeof createAgentFallbackSisterSchema>;
+
 export const agentMineInboxQuerySchema = z.object({
   userId: z.string().trim().min(1),
   status: z.string().trim().min(1).optional().default(INBOX_MINE_ISSUE_STATUS_FILTER),
