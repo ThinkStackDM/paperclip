@@ -643,18 +643,17 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
   }
 
   async function hasQueuedIssueWake(companyId: string, issueId: string) {
-    return db
-      .select({ id: agentWakeupRequests.id })
+    const rows = await db
+      .select({ payload: agentWakeupRequests.payload })
       .from(agentWakeupRequests)
       .where(
         and(
           eq(agentWakeupRequests.companyId, companyId),
-          eq(agentWakeupRequests.status, "queued"),
-          sql`${agentWakeupRequests.payload} ->> 'issueId' = ${issueId}`,
+          inArray(agentWakeupRequests.status, ["queued", "claimed", "deferred_issue_execution"]),
         ),
       )
-      .limit(1)
-      .then((rows) => Boolean(rows[0]));
+      .limit(25);
+    return rows.some(({ payload }) => issueIdFromWakePayload(payload) === issueId);
   }
 
   // GGU-809: visible-progress signal for stranded-recovery escalation guard.
@@ -3110,10 +3109,12 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
         continue;
       }
 
-      // Skip issues that have a valid pending continuation path and should not be
-      // treated as stranded: either a scheduled monitor wake still in the future
-      // (local) or a pending wake interaction (upstream).
+      // Skip issues that already have a valid pending continuation path and
+      // should not be treated as stranded: a queued/deferred wake, a scheduled
+      // monitor wake still in the future (local), or a pending wake interaction
+      // (upstream).
       if (
+        (await hasQueuedIssueWake(issue.companyId, issue.id)) ||
         (issue.monitorNextCheckAt && issue.monitorNextCheckAt > new Date()) ||
         (await hasPendingWakeInteraction(issue.companyId, issue.id))
       ) {
@@ -3150,10 +3151,6 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
 
       if (issue.status === "todo") {
         if (!latestRun) {
-          if (await hasQueuedIssueWake(issue.companyId, issue.id)) {
-            result.skipped += 1;
-            continue;
-          }
           if (!isAgentInvokable(agent)) {
             result.skipped += 1;
             continue;
