@@ -154,11 +154,15 @@ export function resolveAdapterConcurrencyCap(
   controls: InstanceRunControls,
   adapterType: string,
 ): number | null {
-  if ((CONCURRENCY_EXEMPT_ADAPTER_TYPES as readonly string[]).includes(adapterType)) return null;
+  if (isConcurrencyExemptAdapterType(adapterType)) return null;
   const explicit = controls.adapterConcurrency[adapterType];
   if (typeof explicit === "number") return explicit;
   const fallback = controls.adapterConcurrency.default;
   return typeof fallback === "number" ? fallback : null;
+}
+
+export function isConcurrencyExemptAdapterType(adapterType: string | null | undefined): boolean {
+  return !!adapterType && (CONCURRENCY_EXEMPT_ADAPTER_TYPES as readonly string[]).includes(adapterType);
 }
 
 export function isActivityWindowExemptAgent(input: {
@@ -363,15 +367,17 @@ export function runGateService(db: Db) {
       }
     }
 
-    const runningGlobal = await countRunningRunsGlobal();
-    if (runningGlobal >= controls.globalConcurrency) {
-      return {
-        kind: "global_concurrency_limit",
-        reason:
-          `Instance is at its global concurrency limit `
-          + `(${runningGlobal}/${controls.globalConcurrency} running); run is deferred until a slot frees up.`,
-        nextChangeAt: null,
-      };
+    if (!isConcurrencyExemptAdapterType(adapterType)) {
+      const runningGlobal = await countRunningRunsGlobal();
+      if (runningGlobal >= controls.globalConcurrency) {
+        return {
+          kind: "global_concurrency_limit",
+          reason:
+            `Instance is at its global concurrency limit `
+            + `(${runningGlobal}/${controls.globalConcurrency} running); run is deferred until a slot frees up.`,
+          nextChangeAt: null,
+        };
+      }
     }
 
     return null;

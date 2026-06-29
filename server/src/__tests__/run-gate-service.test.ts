@@ -7,6 +7,7 @@ import {
 } from "@paperclipai/shared";
 import {
   isActivityWindowExemptAgent,
+  isConcurrencyExemptAdapterType,
   normalizeInstanceRunControls,
   resolveAdapterConcurrencyCap,
   runGateService,
@@ -189,16 +190,16 @@ describe("runGateService.getRunGateBlock", () => {
     expect(block?.kind).toBe("outside_activity_window");
   });
 
-  it("exempts paperclip_shell_handler from windows and concurrency", async () => {
-    const { db, select } = createDbStub([instanceRow(), companyRow({ activityWindow: DUBLIN_BOOKS_WINDOW }), countRow(0)]);
+  it("exempts paperclip_shell_handler from windows and both concurrency caps", async () => {
+    const { db, select } = createDbStub([instanceRow({ globalConcurrency: 1 }), companyRow({ activityWindow: DUBLIN_BOOKS_WINDOW })]);
     const block = await runGateService(db).getRunGateBlock({
       ...baseAgent,
       adapterType: "paperclip_shell_handler",
       now: DUBLIN_1030,
     });
     expect(block).toBeNull();
-    // Instance settings + company row + global-count query.
-    expect(select).toHaveBeenCalledTimes(3);
+    // Instance settings + company row. Exempt adapters do not hit either concurrency-count query.
+    expect(select).toHaveBeenCalledTimes(2);
   });
 
   it("exempts agents with runtimeConfig.ignoreActivityWindow from the window but not from concurrency", async () => {
@@ -284,6 +285,12 @@ describe("run gate helpers", () => {
     expect(resolveAdapterConcurrencyCap(controls, "claude_local")).toBe(3);
     expect(resolveAdapterConcurrencyCap(controls, "codex_local")).toBe(3);
     expect(resolveAdapterConcurrencyCap(controls, "gemini_local")).toBe(2);
+  });
+
+  it("isConcurrencyExemptAdapterType matches the documented exemption set", () => {
+    expect(isConcurrencyExemptAdapterType("paperclip_shell_handler")).toBe(true);
+    expect(isConcurrencyExemptAdapterType("claude_local")).toBe(false);
+    expect(isConcurrencyExemptAdapterType(null)).toBe(false);
   });
 
   it("isActivityWindowExemptAgent honors adapter type and runtimeConfig flag", () => {
