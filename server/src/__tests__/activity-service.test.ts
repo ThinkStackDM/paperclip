@@ -17,7 +17,9 @@ import {
   getEmbeddedPostgresTestSupport,
   startEmbeddedPostgresTestDatabase,
 } from "./helpers/embedded-postgres.js";
+import { eq } from "drizzle-orm";
 import { activityService } from "../services/activity.ts";
+import { logActivity } from "../services/activity-log.ts";
 
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
 const describeEmbeddedPostgres = embeddedPostgresSupport.supported ? describe : describe.skip;
@@ -115,6 +117,38 @@ describeEmbeddedPostgres("activity service", () => {
     const result = await activityService(db).list({ companyId, limit: 2 });
 
     expect(result.map((event) => event.action)).toEqual(["test.newest", "test.middle"]);
+  });
+
+  it("drops stale run ids when logging activity", async () => {
+    const companyId = randomUUID();
+    const entityId = randomUUID();
+    const missingRunId = randomUUID();
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+
+    await logActivity(db, {
+      companyId,
+      actorType: "user",
+      actorId: "local-board",
+      action: "issue.updated",
+      entityType: "issue",
+      entityId,
+      runId: missingRunId,
+      details: { identifier: "PAP-1" },
+    });
+
+    const rows = await db
+      .select()
+      .from(activityLog)
+      .where(eq(activityLog.entityId, entityId));
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.runId).toBeNull();
   });
 
   it("returns compact usage and result summaries for issue runs", async () => {

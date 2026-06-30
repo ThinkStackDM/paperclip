@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { Db } from "@paperclipai/db";
-import { activityLog } from "@paperclipai/db";
+import { activityLog, heartbeatRuns } from "@paperclipai/db";
 import { PLUGIN_EVENT_TYPES, type PluginEventType } from "@paperclipai/shared";
 import type { PluginEvent } from "@paperclipai/plugin-sdk";
+import { eq } from "drizzle-orm";
 import { publishLiveEvent } from "./live-events.js";
 import { redactCurrentUserValue } from "../log-redaction.js";
 import { sanitizeRecord } from "../redaction.js";
@@ -25,6 +26,7 @@ const ACTIVITY_ACTION_TO_PLUGIN_EVENT: Readonly<Record<string, PluginEventType>>
   budget_hard_threshold_crossed: "budget.incident.opened",
   budget_incident_resolved: "budget.incident.resolved",
 };
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 let _pluginEventBus: PluginEventBus | null = null;
 
@@ -62,10 +64,38 @@ export interface LogActivityInput {
   details?: Record<string, unknown> | null;
 }
 
+async function resolveActivityRunId(db: Db, input: LogActivityInput): Promise<string | null> {
+  const runId = input.runId?.trim() || null;
+  if (!runId) return null;
+  if (!UUID_RE.test(runId)) {
+    logger.warn({
+      runId,
+      action: input.action,
+      entityType: input.entityType,
+      entityId: input.entityId,
+    }, "dropping invalid activity log run id");
+    return null;
+  }
+  const [row] = await db
+    .select({ id: heartbeatRuns.id })
+    .from(heartbeatRuns)
+    .where(eq(heartbeatRuns.id, runId))
+    .limit(1);
+  if (row) return runId;
+  logger.warn({
+    runId,
+    action: input.action,
+    entityType: input.entityType,
+    entityId: input.entityId,
+  }, "dropping activity log run id because heartbeat run is missing");
+  return null;
+}
+
 export async function logActivity(db: Db, input: LogActivityInput) {
   const currentUserRedactionOptions = {
     enabled: (await instanceSettingsService(db).getGeneral()).censorUsernameInLogs,
   };
+  const activityRunId = await resolveActivityRunId(db, input);
   const sanitizedDetails = input.details ? sanitizeRecord(input.details) : null;
   const redactedDetails = sanitizedDetails
     ? redactCurrentUserValue(sanitizedDetails, currentUserRedactionOptions)
@@ -78,7 +108,7 @@ export async function logActivity(db: Db, input: LogActivityInput) {
     entityType: input.entityType,
     entityId: input.entityId,
     agentId: input.agentId ?? null,
-    runId: input.runId ?? null,
+    runId: activityRunId,
     details: redactedDetails,
   });
 
@@ -92,7 +122,7 @@ export async function logActivity(db: Db, input: LogActivityInput) {
       entityType: input.entityType,
       entityId: input.entityId,
       agentId: input.agentId ?? null,
-      runId: input.runId ?? null,
+      runId: activityRunId,
       details: redactedDetails,
     },
   });
@@ -111,7 +141,7 @@ export async function logActivity(db: Db, input: LogActivityInput) {
       payload: {
         ...redactedDetails,
         agentId: input.agentId ?? null,
-        runId: input.runId ?? null,
+        runId: activityRunId,
       },
     };
     publishPluginDomainEvent(event);
