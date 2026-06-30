@@ -2738,6 +2738,80 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
     return false;
   }
 
+  async function sweepStaleRecoveryActions() {
+    const candidates = await db
+      .select({
+        actionId: issueRecoveryActions.id,
+        companyId: issueRecoveryActions.companyId,
+        sourceIssueId: issueRecoveryActions.sourceIssueId,
+        kind: issueRecoveryActions.kind,
+        sourceStatus: issues.status,
+      })
+      .from(issueRecoveryActions)
+      .innerJoin(
+        issues,
+        and(
+          eq(issues.id, issueRecoveryActions.sourceIssueId),
+          eq(issues.companyId, issueRecoveryActions.companyId),
+        ),
+      )
+      .where(
+        and(
+          inArray(issueRecoveryActions.status, ["active", "escalated"]),
+          sql`(
+            ${issues.status} in ('done', 'cancelled')
+            or (
+              ${issueRecoveryActions.kind} = 'missing_disposition'
+              and ${issues.status} <> 'in_progress'
+            )
+          )`,
+        ),
+      );
+
+    const result = {
+      folded: 0,
+      actionIds: [] as string[],
+      issueIds: [] as string[],
+    };
+
+    for (const candidate of candidates) {
+      const folded = await recoveryActionsSvc.resolveActiveForIssue({
+        companyId: candidate.companyId,
+        sourceIssueId: candidate.sourceIssueId,
+        actionId: candidate.actionId,
+        status: "resolved",
+        outcome: "restored",
+        resolutionNote: candidate.kind === "missing_disposition"
+          ? `Missing-disposition recovery swept because the source issue is now ${candidate.sourceStatus}.`
+          : `Recovery action swept because the source issue is now terminal (${candidate.sourceStatus}).`,
+      });
+      if (!folded) continue;
+
+      result.folded += 1;
+      result.actionIds.push(candidate.actionId);
+      result.issueIds.push(candidate.sourceIssueId);
+
+      await logActivity(db, {
+        companyId: candidate.companyId,
+        actorType: "system",
+        actorId: "system",
+        agentId: null,
+        runId: null,
+        action: "issue.recovery_action_swept",
+        entityType: "issue",
+        entityId: candidate.sourceIssueId,
+        details: {
+          source: "recovery.sweep_stale_recovery_actions",
+          recoveryActionId: candidate.actionId,
+          recoveryActionKind: candidate.kind,
+          sourceStatus: candidate.sourceStatus,
+        },
+      });
+    }
+
+    return result;
+  }
+
   async function enqueueSourceScopedStrandedRecoveryWake(input: {
     action: Awaited<ReturnType<typeof recoveryActionsSvc.upsertSourceScoped>>;
     issue: typeof issues.$inferSelect;
@@ -3137,12 +3211,17 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
       successfulContinuationObserved: 0,
       orphanBlockersAssigned: 0,
       successfulRunHandoffEscalated: 0,
+      staleRecoveryActionsFolded: 0,
       escalated: 0,
       waitingOnReviewResolved: 0,
       recentProgressExempted: 0,
       skipped: 0,
       issueIds: [] as string[],
     };
+
+    const staleRecoveryActions = await sweepStaleRecoveryActions();
+    result.staleRecoveryActionsFolded = staleRecoveryActions.folded;
+    result.issueIds.push(...staleRecoveryActions.issueIds);
 
     for (const issue of candidates) {
 
@@ -3809,6 +3888,15 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
     currentRecoveryIssueId: string | null;
     runId?: string | null;
   }) {
+    const existingAction = await db
+      .select({ evidence: issueRecoveryActions.evidence })
+      .from(issueRecoveryActions)
+      .where(eq(issueRecoveryActions.id, input.actionId))
+      .limit(1)
+      .then((rows) => rows[0] ?? null);
+    const previousEvidence = parseObject(existingAction?.evidence);
+    const alreadyCommented = asBoolean(previousEvidence.livenessNeedsHumanCommented, false);
+
     const [action] = await db
       .update(issueRecoveryActions)
       .set({
@@ -3820,10 +3908,12 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
         nextAction:
           `Manual intervention required. Automatic liveness retries stopped after ${ISSUE_GRAPH_LIVENESS_MAX_ATTEMPTS} attempts for ${input.finding.incidentKey}.`,
         evidence: {
+          ...previousEvidence,
           incidentKey: input.finding.incidentKey,
           state: input.finding.state,
           dependencyPath: input.finding.dependencyPath,
           cappedAtAttempts: ISSUE_GRAPH_LIVENESS_MAX_ATTEMPTS,
+          ...(alreadyCommented ? { livenessNeedsHumanCommented: true } : {}),
         },
         updatedAt: new Date(),
       })
@@ -3831,8 +3921,7 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
       .returning();
 
     if (!action) return;
-    const evidence = parseObject(action.evidence);
-    if (asBoolean(evidence.livenessNeedsHumanCommented, false)) return;
+    if (alreadyCommented) return;
 
     await issuesSvc.addComment(
       input.finding.issueId,
@@ -3851,7 +3940,7 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
       .update(issueRecoveryActions)
       .set({
         evidence: {
-          ...evidence,
+          ...parseObject(action.evidence),
           livenessNeedsHumanCommented: true,
         },
         updatedAt: new Date(),

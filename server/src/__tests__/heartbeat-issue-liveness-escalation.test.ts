@@ -862,7 +862,17 @@ describeEmbeddedPostgres("heartbeat issue graph liveness escalation", () => {
       .select({ body: issueComments.body })
       .from(issueComments)
       .where(eq(issueComments.issueId, blockedIssueId));
-    expect(sourceComments.some((comment) => comment.body.includes("stopped automatic liveness retry creation"))).toBe(true);
+    expect(sourceComments.filter((comment) => comment.body.includes("stopped automatic liveness retry creation"))).toHaveLength(1);
+
+    const secondCappedRetry = await heartbeat.reconcileIssueGraphLiveness();
+    expect(secondCappedRetry.escalationsCreated).toBe(0);
+    expect(secondCappedRetry.skippedRateLimited).toBe(1);
+
+    const commentsAfterSecondCap = await db
+      .select({ body: issueComments.body })
+      .from(issueComments)
+      .where(eq(issueComments.issueId, blockedIssueId));
+    expect(commentsAfterSecondCap.filter((comment) => comment.body.includes("stopped automatic liveness retry creation"))).toHaveLength(1);
   });
 
   it("removes closed liveness escalations from blocker relations during reconciliation", async () => {
