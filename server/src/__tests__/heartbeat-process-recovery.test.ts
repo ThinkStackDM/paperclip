@@ -2567,6 +2567,117 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     expect(wakes.filter((wake) => wake.reason === "source_scoped_recovery_action")).toHaveLength(0);
   });
 
+  it("sweeps active missing-disposition recovery after the source becomes blocked", async () => {
+    const { companyId, agentId, issueId } = await seedStrandedIssueFixture({
+      status: "in_progress",
+      runStatus: "succeeded",
+      livenessState: "advanced",
+    });
+    await db.insert(issueRecoveryActions).values({
+      companyId,
+      sourceIssueId: issueId,
+      kind: "missing_disposition",
+      status: "active",
+      ownerType: "agent",
+      ownerAgentId: agentId,
+      previousOwnerAgentId: agentId,
+      returnOwnerAgentId: agentId,
+      cause: SUCCESSFUL_RUN_MISSING_STATE_REASON,
+      fingerprint: `source_scoped_recovery:${companyId}:${issueId}:${SUCCESSFUL_RUN_MISSING_STATE_REASON}`,
+      evidence: { missingDisposition: "clear_next_step" },
+      nextAction: "Choose and record a valid issue disposition without copying transcript content.",
+      wakePolicy: { type: "wake_owner", reason: "source_scoped_recovery_action", ownerAgentId: agentId },
+      attemptCount: 1,
+      maxAttempts: 1,
+      lastAttemptAt: new Date("2026-03-19T00:05:00.000Z"),
+    });
+    await db
+      .update(issues)
+      .set({
+        status: "blocked",
+        checkoutRunId: null,
+        updatedAt: new Date("2026-03-19T00:06:00.000Z"),
+      })
+      .where(eq(issues.id, issueId));
+
+    const heartbeat = heartbeatService(db);
+    const result = await heartbeat.reconcileStrandedAssignedIssues();
+
+    expect(result.staleRecoveryActionsFolded).toBe(1);
+    expect(result.issueIds).toContain(issueId);
+
+    const [action] = await db.select().from(issueRecoveryActions).where(eq(issueRecoveryActions.sourceIssueId, issueId));
+    expect(action).toMatchObject({
+      status: "resolved",
+      outcome: "restored",
+      attemptCount: 1,
+      maxAttempts: 1,
+    });
+    expect(action?.resolutionNote).toContain("source issue is now blocked");
+
+    const wakes = await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.agentId, agentId));
+    expect(wakes.filter((wake) => wake.reason === "source_scoped_recovery_action")).toHaveLength(0);
+  });
+
+  it("sweeps active liveness recovery after the recovery issue becomes terminal", async () => {
+    const { companyId, agentId, issueId } = await seedStrandedIssueFixture({
+      status: "in_progress",
+      runStatus: "succeeded",
+      livenessState: "advanced",
+    });
+    const recoveryIssueId = randomUUID();
+    await db.insert(issues).values({
+      id: recoveryIssueId,
+      companyId,
+      title: "Unblock liveness incident",
+      status: "done",
+      priority: "medium",
+      assigneeAgentId: agentId,
+      issueNumber: 2,
+      identifier: "REC-2",
+    });
+    await db.insert(issueRecoveryActions).values({
+      companyId,
+      sourceIssueId: issueId,
+      recoveryIssueId,
+      kind: "issue_graph_liveness",
+      status: "active",
+      ownerType: "agent",
+      ownerAgentId: agentId,
+      cause: "issue_graph_liveness:blocked_by_unassigned_issue",
+      fingerprint: `harness_liveness:${companyId}:${issueId}:blocked_by_unassigned_issue:${recoveryIssueId}`,
+      evidence: { state: "blocked_by_unassigned_issue" },
+      nextAction: "Assign the blocker or close the recovery issue.",
+      wakePolicy: { type: "wake_owner", reason: "issue_graph_liveness", ownerAgentId: agentId },
+      attemptCount: 1,
+      maxAttempts: 3,
+      lastAttemptAt: new Date("2026-03-19T00:05:00.000Z"),
+    });
+    await db
+      .update(issues)
+      .set({
+        status: "blocked",
+        checkoutRunId: null,
+        updatedAt: new Date("2026-03-19T00:06:00.000Z"),
+      })
+      .where(eq(issues.id, issueId));
+
+    const heartbeat = heartbeatService(db);
+    const result = await heartbeat.reconcileStrandedAssignedIssues();
+
+    expect(result.staleRecoveryActionsFolded).toBe(1);
+    expect(result.issueIds).toContain(issueId);
+
+    const [action] = await db.select().from(issueRecoveryActions).where(eq(issueRecoveryActions.sourceIssueId, issueId));
+    expect(action).toMatchObject({
+      status: "resolved",
+      outcome: "restored",
+      attemptCount: 1,
+      maxAttempts: 3,
+    });
+    expect(action?.resolutionNote).toContain("recovery issue is now terminal (done)");
+  });
+
   it("folds missing-disposition recovery when an event-driven hub idle path is present", async () => {
     const { companyId, agentId, runId, issueId } = await seedStrandedIssueFixture({
       status: "in_progress",

@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, gt, gte, inArray, isNull, notInArray, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import type { Db } from "@paperclipai/db";
 import {
   DEFAULT_ISSUE_GRAPH_LIVENESS_AUTO_RECOVERY_LOOKBACK_HOURS,
@@ -2739,6 +2740,7 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
   }
 
   async function sweepStaleRecoveryActions() {
+    const recoveryIssue = alias(issues, "stale_recovery_issue");
     const candidates = await db
       .select({
         actionId: issueRecoveryActions.id,
@@ -2746,6 +2748,7 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
         sourceIssueId: issueRecoveryActions.sourceIssueId,
         kind: issueRecoveryActions.kind,
         sourceStatus: issues.status,
+        recoveryIssueStatus: recoveryIssue.status,
       })
       .from(issueRecoveryActions)
       .innerJoin(
@@ -2755,11 +2758,19 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
           eq(issues.companyId, issueRecoveryActions.companyId),
         ),
       )
+      .leftJoin(
+        recoveryIssue,
+        and(
+          eq(recoveryIssue.id, issueRecoveryActions.recoveryIssueId),
+          eq(recoveryIssue.companyId, issueRecoveryActions.companyId),
+        ),
+      )
       .where(
         and(
           inArray(issueRecoveryActions.status, ["active", "escalated"]),
           sql`(
             ${issues.status} in ('done', 'cancelled')
+            or ${recoveryIssue.status} in ('done', 'cancelled')
             or (
               ${issueRecoveryActions.kind} = 'missing_disposition'
               and ${issues.status} <> 'in_progress'
@@ -2775,15 +2786,18 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
     };
 
     for (const candidate of candidates) {
+      const recoveryIssueTerminal = candidate.recoveryIssueStatus === "done" || candidate.recoveryIssueStatus === "cancelled";
       const folded = await recoveryActionsSvc.resolveActiveForIssue({
         companyId: candidate.companyId,
         sourceIssueId: candidate.sourceIssueId,
         actionId: candidate.actionId,
         status: "resolved",
         outcome: "restored",
-        resolutionNote: candidate.kind === "missing_disposition"
-          ? `Missing-disposition recovery swept because the source issue is now ${candidate.sourceStatus}.`
-          : `Recovery action swept because the source issue is now terminal (${candidate.sourceStatus}).`,
+        resolutionNote: recoveryIssueTerminal
+          ? `Recovery action swept because the recovery issue is now terminal (${candidate.recoveryIssueStatus}).`
+          : candidate.kind === "missing_disposition"
+            ? `Missing-disposition recovery swept because the source issue is now ${candidate.sourceStatus}.`
+            : `Recovery action swept because the source issue is now terminal (${candidate.sourceStatus}).`,
       });
       if (!folded) continue;
 
@@ -2805,6 +2819,7 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
           recoveryActionId: candidate.actionId,
           recoveryActionKind: candidate.kind,
           sourceStatus: candidate.sourceStatus,
+          recoveryIssueStatus: candidate.recoveryIssueStatus,
         },
       });
     }
