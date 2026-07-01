@@ -264,6 +264,7 @@ export {
   agentMineInboxQuerySchema,
   wakeAgentSchema,
   resetAgentSessionSchema,
+  revokeAgentFallbackSisterSchema,
   testAdapterEnvironmentSchema,
   agentPermissionsSchema,
   updateAgentPermissionsSchema,
@@ -281,6 +282,7 @@ export {
   type AgentMineInboxQuery,
   type WakeAgent,
   type ResetAgentSession,
+  type RevokeAgentFallbackSister,
   type TestAdapterEnvironment,
   type UpdateAgentPermissions,
 } from "./agent.js";

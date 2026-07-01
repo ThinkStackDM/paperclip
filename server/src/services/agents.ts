@@ -929,6 +929,21 @@ export function agentService(db: Db) {
         ))
         .then((rows) => rows[0] ?? null),
 
+    revokeFallbackRelationship: async (companyId: string, primaryAgentId: string, sisterAgentId: string) => {
+      const now = new Date();
+      return db
+        .update(agentFallbackSisters)
+        .set({ revokedAt: now })
+        .where(and(
+          eq(agentFallbackSisters.companyId, companyId),
+          eq(agentFallbackSisters.primaryAgentId, primaryAgentId),
+          eq(agentFallbackSisters.sisterAgentId, sisterAgentId),
+          isNull(agentFallbackSisters.revokedAt),
+        ))
+        .returning()
+        .then((rows) => rows[0] ?? null);
+    },
+
     isPausedOrLimitFailed: async (
       primary: { id: string; status: string },
       reason: "session_limit" | "weekly_limit" | "usage_limit" | "paused_primary",

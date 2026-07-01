@@ -207,6 +207,13 @@ export const resetAgentSessionSchema = z.object({
 
 export type ResetAgentSession = z.infer<typeof resetAgentSessionSchema>;
 
+export const revokeAgentFallbackSisterSchema = z.object({
+  primaryAgentId: z.string().uuid(),
+  sisterAgentId: z.string().uuid(),
+});
+
+export type RevokeAgentFallbackSister = z.infer<typeof revokeAgentFallbackSisterSchema>;
+
 export const testAdapterEnvironmentSchema = z.object({
   adapterConfig: adapterConfigSchema.optional().default({}),
   /**

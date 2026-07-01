@@ -15,6 +15,7 @@ import {
   deriveAgentUrlKey,
   isUuidLike,
   normalizeIssueIdentifier,
+  revokeAgentFallbackSisterSchema,
   resetAgentSessionSchema,
   testAdapterEnvironmentSchema,
   type AgentDesiredSkillEntry,
@@ -2092,6 +2093,45 @@ export function agentRoutes(
         .returning(fallbackSisterRowSelection);
 
       res.status(201).json(row);
+    },
+  );
+
+  router.delete(
+    "/companies/:companyId/agent-fallback-sisters",
+    validate(revokeAgentFallbackSisterSchema),
+    async (req, res) => {
+      const companyId = req.params.companyId as string;
+      await assertCanManageFallbackRegistry(req, companyId);
+
+      const { primaryAgentId, sisterAgentId } = req.body;
+      const actor = getActorInfo(req);
+      const relationship = await svc.getFallbackRelationship(companyId, primaryAgentId, sisterAgentId);
+      if (!relationship) {
+        throw notFound("Fallback sister relationship not found");
+      }
+
+      const revoked = await svc.revokeFallbackRelationship(companyId, primaryAgentId, sisterAgentId);
+      if (!revoked) {
+        throw notFound("Fallback sister relationship not found");
+      }
+
+      await logActivity(db, {
+        companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        agentId: actor.agentId,
+        runId: actor.runId,
+        action: "agent.fallback_sister_revoked",
+        entityType: "agent",
+        entityId: primaryAgentId,
+        details: {
+          primaryAgentId,
+          sisterAgentId,
+          fallbackRelationshipId: revoked.id,
+        },
+      });
+
+      res.json(revoked);
     },
   );
 
