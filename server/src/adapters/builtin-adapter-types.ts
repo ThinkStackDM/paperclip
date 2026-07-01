@@ -10,10 +10,11 @@ export const BUILTIN_ADAPTER_TYPES = new Set([
   "gemini_local",
   "antigravity_local",
   "grok_local",
+  "hermes_gateway",
+  "hermes_local",
   "openclaw_gateway",
   "opencode_local",
   "pi_local",
-  "hermes_local",
   "process",
   "http",
 ]);

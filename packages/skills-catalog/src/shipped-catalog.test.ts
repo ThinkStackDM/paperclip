@@ -6,6 +6,7 @@ const EXPECTED_BUNDLED_KEYS = [
   "paperclipai/bundled/paperclip-operations/issue-triage",
   "paperclipai/bundled/paperclip-operations/operator-asks",
   "paperclipai/bundled/paperclip-operations/task-planning",
+  "paperclipai/bundled/product/paperclip-capsules",
   "paperclipai/bundled/product/wireframe",
   "paperclipai/bundled/quality/qa-acceptance",
   "paperclipai/bundled/software-development/github-pr-workflow",

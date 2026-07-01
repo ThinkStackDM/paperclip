@@ -300,6 +300,8 @@ pnpm paperclipai agent instructions-file:put <agent-id> --path AGENTS.md --conte
 pnpm paperclipai agent instructions-file:delete <agent-id> --path AGENTS.md
 ```
 
+Agent config, instructions, skills, project env, environment, secret, and workspace edits affect the next run. Active runs finish with the config they started with. When a saved session, reused workspace, or sandbox lease no longer matches the effective next-run config, Paperclip may start fresh execution and records non-sensitive freshness categories in run result JSON and workspace operation logs.
+
 `agent local-cli` is the quickest way to run local Claude/Codex manually as a Paperclip agent:
 
 - creates a new long-lived agent API key
@@ -687,6 +689,13 @@ pnpm paperclipai llm agent-configuration
 pnpm paperclipai llm agent-configuration:adapter <adapter-type>
 pnpm paperclipai llm agent-icons
 ```
+
+Hermes gateway uses the generic invite/join commands above rather than
+`openclaw invite-prompt`. Create an agent invite, read
+`invite onboarding:text`, submit a join request with
+`adapterType: "hermes_gateway"` and `agentDefaultsPayload.apiBaseUrl` /
+`agentDefaultsPayload.apiKey`, then approve and claim the key with the `join`
+commands. See [HERMES_GATEWAY_ONBOARDING.md](./HERMES_GATEWAY_ONBOARDING.md).
 
 ## Adapter, Asset, And Skill Commands
 

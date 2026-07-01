@@ -409,6 +409,7 @@ interface IssueChatThreadProps {
   onWorkModeChange?: (workMode: IssueWorkMode) => Promise<void> | void;
   showComposer?: boolean;
   showJumpToLatest?: boolean;
+  autoScrollToLatestOnInitialLoad?: boolean;
   emptyMessage?: string;
   footer?: ReactNode;
   variant?: "full" | "embedded";
@@ -720,9 +721,7 @@ const IssueChatTextPart = memo(function IssueChatTextPart({ text, recessed, onAc
   }
   return (
     <WorkspaceFileMarkdownBody
-      // `prose-invert` flips typography colours (body, links, code) to light so
-      // markdown stays legible on the saturated liveness-blue human bubble.
-      className={cn("text-sm leading-6", onAccent && "prose-invert")}
+      className={cn("text-sm leading-6", onAccent && "paperclip-markdown-on-accent")}
       style={recessed ? { opacity: 0.55 } : undefined}
       softBreaks
       onImageClick={onImageClick}
@@ -4153,6 +4152,7 @@ export function IssueChatThread({
   composerHint = null,
   showComposer = true,
   showJumpToLatest,
+  autoScrollToLatestOnInitialLoad = true,
   emptyMessage,
   footer,
   variant = "full",
@@ -4204,6 +4204,8 @@ export function IssueChatThread({
         status: activeRun.status,
         invocationSource: activeRun.invocationSource,
         triggerDetail: activeRun.triggerDetail,
+        contextCommentId: activeRun.contextCommentId,
+        contextWakeCommentId: activeRun.contextWakeCommentId,
         startedAt: toIsoString(activeRun.startedAt),
         finishedAt: toIsoString(activeRun.finishedAt),
         createdAt: toIsoString(activeRun.createdAt) ?? new Date().toISOString(),
@@ -4212,6 +4214,13 @@ export function IssueChatThread({
         adapterType: activeRun.adapterType,
         logBytes: activeRun.logBytes,
         lastOutputBytes: activeRun.lastOutputBytes,
+        issueId: activeRun.issueId,
+        livenessState: activeRun.livenessState,
+        livenessReason: activeRun.livenessReason,
+        continuationAttempt: activeRun.continuationAttempt,
+        lastUsefulActionAt: toIsoString(activeRun.lastUsefulActionAt),
+        nextAction: activeRun.nextAction,
+        outputSilence: activeRun.outputSilence,
         currentStatusMessage: activeRun.currentStatusMessage ?? null,
         currentStatusUpdatedAt: toIsoString(activeRun.currentStatusUpdatedAt),
       });
@@ -4478,6 +4487,7 @@ export function IssueChatThread({
   // skip later issues.
   const initialLatestScrollIssueRef = useRef<string | null | undefined>(undefined);
   useEffect(() => {
+    if (!autoScrollToLatestOnInitialLoad) return;
     if (variant !== "full") return;
     if (initialLatestScrollIssueRef.current === issueId) return;
     if (messages.length === 0) return;
@@ -4490,7 +4500,7 @@ export function IssueChatThread({
     // we resolve and scroll to the latest comment's anchor.
     const frame = requestAnimationFrame(() => scrollToLatestCommentWithSettle(latestMessagesRef.current));
     return () => cancelAnimationFrame(frame);
-  }, [variant, issueId, location.hash, messages]);
+  }, [autoScrollToLatestOnInitialLoad, variant, issueId, location.hash, messages]);
 
   function jumpToLatestFallback() {
     if (useVirtualizedThread) {

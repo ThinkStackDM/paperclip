@@ -8,15 +8,41 @@ import { serverVersion } from "../version.js";
 import { getInstanceIdentity } from "../instance-identity.js";
 
 const mockReadPersistedDevServerStatus = vi.hoisted(() => vi.fn());
+const testServerInfo = {
+  processStartedAt: "2026-06-26T00:00:00.000Z",
+  git: {
+    available: true,
+    fullSha: "0123456789abcdef0123456789abcdef01234567",
+    shortSha: "0123456",
+    subject: "Add server info debug view",
+    committedAt: "2026-06-25T23:00:00.000Z",
+    localChanges: {
+      available: true,
+      hasLocalChanges: false,
+      stagedFileCount: 0,
+      unstagedFileCount: 0,
+      untrackedFileCount: 0,
+    },
+  },
+} as const;
 
 vi.mock("../dev-server-status.js", () => ({
   readPersistedDevServerStatus: mockReadPersistedDevServerStatus,
   toDevServerHealthStatus: vi.fn(),
 }));
 
-function createApp(db?: Db) {
+function createApp(db?: Db, serverInfo = testServerInfo) {
   const app = express();
-  app.use("/health", healthRoutes(db));
+  app.use(
+    "/health",
+    healthRoutes(db, {
+      deploymentMode: "local_trusted",
+      deploymentExposure: "private",
+      authReady: true,
+      companyDeletionEnabled: true,
+      serverInfo,
+    }),
+  );
   return app;
 }
 
@@ -37,6 +63,7 @@ describe("GET /health", () => {
       status: "ok",
       version: serverVersion,
       instance: getInstanceIdentity(),
+      serverInfo: testServerInfo,
     });
   }, 15_000);
 
@@ -50,7 +77,11 @@ describe("GET /health", () => {
 
     expect(res.status).toBe(200);
     expect(db.execute).toHaveBeenCalledTimes(1);
-    expect(res.body).toMatchObject({ status: "ok", version: serverVersion });
+    expect(res.body).toMatchObject({
+      status: "ok",
+      version: serverVersion,
+      serverInfo: testServerInfo,
+    });
   });
 
   it("returns 503 when the database probe fails", async () => {
@@ -67,6 +98,28 @@ describe("GET /health", () => {
       version: serverVersion,
       error: "database_unreachable",
       instance: getInstanceIdentity(),
+      serverInfo: testServerInfo,
+    });
+  });
+
+  it("returns safe server info fallbacks when git metadata is unavailable", async () => {
+    const app = createApp(undefined, {
+      processStartedAt: "2026-06-26T00:00:00.000Z",
+      git: {
+        available: false,
+        unavailableReason: "git_unavailable",
+      },
+    });
+
+    const res = await request(app).get("/health");
+
+    expect(res.status).toBe(200);
+    expect(res.body.serverInfo).toEqual({
+      processStartedAt: "2026-06-26T00:00:00.000Z",
+      git: {
+        available: false,
+        unavailableReason: "git_unavailable",
+      },
     });
   });
 
@@ -94,6 +147,7 @@ describe("GET /health", () => {
         deploymentExposure: "public",
         authReady: true,
         companyDeletionEnabled: false,
+        serverInfo: testServerInfo,
       }),
     );
 
@@ -107,6 +161,7 @@ describe("GET /health", () => {
       bootstrapStatus: "ready",
       bootstrapInviteActive: false,
     });
+    expect(res.body.serverInfo).toBeUndefined();
   });
 
   it("redacts detailed metadata when authenticated mode is reached without auth middleware", async () => {
@@ -129,6 +184,7 @@ describe("GET /health", () => {
         deploymentExposure: "public",
         authReady: true,
         companyDeletionEnabled: false,
+        serverInfo: testServerInfo,
       }),
     );
 
@@ -142,6 +198,7 @@ describe("GET /health", () => {
       bootstrapStatus: "ready",
       bootstrapInviteActive: false,
     });
+    expect(res.body.serverInfo).toBeUndefined();
   });
 
   it("exposes instance identity to local-trusted requests", async () => {
@@ -219,6 +276,7 @@ describe("GET /health", () => {
         deploymentExposure: "public",
         authReady: true,
         companyDeletionEnabled: false,
+        serverInfo: testServerInfo,
       }),
     );
 
@@ -237,6 +295,7 @@ describe("GET /health", () => {
         companyDeletionEnabled: false,
       },
       instance: getInstanceIdentity(),
+      serverInfo: testServerInfo,
     });
   });
 });

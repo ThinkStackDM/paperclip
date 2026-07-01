@@ -38,6 +38,7 @@ import {
   feedbackService,
   backfillPrincipalAccessCompatibility,
   bootstrapExecutionPolicyFromEnv,
+  environmentCustomImageService,
   heartbeatService,
   instanceSettingsService,
   reconcileCloudUpstreamRunsOnStartup,
@@ -784,6 +785,7 @@ export async function startServer(): Promise<StartedServer> {
 
   if (config.heartbeatSchedulerEnabled) {
     const heartbeat = heartbeatService(db as any, { pluginWorkerManager });
+    const environmentCustomImages = environmentCustomImageService(db as any, { pluginWorkerManager });
     const routines = routineService(db as any, { pluginWorkerManager });
 
     // Recovery-review cadence: the silent-run watchdog and productivity reviews
@@ -870,6 +872,11 @@ export async function startServer(): Promise<StartedServer> {
       const reviewed = await heartbeat.reconcileProductivityReviews();
       if (reviewed.created > 0 || reviewed.updated > 0 || reviewed.failed > 0) {
         logger.warn({ ...reviewed }, "startup productivity reconciliation created or updated review work");
+      }
+
+      const setupCleanup = await environmentCustomImages.cleanupExpiredSetupSessions();
+      if (setupCleanup.timedOut > 0 || setupCleanup.failed > 0) {
+        logger.warn({ ...setupCleanup }, "startup environment customImage setup cleanup changed sessions");
       }
     })().catch((err) => {
       logger.error({ err }, "startup heartbeat recovery failed");
@@ -1040,6 +1047,17 @@ export async function startServer(): Promise<StartedServer> {
             logger.error({ err }, "aged-task-session reaper failed");
           });
       }
+
+      void environmentCustomImages
+        .cleanupExpiredSetupSessions()
+        .then((result) => {
+          if (result.timedOut > 0 || result.failed > 0) {
+            logger.warn({ ...result }, "environment customImage setup cleanup changed sessions");
+          }
+        })
+        .catch((err) => {
+          logger.error({ err }, "environment customImage setup cleanup failed");
+        });
 
       // Periodically reap orphaned runs (5-min staleness threshold) and make sure
       // persisted queued work is still being driven forward.

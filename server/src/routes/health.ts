@@ -7,6 +7,7 @@ import type { DeploymentExposure, DeploymentMode } from "@paperclipai/shared";
 import { readPersistedDevServerStatus, toDevServerHealthStatus, writeDevServerRestartRequest } from "../dev-server-status.js";
 import { getInstanceIdentity } from "../instance-identity.js";
 import { logger } from "../middleware/logger.js";
+import { getServerInfoSnapshot, type ServerInfoSnapshot } from "../server-info.js";
 import { instanceSettingsService } from "../services/instance-settings.js";
 import { serverVersion } from "../version.js";
 
@@ -36,6 +37,7 @@ export function healthRoutes(
     deploymentExposure: DeploymentExposure;
     authReady: boolean;
     companyDeletionEnabled: boolean;
+    serverInfo?: ServerInfoSnapshot;
   } = {
     deploymentMode: "local_trusted",
     deploymentExposure: "private",
@@ -85,13 +87,19 @@ export function healthRoutes(
       actorType,
       opts.deploymentMode,
     );
+    // serverInfo (git SHA + process start) rides on the full-details responses
+    // only, so it reaches board/agent actors in authenticated mode or any caller
+    // in local_trusted dev — never anonymous authenticated callers. The
+    // enableServerInfoDebugView experimental flag gates the UI surface, not this
+    // already access-controlled field.
+    const serverInfo = opts.serverInfo ?? getServerInfoSnapshot();
     const exposeDevServerDetails =
       exposeFullDetails || hasDevServerStatusToken(req.get("x-paperclip-dev-server-status-token"));
 
     if (!db) {
       res.json(
         exposeFullDetails
-          ? { status: "ok", version: serverVersion, instance: getInstanceIdentity() }
+          ? { status: "ok", version: serverVersion, instance: getInstanceIdentity(), serverInfo }
           : { status: "ok", deploymentMode: opts.deploymentMode },
       );
       return;
@@ -105,7 +113,7 @@ export function healthRoutes(
         status: "unhealthy",
         version: serverVersion,
         error: "database_unreachable",
-        ...(exposeFullDetails ? { instance: getInstanceIdentity() } : {}),
+        ...(exposeFullDetails ? { instance: getInstanceIdentity(), serverInfo } : {}),
       });
       return;
     }
@@ -179,6 +187,7 @@ export function healthRoutes(
         companyDeletionEnabled: opts.companyDeletionEnabled,
       },
       instance: getInstanceIdentity(),
+      serverInfo,
       ...(devServer ? { devServer } : {}),
     });
   });

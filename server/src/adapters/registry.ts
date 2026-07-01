@@ -94,6 +94,10 @@ import {
   models as grokModels,
 } from "@paperclipai/adapter-grok-local";
 import {
+  createHermesGatewayServerAdapter,
+  createHermesLocalServerAdapter,
+} from "@paperclipai/hermes-paperclip-adapter";
+import {
   execute as openCodeExecute,
   listOpenCodeSkills,
   syncOpenCodeSkills,
@@ -128,18 +132,6 @@ import {
   agentConfigurationDoc as piAgentConfigurationDoc,
   modelProfiles as piModelProfiles,
 } from "@paperclipai/adapter-pi-local";
-import {
-  execute as hermesExecute,
-  testEnvironment as hermesTestEnvironment,
-  sessionCodec as hermesSessionCodec,
-  listSkills as hermesListSkills,
-  syncSkills as hermesSyncSkills,
-  detectModel as detectModelFromHermes,
-} from "hermes-paperclip-adapter/server";
-import {
-  agentConfigurationDoc as hermesAgentConfigurationDoc,
-  models as hermesModels,
-} from "hermes-paperclip-adapter";
 import {
   execute as antigravityExecute,
   testEnvironment as antigravityTestEnvironment,
@@ -193,55 +185,6 @@ function buildCursorRuntimeCommandSpec(config: Record<string, unknown>): Adapter
     command,
     detectCommand: command,
     installCommand: null,
-  };
-}
-
-function normalizeHermesConfig<T extends { config?: unknown; agent?: unknown }>(ctx: T): T {
-  const config =
-    ctx && typeof ctx === "object" && "config" in ctx && ctx.config && typeof ctx.config === "object"
-      ? (ctx.config as Record<string, unknown>)
-      : null;
-  const agent =
-    ctx && typeof ctx === "object" && "agent" in ctx && ctx.agent && typeof ctx.agent === "object"
-      ? (ctx.agent as Record<string, unknown>)
-      : null;
-  const agentAdapterConfig =
-    agent?.adapterConfig && typeof agent.adapterConfig === "object"
-      ? (agent.adapterConfig as Record<string, unknown>)
-      : null;
-
-  const configCommand =
-    typeof config?.command === "string" && config.command.length > 0 ? config.command : undefined;
-  const agentCommand =
-    typeof agentAdapterConfig?.command === "string" && agentAdapterConfig.command.length > 0
-      ? agentAdapterConfig.command
-      : undefined;
-
-  if (config && !config.hermesCommand && configCommand) {
-    config.hermesCommand = configCommand;
-  }
-  if (agentAdapterConfig && !agentAdapterConfig.hermesCommand && agentCommand) {
-    agentAdapterConfig.hermesCommand = agentCommand;
-  }
-
-  return ctx;
-}
-
-function passHermesCustomProviderThroughExtraArgs(config: Record<string, unknown>): Record<string, unknown> {
-  const provider = typeof config.provider === "string" ? config.provider.trim() : "";
-  if (!provider.startsWith("custom:")) return config;
-
-  const existingExtraArgs = Array.isArray(config.extraArgs)
-    ? config.extraArgs.filter((arg): arg is string => typeof arg === "string")
-    : [];
-  const alreadyHasProviderArg = existingExtraArgs.some((arg) =>
-    arg === "--provider" || arg.startsWith("--provider=")
-  );
-  if (alreadyHasProviderArg) return config;
-
-  return {
-    ...config,
-    extraArgs: [...existingExtraArgs, "--provider", provider],
   };
 }
 
@@ -434,6 +377,10 @@ const grokLocalAdapter: ServerAdapterModule = {
   agentConfigurationDoc: grokAgentConfigurationDoc,
 };
 
+const hermesGatewayAdapter = createHermesGatewayServerAdapter();
+
+const hermesLocalAdapter = createHermesLocalServerAdapter();
+
 const openclawGatewayAdapter: ServerAdapterModule = {
   type: "openclaw_gateway",
   execute: openclawGatewayExecute,
@@ -484,205 +431,6 @@ const piLocalAdapter: ServerAdapterModule = {
   agentConfigurationDoc: piAgentConfigurationDoc,
 };
 
-// hermes-paperclip-adapter v0.2.0 predates the authToken field; cast is
-// intentional until hermes ships a matching AdapterExecutionContext type.
-const executeHermesLocal = hermesExecute as unknown as ServerAdapterModule["execute"];
-// hermes-paperclip-adapter v0.2.0 still depends on the published @paperclipai/adapter-utils
-// that ships the "paperclip_required" origin; casts bridge until hermes upgrades.
-const listHermesSkills = hermesListSkills as unknown as ServerAdapterModule["listSkills"];
-const syncHermesSkills = hermesSyncSkills as unknown as ServerAdapterModule["syncSkills"];
-
-const FALLBACK_HERMES_PROMPT_TEMPLATE = `You are {{agentName}}, a Hermes-backed Paperclip agent.
-
-IMPORTANT: Use the terminal tool with curl for Paperclip API calls to localhost.
-
-Paperclip API safety rules:
-- Use Authorization: Bearer $PAPERCLIP_API_KEY on every Paperclip API request.
-- Use X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID on every Paperclip API request that writes or mutates data, including comments and issue updates.
-- Never use a board, browser, or local-board session for Paperclip API writes.
-- When the task asks for an issue document, create or update it through the document API. Do not embed the requested document as markdown inside a comment.
-- Issue document write pattern: PUT {{paperclipApiUrl}}/issues/<issue-id>/documents/<document-key> with JSON {"title":"<title>","format":"markdown","body":"<document body>"} and the same Authorization plus X-Paperclip-Run-Id headers.
-- Do not post a separate completion comment after a final PATCH with a comment field; use one final issue update so the status and summary are atomic.
-- The final status PATCH must use the exact authenticated curl pattern shown in the workflow. Do not shorten it, omit Authorization, or rely on local-trusted board fallback.
-- Preserve the substantive result in that final PATCH comment. The comment must contain the actual answer, work product, decision, or blocker details the task asks for, plus verification. Do not reduce it to status mechanics.
-
-Paperclip identity:
-  Agent ID: {{agentId}}
-  Company ID: {{companyId}}
-  API Base: {{paperclipApiUrl}}
-
-{{#taskId}}
-## Assigned Task
-
-Issue ID: {{taskId}}
-Title: {{taskTitle}}
-
-{{taskBody}}
-
-## Workflow
-
-1. Fetch scoped issue context first:
-   \`curl -s -H "Authorization: Bearer $PAPERCLIP_API_KEY" "{{paperclipApiUrl}}/issues/{{taskId}}/heartbeat-context"\`
-2. Work only on this scoped issue unless the issue explicitly delegates or names a blocker you must inspect.
-3. Do not run a broad inbox sweep, self-assign unrelated work, create recursive child issues, or treat a status/comment-only heartbeat as completion.
-4. If the task asks for an issue document, write it before the final status update:
-   \`curl -s -X PUT -H "Authorization: Bearer $PAPERCLIP_API_KEY" -H "X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID" -H "Content-Type: application/json" "{{paperclipApiUrl}}/issues/{{taskId}}/documents/<document-key>" -d '{"title":"<document title>","format":"markdown","body":"<document body>"}'\`
-   Then verify it exists:
-   \`curl -s -H "Authorization: Bearer $PAPERCLIP_API_KEY" "{{paperclipApiUrl}}/issues/{{taskId}}/documents/<document-key>"\`
-5. End with a real disposition: \`done\`, \`cancelled\`, \`blocked\` with exact owner/action, or a delegated child blocker. Keep \`in_progress\` only while a live continuation path exists.
-6. When complete, update the issue once with status and a substantive comment containing the actual answer/work product and verification. If you created a document, reference the document key instead of pasting the full document body into the comment. Copy this exact curl shape, including both headers; a PATCH without Authorization is a provenance failure:
-   \`curl -s -X PATCH -H "Authorization: Bearer $PAPERCLIP_API_KEY" -H "X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID" -H "Content-Type: application/json" "{{paperclipApiUrl}}/issues/{{taskId}}" -d '{"status":"done","comment":"DONE: <actual answer or work product, root cause/decision if relevant, and verification>"}'\`
-{{/taskId}}
-
-{{#commentId}}
-## Comment on This Issue
-
-Read the comment:
-   \`curl -s -H "Authorization: Bearer $PAPERCLIP_API_KEY" "{{paperclipApiUrl}}/issues/{{taskId}}/comments/{{commentId}}" | python3 -m json.tool\`
-
-Address the comment, then finish with one final authenticated PATCH update if status or summary changes.
-{{/commentId}}
-
-{{#noTask}}
-## Heartbeat Wake
-
-List open assigned issues only if no scoped task is present:
-   \`curl -s -H "Authorization: Bearer $PAPERCLIP_API_KEY" "{{paperclipApiUrl}}/companies/{{companyId}}/issues?assigneeAgentId={{agentId}}" | python3 -c "import sys,json;issues=json.loads(sys.stdin.read());[print(f'{i[\"identifier\"]} {i[\"status\"]:>12} {i[\"priority\"]:>6} {i[\"title\"]}') for i in issues if i['status'] not in ('done','cancelled')]" \`
-
-If no issues are assigned, report briefly what you checked. Do not self-assign unassigned work.
-{{/noTask}}`;
-
-function readHermesString(value: unknown): string {
-  return typeof value === "string" && value.trim().length > 0 ? value : "";
-}
-
-function buildHermesScopedConfig(
-  ctx: Parameters<ServerAdapterModule["execute"]>[0],
-): Record<string, unknown> {
-  const config = { ...(ctx.config ?? {}) };
-  const context = ctx.context && typeof ctx.context === "object" ? ctx.context as Record<string, unknown> : {};
-  const paperclipIssue = context.paperclipIssue && typeof context.paperclipIssue === "object"
-    ? context.paperclipIssue as Record<string, unknown>
-    : {};
-
-  const taskId =
-    readHermesString(config.taskId) ||
-    readHermesString(context.taskId) ||
-    readHermesString(context.issueId) ||
-    readHermesString(paperclipIssue.id);
-  const taskTitle =
-    readHermesString(config.taskTitle) ||
-    readHermesString(paperclipIssue.identifier && paperclipIssue.title
-      ? `${paperclipIssue.identifier}: ${paperclipIssue.title}`
-      : paperclipIssue.title);
-  const taskBody =
-    readHermesString(config.taskBody) ||
-    readHermesString(paperclipIssue.description) ||
-    readHermesString(context.paperclipTaskMarkdown);
-  const commentId =
-    readHermesString(config.commentId) ||
-    readHermesString(context.commentId) ||
-    readHermesString(context.wakeCommentId);
-  const wakeReason =
-    readHermesString(config.wakeReason) ||
-    readHermesString(context.wakeReason);
-
-  return {
-    ...config,
-    ...(taskId ? { taskId } : {}),
-    ...(taskTitle ? { taskTitle } : {}),
-    ...(taskBody ? { taskBody } : {}),
-    ...(commentId ? { commentId } : {}),
-    ...(wakeReason ? { wakeReason } : {}),
-  };
-}
-
-const hermesLocalAdapter: ServerAdapterModule = {
-  type: "hermes_local",
-  execute: async (ctx) => {
-    const normalizedCtx = normalizeHermesConfig(ctx);
-    // Always apply task scoping (taskId/taskTitle/taskBody/...) — even
-    // unauthenticated runs must see the assigned-issue context.
-    const scopedConfig = buildHermesScopedConfig(normalizedCtx);
-    if (!normalizedCtx.authToken) {
-      return executeHermesLocal({ ...normalizedCtx, config: scopedConfig });
-    }
-
-    const existingConfig = (normalizedCtx.agent.adapterConfig ?? {}) as Record<string, unknown>;
-    const readEnv = (value: unknown): Record<string, string> =>
-      typeof value === "object" && value !== null && !Array.isArray(value)
-        ? (value as Record<string, string>)
-        : {};
-    // Runtime config (scopedConfig) wins over the raw agent adapterConfig:
-    // it is the secrets-resolved view the adapter actually executes with.
-    const existingEnv = { ...readEnv(existingConfig.env), ...readEnv(scopedConfig.env) };
-    const explicitApiKey =
-      typeof existingEnv.PAPERCLIP_API_KEY === "string" && existingEnv.PAPERCLIP_API_KEY.trim().length > 0;
-    const readPromptTemplate = (value: unknown): string =>
-      typeof value === "string" && value.trim().length > 0 ? value : "";
-    const promptTemplate =
-      readPromptTemplate(scopedConfig.promptTemplate) || readPromptTemplate(existingConfig.promptTemplate);
-    const authGuardPrompt = [
-      "Paperclip API safety rule:",
-      "Use Authorization: Bearer $PAPERCLIP_API_KEY on every Paperclip API request.",
-      "Use X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID on every Paperclip API request that writes or mutates data, including comments and issue updates.",
-      "Never use a board, browser, or local-board session for Paperclip API writes.",
-      "When the task asks for an issue document, use PUT /api/issues/:id/documents/:key with {title, format:\"markdown\", body}; do not paste the requested document into a comment as a substitute.",
-      "Final status PATCH must include Authorization: Bearer $PAPERCLIP_API_KEY and X-Paperclip-Run-Id; a shorter unauthenticated PATCH is forbidden.",
-      "Preserve the substantive result in the final authenticated PATCH comment: include the actual answer, work product, decision, or blocker details plus verification, not only DONE mechanics.",
-    ].join("\n");
-
-    const patchedEnv: Record<string, string> = {
-      ...existingEnv,
-      ...(!explicitApiKey ? { PAPERCLIP_API_KEY: normalizedCtx.authToken } : {}),
-      PAPERCLIP_RUN_ID: normalizedCtx.runId,
-    };
-    const patchedPromptTemplate = promptTemplate
-      ? `${authGuardPrompt}\n\n${promptTemplate}`
-      : FALLBACK_HERMES_PROMPT_TEMPLATE;
-
-    // The adapter reads `ctx.config ?? ctx.agent.adapterConfig`, and the
-    // server always sets ctx.config — so the patched env/prompt must be
-    // merged into the config passed onward (ctx.config), not only onto
-    // agent.adapterConfig (which is kept patched for consumers that read it
-    // directly, without overriding runtime-config keys like hermesCommand).
-    // passHermesCustomProviderThroughExtraArgs (upstream) routes a `custom:`
-    // provider to the Hermes CLI via --provider extraArgs.
-    const patchedRuntimeConfig: Record<string, unknown> = passHermesCustomProviderThroughExtraArgs({
-      ...existingConfig,
-      ...scopedConfig,
-      env: patchedEnv,
-      promptTemplate: patchedPromptTemplate,
-    });
-    const patchedAdapterConfig: Record<string, unknown> = passHermesCustomProviderThroughExtraArgs({
-      ...existingConfig,
-      env: patchedEnv,
-      promptTemplate: patchedPromptTemplate,
-    });
-
-    const patchedCtx = {
-      ...normalizedCtx,
-      config: patchedRuntimeConfig,
-      agent: {
-        ...normalizedCtx.agent,
-        adapterConfig: patchedAdapterConfig,
-      },
-    };
-
-    return executeHermesLocal(patchedCtx);
-  },
-  testEnvironment: (ctx) => hermesTestEnvironment(normalizeHermesConfig(ctx) as never),
-  sessionCodec: hermesSessionCodec,
-  listSkills: listHermesSkills,
-  syncSkills: syncHermesSkills,
-  models: hermesModels,
-  supportsLocalAgentJwt: true,
-  supportsInstructionsBundle: false,
-  requiresMaterializedRuntimeSkills: false,
-  agentConfigurationDoc: hermesAgentConfigurationDoc,
-  detectModel: () => detectModelFromHermes(),
-};
-
 const adaptersByType = new Map<string, ServerAdapterModule>();
 
 // For builtin types that are overridden by an external adapter, we keep the
@@ -706,8 +454,9 @@ function registerBuiltInAdapters() {
     geminiLocalAdapter,
     antigravityLocalAdapter,
     grokLocalAdapter,
-    openclawGatewayAdapter,
+    hermesGatewayAdapter,
     hermesLocalAdapter,
+    openclawGatewayAdapter,
     processAdapter,
     httpAdapter,
   ]) {
