@@ -18,12 +18,18 @@ export async function databaseCheck(config: PaperclipConfig, configPath?: string
     try {
       const { createDb } = await import("@paperclipai/db");
       const db = createDb(config.database.connectionString);
-      await db.execute("SELECT 1");
-      return {
-        name: "Database",
-        status: "pass",
-        message: "PostgreSQL connection successful",
-      };
+      try {
+        await db.execute("SELECT 1");
+        return {
+          name: "Database",
+          status: "pass",
+          message: "PostgreSQL connection successful",
+        };
+      } finally {
+        // Close the pooled connection so the CLI process can exit;
+        // postgres.js keeps idle connections open indefinitely otherwise.
+        await db.$client.end({ timeout: 5 }).catch(() => {});
+      }
     } catch (err) {
       return {
         name: "Database",

@@ -83,7 +83,8 @@ program
   .alias("--fix")
   .option("-y, --yes", "Skip repair confirmation prompts")
   .action(async (opts) => {
-    await doctor(opts);
+    const { failed } = await doctor(opts);
+    process.exitCode = failed > 0 ? 1 : 0;
   });
 
 program
