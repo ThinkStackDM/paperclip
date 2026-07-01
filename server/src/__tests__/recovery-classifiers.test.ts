@@ -108,6 +108,41 @@ describe("recovery classifier boundary", () => {
     expect(findings).toEqual([]);
   });
 
+  it("treats a scheduled monitor as an explicit blocked waiting path", () => {
+    const findings = classifyIssueGraphLiveness({
+      now: "2026-04-30T18:00:00.000Z",
+      issues: [
+        {
+          id: issueId,
+          companyId,
+          identifier: "PAP-2946",
+          title: "Wait for filing window",
+          status: "blocked",
+          assigneeAgentId: agentId,
+          assigneeUserId: null,
+          createdByAgentId: null,
+          createdByUserId: null,
+          executionState: null,
+          monitorNextCheckAt: "2026-04-30T19:00:00.000Z",
+          updatedAt: "2026-04-28T18:00:00.000Z",
+        },
+      ],
+      relations: [],
+      agents: [
+        {
+          id: agentId,
+          companyId,
+          name: "Coder",
+          role: "engineer",
+          status: "idle",
+          reportsTo: managerId,
+        },
+      ],
+    });
+
+    expect(findings).toEqual([]);
+  });
+
   it("does not treat overdue or exhausted monitors as explicit waiting paths", () => {
     const baseIssue = {
       id: issueId,

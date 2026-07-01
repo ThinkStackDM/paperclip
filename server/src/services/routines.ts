@@ -66,6 +66,7 @@ import { parseCron, validateCron } from "./cron.js";
 import { heartbeatService } from "./heartbeat.js";
 import { queueIssueAssignmentWakeup, type IssueAssignmentWakeupDeps } from "./issue-assignment-wakeup.js";
 import { logActivity } from "./activity-log.js";
+import { classifyNonActionableWebhookPayload, type NonActionableWebhookPayloadKind } from "./non-actionable-webhook-payload.js";
 import type { PluginWorkerManager } from "./plugin-worker-manager.js";
 
 const OPEN_ISSUE_STATUSES = ["backlog", "todo", "in_progress", "in_review", "blocked"];
@@ -89,6 +90,22 @@ type RoutineRow = typeof routines.$inferSelect;
 type RoutineTriggerRow = typeof routineTriggers.$inferSelect;
 
 const ROUTINE_DESCRIPTION_DOCUMENT_KEY = "description" as const;
+const ROUTINE_ISSUE_MODE_ENV_KEY = "PAPERCLIP_ROUTINE_ISSUE_MODE";
+const ROUTINE_ISSUE_MODE_REUSE_TERMINAL = "reuse_terminal";
+const ROUTINE_ISSUE_MODE_ALIASES = new Set([
+  ROUTINE_ISSUE_MODE_REUSE_TERMINAL,
+  "terminal_reuse",
+  "rollup_reuse",
+]);
+const DEFAULT_SCHEDULE_DISPATCH_LOCK_TIMEOUT_MS = 15_000;
+
+function readScheduleDispatchLockTimeoutMs() {
+  const raw = process.env.ROUTINE_SCHEDULE_DISPATCH_LOCK_TIMEOUT_MS;
+  if (!raw || raw.trim() === "") return DEFAULT_SCHEDULE_DISPATCH_LOCK_TIMEOUT_MS;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) return DEFAULT_SCHEDULE_DISPATCH_LOCK_TIMEOUT_MS;
+  return parsed;
+}
 
 interface RoutineTriggerSecretRestoreMaterial extends RoutineTriggerSecretMaterial {
   triggerId: string;
@@ -96,6 +113,18 @@ interface RoutineTriggerSecretRestoreMaterial extends RoutineTriggerSecretMateri
 
 function routineWebhookSecretConfigPath(secretId: string) {
   return `webhookSecret:${secretId}`;
+}
+
+function readPlainRoutineEnvValue(env: RoutineRow["env"], key: string): string | null {
+  const binding = env?.[key];
+  if (typeof binding === "string") return binding;
+  if (binding && typeof binding === "object" && binding.type === "plain") return binding.value;
+  return null;
+}
+
+function routineReusesTerminalExecutionIssue(routine: RoutineRow): boolean {
+  const raw = readPlainRoutineEnvValue(routine.env, ROUTINE_ISSUE_MODE_ENV_KEY);
+  return raw ? ROUTINE_ISSUE_MODE_ALIASES.has(raw.trim().toLowerCase()) : false;
 }
 
 // THIAAAAAA-203 self-heal helpers: detect the specific failure modes that occur
@@ -213,8 +242,10 @@ export function nextCronTickInTimeZone(expression: string, timeZone: string, aft
 
 function nextResultText(status: string, issueId?: string | null) {
   if (status === "issue_created" && issueId) return `Created execution issue ${issueId}`;
+  if (status === "issue_reused" && issueId) return `Reused execution issue ${issueId}`;
   if (status === "coalesced") return "Coalesced into an existing live execution issue";
   if (status === "skipped_paused") return "Skipped because the project is paused";
+  if (status === "skipped_ignored") return "Skipped because the webhook payload was non-actionable";
   if (status === "skipped") return "Skipped because a live execution issue already exists";
   if (status === "completed") return "Execution issue completed";
   if (status === "cancelled") return "Execution issue cancelled";
@@ -1213,6 +1244,131 @@ export function routineService(
     return run;
   }
 
+  async function recordFailedScheduleDispatch(input: {
+    routine: typeof routines.$inferSelect;
+    trigger: typeof routineTriggers.$inferSelect;
+    error: unknown;
+    nextRunAt: Date | null;
+  }) {
+    const triggeredAt = new Date();
+    const failureReason = input.error instanceof Error ? input.error.message : String(input.error);
+    const run = await db.transaction(async (tx) => {
+      const txDb = tx as unknown as Db;
+      const [createdRun] = await txDb
+        .insert(routineRuns)
+        .values({
+          companyId: input.routine.companyId,
+          routineId: input.routine.id,
+          triggerId: input.trigger.id,
+          source: "schedule",
+          status: "failed",
+          triggeredAt,
+          failureReason,
+          completedAt: triggeredAt,
+          linkedIssueId: null,
+          routineRevisionId: input.routine.latestRevisionId,
+        })
+        .returning();
+      await updateRoutineTouchedState({
+        routineId: input.routine.id,
+        triggerId: input.trigger.id,
+        triggeredAt,
+        status: "failed",
+        nextRunAt: input.nextRunAt,
+      }, txDb);
+      return createdRun;
+    });
+
+    logger.error(
+      {
+        err: input.error,
+        routineId: input.routine.id,
+        triggerId: input.trigger.id,
+        runId: run.id,
+      },
+      "scheduled routine dispatch failed after trigger claim",
+    );
+
+    try {
+      await logActivity(db, {
+        companyId: input.routine.companyId,
+        actorType: "system",
+        actorId: "routine-scheduler",
+        action: "routine.run_failed",
+        entityType: "routine_run",
+        entityId: run.id,
+        details: {
+          routineId: input.routine.id,
+          triggerId: input.trigger.id,
+          source: "schedule",
+          status: "failed",
+          failureReason,
+        },
+      });
+    } catch (err) {
+      logger.warn({ err, routineId: input.routine.id, runId: run.id }, "failed to log failed routine run");
+    }
+
+    return run;
+  }
+
+  async function recordIgnoredWebhookRun(input: {
+    routine: typeof routines.$inferSelect;
+    trigger: typeof routineTriggers.$inferSelect;
+    payload: Record<string, unknown> | null;
+    reason: NonActionableWebhookPayloadKind;
+  }) {
+    const triggeredAt = new Date();
+    const run = await db.transaction(async (tx) => {
+      const txDb = tx as unknown as Db;
+      const [createdRun] = await txDb
+        .insert(routineRuns)
+        .values({
+          companyId: input.routine.companyId,
+          routineId: input.routine.id,
+          triggerId: input.trigger.id,
+          source: "webhook",
+          status: "skipped",
+          triggeredAt,
+          triggerPayload: input.payload,
+          failureReason: input.reason,
+          completedAt: triggeredAt,
+          linkedIssueId: null,
+          routineRevisionId: input.routine.latestRevisionId,
+        })
+        .returning();
+      await updateRoutineTouchedState({
+        routineId: input.routine.id,
+        triggerId: input.trigger.id,
+        triggeredAt,
+        status: "skipped_ignored",
+      }, txDb);
+      return createdRun;
+    });
+
+    try {
+      await logActivity(db, {
+        companyId: input.routine.companyId,
+        actorType: "system",
+        actorId: "routine-webhook",
+        action: "routine.run_skipped",
+        entityType: "routine_run",
+        entityId: run.id,
+        details: {
+          routineId: input.routine.id,
+          triggerId: input.trigger.id,
+          source: "webhook",
+          status: "skipped",
+          reason: input.reason,
+        },
+      });
+    } catch (err) {
+      logger.warn({ err, routineId: input.routine.id, runId: run.id }, "failed to log ignored webhook routine run");
+    }
+
+    return run;
+  }
+
   function routineExecutionFingerprintCondition(dispatchFingerprint?: string | null) {
     if (!dispatchFingerprint) return null;
     // The "default" arm preserves coalescing against pre-migration open issues.
@@ -1260,6 +1416,99 @@ export function routineService(
       .orderBy(desc(issues.updatedAt), desc(issues.createdAt))
       .limit(1)
       .then((rows) => rows[0] ?? null);
+  }
+
+  async function findReusableTerminalExecutionIssue(
+    routine: typeof routines.$inferSelect,
+    executor: Db = db,
+    dispatchFingerprint?: string | null,
+    origin?: { kind: string; id: string | null },
+    options?: { ignoreFingerprint?: boolean },
+  ) {
+    const fingerprintCondition = options?.ignoreFingerprint
+      ? null
+      : routineExecutionFingerprintCondition(dispatchFingerprint);
+    const originKind = origin?.kind ?? "routine_execution";
+    const originId = origin?.id ?? routine.id;
+    return executor
+      .select({
+        id: issues.id,
+        identifier: issues.identifier,
+        projectId: issues.projectId,
+        goalId: issues.goalId,
+        parentId: issues.parentId,
+        title: issues.title,
+        description: issues.description,
+        status: issues.status,
+        priority: issues.priority,
+        assigneeAgentId: issues.assigneeAgentId,
+        assigneeUserId: issues.assigneeUserId,
+        updatedAt: issues.updatedAt,
+        originKind: issues.originKind,
+        originId: issues.originId,
+        originRunId: issues.originRunId,
+        originFingerprint: issues.originFingerprint,
+        billingCode: issues.billingCode,
+        executionWorkspaceId: issues.executionWorkspaceId,
+        executionWorkspacePreference: issues.executionWorkspacePreference,
+        executionWorkspaceSettings: issues.executionWorkspaceSettings,
+        completedAt: issues.completedAt,
+        cancelledAt: issues.cancelledAt,
+        checkoutRunId: issues.checkoutRunId,
+        executionRunId: issues.executionRunId,
+        executionLockedAt: issues.executionLockedAt,
+      })
+      .from(issues)
+      .where(
+        and(
+          eq(issues.companyId, routine.companyId),
+          eq(issues.originKind, originKind),
+          eq(issues.originId, originId),
+          isNotNull(issues.originRunId),
+          inArray(issues.status, ["done", "cancelled"]),
+          isNull(issues.hiddenAt),
+          ...(fingerprintCondition ? [fingerprintCondition] : []),
+        ),
+      )
+      .orderBy(desc(issues.updatedAt), desc(issues.createdAt))
+      .limit(1)
+      .then((rows) => rows[0] ?? null);
+  }
+
+  async function restoreReusedTerminalExecutionIssue(
+    issue: Awaited<ReturnType<typeof findReusableTerminalExecutionIssue>>,
+    executor: Db = db,
+  ) {
+    if (!issue) return;
+
+    await executor
+      .update(issues)
+      .set({
+        projectId: issue.projectId,
+        goalId: issue.goalId,
+        parentId: issue.parentId,
+        title: issue.title,
+        description: issue.description,
+        status: issue.status,
+        priority: issue.priority,
+        assigneeAgentId: issue.assigneeAgentId,
+        assigneeUserId: issue.assigneeUserId,
+        originKind: issue.originKind,
+        originId: issue.originId,
+        originRunId: issue.originRunId,
+        originFingerprint: issue.originFingerprint,
+        billingCode: issue.billingCode,
+        executionWorkspaceId: issue.executionWorkspaceId,
+        executionWorkspacePreference: issue.executionWorkspacePreference,
+        executionWorkspaceSettings: issue.executionWorkspaceSettings,
+        completedAt: issue.completedAt,
+        cancelledAt: issue.cancelledAt,
+        checkoutRunId: issue.checkoutRunId,
+        executionRunId: issue.executionRunId,
+        executionLockedAt: issue.executionLockedAt,
+        updatedAt: new Date(),
+      })
+      .where(eq(issues.id, issue.id));
   }
 
   async function clearTerminalExecutionIssueLocks(
@@ -1777,8 +2026,17 @@ export function routineService(
       title,
       description,
     });
+    const persistedOriginFingerprint = shouldAlwaysEnqueue && !automatedCoalesce
+      ? null
+      : dispatchFingerprint;
+    const canReuseTerminalExecutionIssue =
+      input.source === "schedule" && routineReusesTerminalExecutionIssue(input.routine);
     const run = await db.transaction(async (tx) => {
       const txDb = tx as unknown as Db;
+      const lockTimeoutMs = input.source === "schedule" ? readScheduleDispatchLockTimeoutMs() : 0;
+      if (lockTimeoutMs > 0) {
+        await tx.execute(sql`select set_config('lock_timeout', ${`${lockTimeoutMs}ms`}, true)`);
+      }
       await tx.execute(
         sql`select id from ${routines} where ${routines.id} = ${input.routine.id} and ${routines.companyId} = ${input.routine.companyId} for update`,
       );
@@ -1825,6 +2083,9 @@ export function routineService(
         : undefined;
 
       let createdIssue: Awaited<ReturnType<typeof issueSvc.create>> | null = null;
+      let executionIssue: Awaited<ReturnType<typeof issueSvc.create>> | null = null;
+      let reusedIssueSnapshot: Awaited<ReturnType<typeof findReusableTerminalExecutionIssue>> | null = null;
+      let dispatchStatus = "issue_created";
       try {
         await clearTerminalExecutionIssueLocks(input.routine, txDb, dispatchFingerprint, {
           kind: issueOriginKind,
@@ -1862,106 +2123,148 @@ export function routineService(
           return updated ?? createdRun;
         }
 
-        try {
-          createdIssue = await issueSvc.create(input.routine.companyId, {
-            projectId,
-            goalId: input.routine.goalId,
-            parentId: input.routine.parentIssueId,
-            title,
-            description,
-            status: "todo",
-            priority: input.routine.priority,
-            assigneeAgentId,
-            createdByAgentId: input.source === "manual" ? input.actor?.agentId ?? null : null,
-            createdByUserId: manualRunnerUserId,
-            originKind: issueOriginKind,
-            originId: issueOriginId,
-            originRunId: createdRun.id,
-            // Manual always_enqueue runs store a per-run-unique fingerprint so
-            // re-runs from the same user can coexist. Automated always_enqueue
-            // fires must persist the raw dispatchFingerprint so the next fire's
-            // fingerprint-based coalesce can see them (TSMC-10038).
-            originFingerprint: shouldAlwaysEnqueue && !automatedCoalesce
-              ? `${dispatchFingerprint}:${createdRun.id}`
-              : dispatchFingerprint,
-            billingCode: issueBillingCode,
-            executionWorkspaceId: input.executionWorkspaceId ?? null,
-            executionWorkspacePreference: input.executionWorkspacePreference ?? null,
-            executionWorkspaceSettings: input.executionWorkspaceSettings ?? null,
-          });
-        } catch (error) {
-          const isOpenExecutionConflict =
-            !!error &&
-            typeof error === "object" &&
-            "code" in error &&
-            (error as { code?: string }).code === "23505" &&
-            "constraint" in error &&
-            (error as { constraint?: string }).constraint === "issues_open_routine_execution_uq";
-          if (!isOpenExecutionConflict || (shouldAlwaysEnqueue && !automatedCoalesce)) {
-            throw error;
+        if (canReuseTerminalExecutionIssue && persistedOriginFingerprint) {
+          const reusableIssue = await findReusableTerminalExecutionIssue(input.routine, txDb, dispatchFingerprint, {
+            kind: issueOriginKind,
+            id: issueOriginId,
+          }, { ignoreFingerprint: coalesceByOriginOnly });
+          if (reusableIssue) {
+            reusedIssueSnapshot = reusableIssue;
+            executionIssue = await issueSvc.update(reusableIssue.id, {
+              projectId,
+              goalId: input.routine.goalId,
+              parentId: input.routine.parentIssueId,
+              title,
+              description,
+              status: "todo",
+              priority: input.routine.priority,
+              assigneeAgentId,
+              assigneeUserId: null,
+              originKind: issueOriginKind,
+              originId: issueOriginId,
+              originRunId: createdRun.id,
+              originFingerprint: persistedOriginFingerprint,
+              billingCode: issueBillingCode,
+              executionWorkspaceId: input.executionWorkspaceId ?? null,
+              executionWorkspacePreference: input.executionWorkspacePreference ?? null,
+              executionWorkspaceSettings: input.executionWorkspaceSettings ?? null,
+            }, txDb);
+            if (executionIssue) {
+              dispatchStatus = "issue_reused";
+            }
           }
+        }
 
-          await clearTerminalExecutionIssueLocks(input.routine, txDb, dispatchFingerprint, {
-            kind: issueOriginKind,
-            id: issueOriginId,
-          }, { ignoreFingerprint: coalesceByOriginOnly });
-          const existingIssue = await findOpenExecutionIssue(input.routine, txDb, dispatchFingerprint, {
-            kind: issueOriginKind,
-            id: issueOriginId,
-          }, { ignoreFingerprint: coalesceByOriginOnly });
-          if (!existingIssue) throw error;
-          const status = input.routine.concurrencyPolicy === "skip_if_active" ? "skipped" : "coalesced";
-          if (manualRunnerUserId) {
-            await touchIssueForUserInbox(txDb, {
-              companyId: input.routine.companyId,
-              issueId: existingIssue.id,
-              userId: manualRunnerUserId,
-              touchedAt: triggeredAt,
+        if (!executionIssue) {
+          try {
+            createdIssue = await issueSvc.create(input.routine.companyId, {
+              projectId,
+              goalId: input.routine.goalId,
+              parentId: input.routine.parentIssueId,
+              title,
+              description,
+              status: "todo",
+              priority: input.routine.priority,
+              assigneeAgentId,
+              createdByAgentId: input.source === "manual" ? input.actor?.agentId ?? null : null,
+              createdByUserId: manualRunnerUserId,
+              originKind: issueOriginKind,
+              originId: issueOriginId,
+              originRunId: createdRun.id,
+              // Manual always_enqueue runs store a per-run-unique fingerprint so
+              // re-runs from the same user can coexist. Automated always_enqueue
+              // fires must persist the raw dispatchFingerprint so the next fire's
+              // fingerprint-based coalesce can see them (TSMC-10038).
+              originFingerprint: shouldAlwaysEnqueue && !automatedCoalesce
+                ? `${dispatchFingerprint}:${createdRun.id}`
+                : dispatchFingerprint,
+              billingCode: issueBillingCode,
+              executionWorkspaceId: input.executionWorkspaceId ?? null,
+              executionWorkspacePreference: input.executionWorkspacePreference ?? null,
+              executionWorkspaceSettings: input.executionWorkspaceSettings ?? null,
             });
+            executionIssue = createdIssue;
+          } catch (error) {
+            const isOpenExecutionConflict =
+              !!error &&
+              typeof error === "object" &&
+              "code" in error &&
+              (error as { code?: string }).code === "23505" &&
+              "constraint" in error &&
+              (error as { constraint?: string }).constraint === "issues_open_routine_execution_uq";
+            if (!isOpenExecutionConflict || (shouldAlwaysEnqueue && !automatedCoalesce)) {
+              throw error;
+            }
+
+            await clearTerminalExecutionIssueLocks(input.routine, txDb, dispatchFingerprint, {
+              kind: issueOriginKind,
+              id: issueOriginId,
+            }, { ignoreFingerprint: coalesceByOriginOnly });
+            const existingIssue = await findOpenExecutionIssue(input.routine, txDb, dispatchFingerprint, {
+              kind: issueOriginKind,
+              id: issueOriginId,
+            }, { ignoreFingerprint: coalesceByOriginOnly });
+            if (!existingIssue) throw error;
+            const status = input.routine.concurrencyPolicy === "skip_if_active" ? "skipped" : "coalesced";
+            if (manualRunnerUserId) {
+              await touchIssueForUserInbox(txDb, {
+                companyId: input.routine.companyId,
+                issueId: existingIssue.id,
+                userId: manualRunnerUserId,
+                touchedAt: triggeredAt,
+              });
+            }
+            const updated = await finalizeRun(createdRun.id, {
+              status,
+              linkedIssueId: existingIssue.id,
+              coalescedIntoRunId: existingIssue.originRunId,
+              completedAt: triggeredAt,
+            }, txDb);
+            await updateRoutineTouchedState({
+              routineId: input.routine.id,
+              triggerId: input.trigger?.id ?? null,
+              triggeredAt,
+              status,
+              issueId: existingIssue.id,
+              nextRunAt,
+            }, txDb);
+            return updated ?? createdRun;
           }
-          const updated = await finalizeRun(createdRun.id, {
-            status,
-            linkedIssueId: existingIssue.id,
-            coalescedIntoRunId: existingIssue.originRunId,
-            completedAt: triggeredAt,
-          }, txDb);
-          await updateRoutineTouchedState({
-            routineId: input.routine.id,
-            triggerId: input.trigger?.id ?? null,
-            triggeredAt,
-            status,
-            issueId: existingIssue.id,
-            nextRunAt,
-          }, txDb);
-          return updated ?? createdRun;
+        }
+
+        if (!executionIssue) {
+          throw new Error("Routine dispatch did not produce an execution issue");
         }
 
         // Keep the dispatch lock until the issue is linked to a queued heartbeat run.
         await queueIssueAssignmentWakeup({
           heartbeat,
-          issue: createdIssue,
+          issue: executionIssue,
           reason: "issue_assigned",
-          mutation: "create",
+          mutation: dispatchStatus === "issue_reused" ? "update" : "create",
           contextSource: "routine.dispatch",
           requestedByActorType: input.source === "schedule" ? "system" : undefined,
           rethrowOnError: true,
         });
         const updated = await finalizeRun(createdRun.id, {
-          status: "issue_created",
-          linkedIssueId: createdIssue.id,
+          status: dispatchStatus,
+          linkedIssueId: executionIssue.id,
         }, txDb);
         await updateRoutineTouchedState({
           routineId: input.routine.id,
           triggerId: input.trigger?.id ?? null,
           triggeredAt,
-          status: "issue_created",
-          issueId: createdIssue.id,
+          status: dispatchStatus,
+          issueId: executionIssue.id,
           nextRunAt,
         }, txDb);
         return updated ?? createdRun;
       } catch (error) {
         if (createdIssue) {
           await txDb.delete(issues).where(eq(issues.id, createdIssue.id));
+        }
+        if (reusedIssueSnapshot) {
+          await restoreReusedTerminalExecutionIssue(reusedIssueSnapshot, txDb);
         }
         const failureReason = error instanceof Error ? error.message : String(error);
         const failed = await finalizeRun(createdRun.id, {
@@ -2881,6 +3184,16 @@ export function routineService(
         if (!valid) throw unauthorized();
       }
 
+      const ignoredKind = classifyNonActionableWebhookPayload(input.payload ?? null);
+      if (ignoredKind) {
+        return recordIgnoredWebhookRun({
+          routine,
+          trigger,
+          payload: input.payload ?? null,
+          reason: ignoredKind,
+        });
+      }
+
       return dispatchRoutineRun({
         routine,
         trigger,
@@ -3042,12 +3355,21 @@ export function routineService(
         }
 
         for (let i = 0; i < runCount; i += 1) {
-          await dispatchRoutineRun({
-            routine: row.routine,
-            trigger: row.trigger,
-            source: "schedule",
-          });
-          triggered += 1;
+          try {
+            await dispatchRoutineRun({
+              routine: row.routine,
+              trigger: row.trigger,
+              source: "schedule",
+            });
+            triggered += 1;
+          } catch (err) {
+            await recordFailedScheduleDispatch({
+              routine: row.routine,
+              trigger: row.trigger,
+              error: err,
+              nextRunAt: claimedNextRunAt,
+            });
+          }
         }
       }
 

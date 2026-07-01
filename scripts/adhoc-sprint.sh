@@ -119,6 +119,18 @@ PL
   fi
 fi
 
+# --- one-shot guard for deferred starts -------------------------------------
+# If this run was triggered by a fired deferred-start launchd job, that job has
+# served its purpose. Remove it so it CANNOT recur daily (the StartCalendarInterval
+# has no weekday, so without this it re-sprints every day — caused TSM to sprint
+# for days). No-op for a direct `now` start (no such plist exists).
+SL_SELF="$LADIR/com.thinkstack.adhoc-sprint-start.$CID.plist"
+if [ -f "$SL_SELF" ]; then
+  launchctl unload "$SL_SELF" 2>/dev/null
+  rm -f "$SL_SELF"
+  log "removed served deferred-start launchd job (one-shot) for $NAME"
+fi
+
 # --- compute sprint window --------------------------------------------------
 W_START="$NOW_H"
 if [ "$END_MM" -gt 0 ]; then W_END=$(( (END_HH + 1) % 24 )); else W_END="$END_HH"; fi

@@ -171,13 +171,30 @@ function executorActor() {
   };
 }
 
+function delegatedExecutorActor() {
+  return {
+    type: "agent",
+    agentId: "88888888-8888-4888-8888-888888888888",
+    companyId,
+    source: "agent_key",
+    runId: "99999999-9999-4999-8999-999999999999",
+  };
+}
+
 function grantedDecide() {
-  return async (input: { action: string }) => ({
-    allowed: input.action === "tasks:fallback_reassign",
+  return async (input: { action: string; scope?: { targetAgentId?: string } }) => ({
+    allowed: input.action === "tasks:fallback_reassign" && input.scope?.targetAgentId === sisterAgentId,
     action: input.action,
-    reason: input.action === "tasks:fallback_reassign" ? "allow_explicit_grant" : "deny_missing_grant",
-    explanation: input.action === "tasks:fallback_reassign" ? "Allowed by scoped fallback grant." : "Missing permission.",
-    grant: input.action === "tasks:fallback_reassign"
+    reason:
+      input.action === "tasks:fallback_reassign" && input.scope?.targetAgentId === sisterAgentId
+        ? "allow_explicit_grant"
+        : "deny_missing_grant",
+    explanation:
+      input.action === "tasks:fallback_reassign" && input.scope?.targetAgentId === sisterAgentId
+        ? "Allowed by scoped fallback grant."
+        : "Missing permission.",
+    grant:
+      input.action === "tasks:fallback_reassign" && input.scope?.targetAgentId === sisterAgentId
       ? {
         principalType: "agent",
         principalId: sisterAgentId,
@@ -291,6 +308,26 @@ describe("authorized fallback reassignment", () => {
     );
   });
 
+  it("allows a non-sister executor to target the registered sister when a scoped grant authorizes it", async () => {
+    const res = await request(await createApp(delegatedExecutorActor()))
+      .post(`/api/issues/${issueId}/fallback-reassign`)
+      .send({
+        toAgentId: sisterAgentId,
+        expectedFromAgentId: primaryAgentId,
+        reason: "paused_primary",
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body).toMatchObject({ reassignedFromAgentId: primaryAgentId, reassignedToAgentId: sisterAgentId });
+    expect(mockAccessService.decide).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actor: expect.objectContaining({ agentId: delegatedExecutorActor().agentId }),
+        action: "tasks:fallback_reassign",
+        scope: { targetAgentId: sisterAgentId },
+      }),
+    );
+  });
+
   it("rejects the executor when it lacks the fallback-reassignment grant", async () => {
     mockAccessService.decide.mockImplementation(async (input: { action: string }) => ({
       allowed: false,
@@ -322,7 +359,12 @@ describe("authorized fallback reassignment", () => {
     expect(res.status, JSON.stringify(res.body)).toBe(403);
     expect(res.body.error).toContain("target must match");
     expect(res.body.details.reason).toBe("third_party_target");
-    expect(mockAccessService.decide).not.toHaveBeenCalled();
+    expect(mockAccessService.decide).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "tasks:fallback_reassign",
+        scope: { targetAgentId: thirdPartyAgentId },
+      }),
+    );
     expect(mockIssueService.fallbackReassign).not.toHaveBeenCalled();
   });
 

@@ -27,6 +27,12 @@ import {
 } from "./recovery/cheap-reviewer.js";
 
 export const PRODUCTIVITY_REVIEW_ORIGIN_KIND = RECOVERY_ORIGIN_KINDS.issueProductivityReview;
+const RECOVERY_ORIGIN_KIND_SET = new Set<string>(Object.values(RECOVERY_ORIGIN_KINDS));
+const SYNTHETIC_REVIEW_TITLE_PREFIXES = [
+  "review productivity for ",
+  "review silent active run for ",
+  "escalated: silent active run for ",
+];
 export const DEFAULT_PRODUCTIVITY_REVIEW_NO_COMMENT_STREAK_RUNS = 10;
 export const DEFAULT_PRODUCTIVITY_REVIEW_LONG_ACTIVE_HOURS = 6;
 export const DEFAULT_PRODUCTIVITY_REVIEW_HIGH_CHURN_HOURLY = 10;
@@ -100,6 +106,16 @@ type EnqueueWakeup = (
 
 function productivityReviewFingerprint(sourceIssueId: string) {
   return `productivity-review:${sourceIssueId}`;
+}
+
+function isRecoveryOriginKind(originKind: string | null | undefined) {
+  return !!originKind && RECOVERY_ORIGIN_KIND_SET.has(originKind);
+}
+
+function isSyntheticReviewTitle(title: string | null | undefined) {
+  if (typeof title !== "string") return false;
+  const normalized = title.trim().toLowerCase();
+  return SYNTHETIC_REVIEW_TITLE_PREFIXES.some((prefix) => normalized.startsWith(prefix));
 }
 
 function issueRunScopeSql(issueId: string) {
@@ -945,6 +961,14 @@ export function productivityReviewService(db: Db, deps?: { enqueueWakeup?: Enque
       }
       if (await isDormant(candidate.companyId)) {
         result.dormantSkipped += 1;
+        continue;
+      }
+      if (isRecoveryOriginKind(candidate.originKind)) {
+        result.skipped += 1;
+        continue;
+      }
+      if (isSyntheticReviewTitle(candidate.title)) {
+        result.skipped += 1;
         continue;
       }
       if (await isProductivityReviewDescendant(candidate)) {

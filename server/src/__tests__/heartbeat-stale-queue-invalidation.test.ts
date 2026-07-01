@@ -1525,4 +1525,64 @@ describeEmbeddedPostgres("heartbeat stale queued-run invalidation", () => {
     expect(wakeup?.error).toContain("continuation summary says the executor should wait");
     expect(countExecuteCallsForRun(runId)).toBe(0);
   });
+
+  it("cancels queued continuation recovery when a future monitor now owns the date-gated wait", async () => {
+    const { companyId, agentId } = await seedCompanyAndAgent();
+    const issueId = randomUUID();
+    await db.insert(issues).values({
+      id: issueId,
+      companyId,
+      title: "Calendar wait now owned by monitor",
+      status: "blocked",
+      priority: "medium",
+      assigneeAgentId: agentId,
+      monitorNextCheckAt: new Date("2099-04-11T12:30:00.000Z"),
+    });
+
+    const { runId, wakeupRequestId } = await seedQueuedRun({
+      companyId,
+      agentId,
+      issueId,
+      wakeReason: "issue_continuation_needed",
+      invocationSource: "automation",
+      contextExtras: {
+        retryReason: "issue_continuation_needed",
+      },
+    });
+
+    await heartbeat.resumeQueuedRuns();
+
+    await waitForCondition(async () => {
+      const run = await db
+        .select({ status: heartbeatRuns.status })
+        .from(heartbeatRuns)
+        .where(eq(heartbeatRuns.id, runId))
+        .then((rows) => rows[0] ?? null);
+      return run?.status === "cancelled";
+    });
+
+    const [run, wakeup] = await Promise.all([
+      db
+        .select({
+          status: heartbeatRuns.status,
+          errorCode: heartbeatRuns.errorCode,
+          resultJson: heartbeatRuns.resultJson,
+        })
+        .from(heartbeatRuns)
+        .where(eq(heartbeatRuns.id, runId))
+        .then((rows) => rows[0] ?? null),
+      db
+        .select({ status: agentWakeupRequests.status, error: agentWakeupRequests.error })
+        .from(agentWakeupRequests)
+        .where(eq(agentWakeupRequests.id, wakeupRequestId))
+        .then((rows) => rows[0] ?? null),
+    ]);
+
+    expect(run?.status).toBe("cancelled");
+    expect(run?.errorCode).toBe("issue_continuation_waiting_on_monitor");
+    expect(run?.resultJson).toMatchObject({ stopReason: "issue_continuation_waiting_on_monitor" });
+    expect(wakeup?.status).toBe("skipped");
+    expect(wakeup?.error).toContain("future monitor wake");
+    expect(countExecuteCallsForRun(runId)).toBe(0);
+  });
 });

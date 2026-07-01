@@ -1386,6 +1386,48 @@ describe("issue execution policy transitions", () => {
       });
     });
 
+    it("allows scheduling a monitor on a blocked agent-owned issue", () => {
+      const policy = normalizeIssueExecutionPolicy({
+        stages: [],
+        monitor: {
+          nextCheckAt: "2026-04-11T12:30:00.000Z",
+          notes: "Recheck after the filing window opens",
+          scheduledBy: "assignee",
+        },
+      })!;
+
+      const result = applyIssueExecutionPolicyTransition({
+        issue: {
+          status: "blocked",
+          assigneeAgentId: coderAgentId,
+          assigneeUserId: null,
+          executionPolicy: null,
+          executionState: null,
+          monitorAttemptCount: 0,
+          monitorNextCheckAt: null,
+          monitorLastTriggeredAt: null,
+          monitorNotes: null,
+          monitorScheduledBy: null,
+        },
+        policy,
+        previousPolicy: null,
+        requestedAssigneePatch: {},
+        actor: { agentId: coderAgentId },
+        monitorExplicitlyUpdated: true,
+      });
+
+      expect(result.patch.monitorNextCheckAt).toEqual(new Date("2026-04-11T12:30:00.000Z"));
+      expect(result.patch.executionState).toMatchObject({
+        status: "idle",
+        monitor: {
+          status: "scheduled",
+          nextCheckAt: "2026-04-11T12:30:00.000Z",
+          notes: "Recheck after the filing window opens",
+          scheduledBy: "assignee",
+        },
+      });
+    });
+
     it("rejects explicitly scheduling a monitor on an invalid issue state", () => {
       const policy = normalizeIssueExecutionPolicy({
         stages: [],
@@ -1398,7 +1440,7 @@ describe("issue execution policy transitions", () => {
       expect(() =>
         applyIssueExecutionPolicyTransition({
           issue: {
-            status: "blocked",
+            status: "todo",
             assigneeAgentId: coderAgentId,
             assigneeUserId: null,
             executionPolicy: null,

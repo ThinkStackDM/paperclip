@@ -236,6 +236,7 @@ const MAX_RUN_EVENT_PAYLOAD_DEPTH = 6;
 const HEARTBEAT_MAX_CONCURRENT_RUNS_DEFAULT = AGENT_DEFAULT_MAX_CONCURRENT_RUNS;
 const HEARTBEAT_MAX_CONCURRENT_RUNS_MIN = 1;
 const HEARTBEAT_MAX_CONCURRENT_RUNS_MAX = 50;
+const DEFAULT_WAKEUP_ISSUE_LOCK_TIMEOUT_MS = 15_000;
 const LIVENESS_BOOKKEEPING_ACTIVITY_ACTIONS = [
   "environment.lease_acquired",
   "environment.lease_released",
@@ -1812,6 +1813,14 @@ function normalizeMaxConcurrentRuns(value: unknown) {
   const parsed = Math.floor(asNumber(value, HEARTBEAT_MAX_CONCURRENT_RUNS_DEFAULT));
   if (!Number.isFinite(parsed)) return HEARTBEAT_MAX_CONCURRENT_RUNS_DEFAULT;
   return Math.max(HEARTBEAT_MAX_CONCURRENT_RUNS_MIN, Math.min(HEARTBEAT_MAX_CONCURRENT_RUNS_MAX, parsed));
+}
+
+function readWakeupIssueLockTimeoutMs() {
+  const raw = process.env.HEARTBEAT_WAKEUP_ISSUE_LOCK_TIMEOUT_MS;
+  if (!raw || raw.trim() === "") return DEFAULT_WAKEUP_ISSUE_LOCK_TIMEOUT_MS;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) return DEFAULT_WAKEUP_ISSUE_LOCK_TIMEOUT_MS;
+  return parsed;
 }
 
 interface WakeupOptions {
@@ -4629,8 +4638,8 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     if (!issue.assigneeAgentId || issue.assigneeUserId) {
       throw conflict("Issue monitor requires an agent assignee");
     }
-    if (!["in_progress", "in_review"].includes(issue.status)) {
-      throw conflict("Issue monitor can only run while the issue is in progress or in review");
+    if (!["in_progress", "in_review", "blocked"].includes(issue.status)) {
+      throw conflict("Issue monitor can only run while the issue is in progress, in review, or blocked");
     }
 
     const staleClaimThreshold = new Date(now.getTime() - 5 * 60 * 1000);
@@ -4647,7 +4656,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
             sql`${issues.monitorNextCheckAt} is not null`,
             isNull(issues.assigneeUserId),
             sql`${issues.assigneeAgentId} is not null`,
-            inArray(issues.status, ["in_progress", "in_review"]),
+            inArray(issues.status, ["in_progress", "in_review", "blocked"]),
             or(
               isNull(issues.monitorWakeRequestedAt),
               lt(issues.monitorWakeRequestedAt, staleClaimThreshold),
@@ -4689,7 +4698,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
           lte(issues.monitorNextCheckAt, now),
           isNull(issues.assigneeUserId),
           sql`${issues.assigneeAgentId} is not null`,
-          inArray(issues.status, ["in_progress", "in_review"]),
+          inArray(issues.status, ["in_progress", "in_review", "blocked"]),
           or(
             isNull(issues.monitorWakeRequestedAt),
             lt(issues.monitorWakeRequestedAt, staleClaimThreshold),
@@ -4770,7 +4779,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
               lte(issues.monitorNextCheckAt, now),
               isNull(issues.assigneeUserId),
               sql`${issues.assigneeAgentId} is not null`,
-              inArray(issues.status, ["in_progress", "in_review"]),
+              inArray(issues.status, ["in_progress", "in_review", "blocked"]),
               or(
                 isNull(issues.monitorWakeRequestedAt),
                 lt(issues.monitorWakeRequestedAt, staleClaimThreshold),
@@ -6681,6 +6690,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
         assigneeAgentId: issues.assigneeAgentId,
         executionRunId: issues.executionRunId,
         executionState: issues.executionState,
+        monitorNextCheckAt: issues.monitorNextCheckAt,
       })
       .from(issues)
       .where(and(eq(issues.id, issueId), eq(issues.companyId, run.companyId)))
@@ -8118,7 +8128,8 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
           | "issue_not_in_progress"
           | "issue_execution_lock_changed"
           | "issue_review_participant_changed"
-          | "issue_continuation_waiting_on_review";
+          | "issue_continuation_waiting_on_review"
+          | "issue_continuation_waiting_on_monitor";
         details: Record<string, unknown>;
       };
 
@@ -8134,6 +8145,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
         assigneeAgentId: issues.assigneeAgentId,
         executionRunId: issues.executionRunId,
         executionState: issues.executionState,
+        monitorNextCheckAt: issues.monitorNextCheckAt,
       })
       .from(issues)
       .where(and(eq(issues.id, issueId), eq(issues.companyId, run.companyId)))
@@ -8155,10 +8167,26 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     const retryReason = readNonEmptyString(context.retryReason) ?? run.scheduledRetryReason ?? null;
 
     if (
-      issue.status === "in_progress" &&
+      (issue.status === "in_progress" || issue.status === "blocked") &&
       !wakeCommentId &&
       (wakeReason === "issue_continuation_needed" || retryReason === "issue_continuation_needed")
     ) {
+      if (issue.monitorNextCheckAt && issue.monitorNextCheckAt > new Date()) {
+        return {
+          stale: true,
+          errorCode: "issue_continuation_waiting_on_monitor",
+          reason:
+            "Cancelled because the issue already has a future monitor wake that owns the next date-gated check",
+          details: {
+            issueId,
+            wakeReason,
+            retryReason,
+            nextCheckAt: issue.monitorNextCheckAt.toISOString(),
+            currentStatus: issue.status,
+          },
+        };
+      }
+
       const queuedWake = parseObject(context.paperclipWake);
       const queuedContinuationSummary =
         readNonEmptyString(parseObject(context.paperclipContinuationSummary).body) ??
@@ -12162,6 +12190,10 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       const agentNameKey = normalizeAgentNameKey(agent.name);
 
       const outcome = await db.transaction(async (tx) => {
+        const issueLockTimeoutMs = readWakeupIssueLockTimeoutMs();
+        if (issueLockTimeoutMs > 0) {
+          await tx.execute(sql`select set_config('lock_timeout', ${`${issueLockTimeoutMs}ms`}, true)`);
+        }
         await tx.execute(
           sql`select id from issues where id = ${issueId} and company_id = ${agent.companyId} for update`,
         );

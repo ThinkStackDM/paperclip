@@ -23,6 +23,7 @@ import {
   PRODUCTIVITY_REVIEW_ORIGIN_KIND,
   productivityReviewService,
 } from "../services/productivity-review.ts";
+import { RECOVERY_ORIGIN_KINDS } from "../services/recovery/origins.ts";
 
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
 const describeEmbeddedPostgres = embeddedPostgresSupport.supported ? describe : describe.skip;
@@ -335,6 +336,51 @@ describeEmbeddedPostgres("productivity review service", () => {
     expect(result.created).toBe(1);
     expect(result.creationCapped).toBe(0);
     expect(await listProductivityReviews(seeded.companyId)).toHaveLength(4);
+  });
+
+  it("does not create productivity reviews for recovery-origin issues", async () => {
+    const now = new Date("2026-04-28T12:00:00.000Z");
+    const seeded = await seedAssignedIssue({ originKind: RECOVERY_ORIGIN_KINDS.staleActiveRunEvaluation });
+    await insertRuns({
+      companyId: seeded.companyId,
+      agentId: seeded.coderId,
+      issueId: seeded.issueId,
+      count: DEFAULT_PRODUCTIVITY_REVIEW_NO_COMMENT_STREAK_RUNS,
+      now,
+    });
+
+    const result = await productivityReviewService(db).reconcileProductivityReviews({
+      now,
+      companyId: seeded.companyId,
+    });
+
+    expect(result.created).toBe(0);
+    expect(result.reviewIssueIds).toHaveLength(0);
+    expect(await listProductivityReviews(seeded.companyId)).toHaveLength(0);
+  });
+
+  it("does not create productivity reviews for synthetic review-title issues even when origin metadata is missing", async () => {
+    const now = new Date("2026-04-28T12:00:00.000Z");
+    const seeded = await seedAssignedIssue();
+    await db.update(issues)
+      .set({ title: "Review silent active run for Coder", originKind: "manual" })
+      .where(eq(issues.id, seeded.issueId));
+    await insertRuns({
+      companyId: seeded.companyId,
+      agentId: seeded.coderId,
+      issueId: seeded.issueId,
+      count: DEFAULT_PRODUCTIVITY_REVIEW_NO_COMMENT_STREAK_RUNS,
+      now,
+    });
+
+    const result = await productivityReviewService(db).reconcileProductivityReviews({
+      now,
+      companyId: seeded.companyId,
+    });
+
+    expect(result.created).toBe(0);
+    expect(result.reviewIssueIds).toHaveLength(0);
+    expect(await listProductivityReviews(seeded.companyId)).toHaveLength(0);
   });
 
   it("creates a long-active review without enabling a continuation hold", async () => {

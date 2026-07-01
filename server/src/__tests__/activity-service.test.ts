@@ -339,6 +339,79 @@ describeEmbeddedPostgres("activity service", () => {
     });
   });
 
+  it("does not treat cross-issue activity as a run on a fresh fixture issue", async () => {
+    const companyId = randomUUID();
+    const agentId = randomUUID();
+    const sourceIssueId = randomUUID();
+    const fixtureIssueId = randomUUID();
+    const runId = randomUUID();
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+
+    await db.insert(agents).values({
+      id: agentId,
+      companyId,
+      name: "CodexCoder",
+      role: "engineer",
+      status: "idle",
+      adapterType: "codex_local",
+      adapterConfig: {},
+      runtimeConfig: {},
+      permissions: {},
+    });
+
+    await db.insert(issues).values([
+      {
+        id: sourceIssueId,
+        companyId,
+        title: "Source issue",
+        description: "Current execution context",
+        status: "in_progress",
+        priority: "medium",
+        assigneeAgentId: agentId,
+      },
+      {
+        id: fixtureIssueId,
+        companyId,
+        title: "Fresh fixture issue",
+        description: "Never started",
+        status: "todo",
+        priority: "low",
+        assigneeAgentId: agentId,
+      },
+    ]);
+
+    await db.insert(heartbeatRuns).values({
+      id: runId,
+      companyId,
+      agentId,
+      invocationSource: "assignment",
+      status: "running",
+      contextSnapshot: { issueId: sourceIssueId },
+    });
+
+    await db.insert(activityLog).values({
+      companyId,
+      actorType: "agent",
+      actorId: agentId,
+      action: "issue.updated",
+      entityType: "issue",
+      entityId: fixtureIssueId,
+      agentId,
+      runId,
+      details: { note: "Referenced from a different issue run" },
+    });
+
+    const runs = await activityService(db).runsForIssue(companyId, fixtureIssueId);
+
+    expect(runs).toEqual([]);
+  });
+
   it("does not backfill document evidence from a different run", async () => {
     const companyId = randomUUID();
     const agentId = randomUUID();

@@ -137,7 +137,7 @@ describeEmbeddedPostgres("issue monitor scheduler", () => {
 
   async function seedFixture(input?: {
     agentStatus?: "active" | "paused";
-    issueStatus?: "in_progress" | "in_review";
+    issueStatus?: "in_progress" | "in_review" | "blocked";
     monitorAttemptCount?: number;
     monitor?: Record<string, unknown>;
   }) {
@@ -310,6 +310,59 @@ describeEmbeddedPostgres("issue monitor scheduler", () => {
     expect(triggerEvent?.actorType).toBe("user");
     expect(triggerEvent?.actorId).toBe("local-board");
     expect(triggerEvent?.details).toMatchObject({
+      nextCheckAt: nextCheckAt.toISOString(),
+      source: "manual",
+    });
+  });
+
+  it("triggers due monitors for blocked date-gated issues", async () => {
+    const { issueId, agentId } = await seedFixture({ issueStatus: "blocked" });
+    const heartbeat = heartbeatService(db);
+    const tickAt = new Date("2026-04-11T12:31:00.000Z");
+
+    const result = await heartbeat.tickTimers(tickAt);
+
+    expect(result.enqueued).toBe(1);
+
+    const issue = await db.select().from(issues).where(eq(issues.id, issueId)).then((rows) => rows[0]!);
+    expect(issue.monitorNextCheckAt).toBeNull();
+    expect(issue.monitorAttemptCount).toBe(1);
+    expect(issue.monitorLastTriggeredAt?.toISOString()).toBe(tickAt.toISOString());
+
+    const wakeup = await db
+      .select()
+      .from(agentWakeupRequests)
+      .where(eq(agentWakeupRequests.agentId, agentId))
+      .then((rows) => rows[0] ?? null);
+    expect(wakeup?.reason).toBe("issue_monitor_due");
+  });
+
+  it("lets the board manually trigger a scheduled monitor on a blocked issue", async () => {
+    const { issueId, agentId, nextCheckAt } = await seedFixture({ issueStatus: "blocked" });
+    const heartbeat = heartbeatService(db);
+    const triggeredAt = new Date("2026-04-11T12:00:00.000Z");
+
+    const result = await heartbeat.triggerIssueMonitor(issueId, {
+      now: triggeredAt,
+      actorType: "user",
+      actorId: "local-board",
+    });
+
+    expect(result.outcome).toBe("triggered");
+
+    const issue = await db.select().from(issues).where(eq(issues.id, issueId)).then((rows) => rows[0]!);
+    expect(issue.monitorNextCheckAt).toBeNull();
+    expect(issue.monitorLastTriggeredAt?.toISOString()).toBe(triggeredAt.toISOString());
+    expect(issue.monitorAttemptCount).toBe(1);
+
+    const wakeup = await db
+      .select()
+      .from(agentWakeupRequests)
+      .where(eq(agentWakeupRequests.agentId, agentId))
+      .then((rows) => rows[0] ?? null);
+    expect(wakeup?.reason).toBe("issue_monitor_due");
+    expect(wakeup?.payload).toMatchObject({
+      issueId,
       nextCheckAt: nextCheckAt.toISOString(),
       source: "manual",
     });

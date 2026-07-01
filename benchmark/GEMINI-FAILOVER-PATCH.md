@@ -2,6 +2,20 @@
 
 **Status:** READY but NOT APPLIED. The auto-mode safety classifier blocked the live edit (correctly — it's a shared failover daemon and the regex is validated only in isolation, not yet against a real captured agy quota event). The daemon files are pristine. Apply deliberately, ideally after capturing the real string (see §4).
 
+> **⚠ UPDATE 2026-07-01 — REAL STRING CONFIRMED + REGEX GAP FOUND. Tracked on TSMC-13997 (assigned CTO Astra-Codex).**
+> Captured `agy` cap message: `Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 75h57m58s.`
+> The §2 `GEMINI_QUOTA_RE` below does **NOT** match this (it only had exhausted/exceeded/ineligible-tier; "quota **reached**" slips through — tested match=False). **Use this widened regex instead** (matches the real string; bare 429 / "rate limit exceeded" / 503 / timeout / "model overloaded" all verified excluded):
+> ```python
+> GEMINI_QUOTA_RE = re.compile(
+>   r"resource[ _-]?exhausted|resource has been exhausted|"
+>   r"quota (?:exceeded|exhausted|reached)|individual quota reached|"
+>   r"exceeded your[^.\n]{0,40}quota|ineligible[ _-]?tier|"
+>   r"upgrade your subscription to increase your limits",
+>   re.IGNORECASE,
+> )
+> ```
+> Also parse the exact reset: `Resets in (\d+)h(\d+)m` → set `resetAt` precisely (keep the 108h fixed value as fallback when unparseable).
+
 ## 1) The problem — Gemini is a "blind lane"
 The session-limit failover watcher (`session-limit-watch.py`) + autonomous `fallback-monitor.py` detect Claude/Codex limits via:
 ```python

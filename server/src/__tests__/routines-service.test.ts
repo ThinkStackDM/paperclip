@@ -1719,7 +1719,7 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     expect(run.status).toBe("issue_created");
   });
 
-  it("folds duplicate always_enqueue webhook fires that share a dispatch fingerprint", async () => {
+  it("ignores non-actionable probe webhook payloads instead of creating execution issues", async () => {
     const { routine, svc } = await seedFixture();
     await svc.update(routine.id, { concurrencyPolicy: "always_enqueue" }, {});
     const { trigger } = await svc.createTrigger(
@@ -1732,6 +1732,157 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     );
 
     const payload = { type: "binding_probe", probeRunId: "probe-1" };
+    const first = await svc.firePublicTrigger(trigger.publicId!, { payload });
+    const second = await svc.firePublicTrigger(trigger.publicId!, { payload });
+
+    expect(first).toMatchObject({
+      source: "webhook",
+      status: "skipped",
+      linkedIssueId: null,
+      failureReason: "binding_probe",
+    });
+    expect(second).toMatchObject({
+      source: "webhook",
+      status: "skipped",
+      linkedIssueId: null,
+      failureReason: "binding_probe",
+    });
+
+    const routineIssues = await db
+      .select({ id: issues.id })
+      .from(issues)
+      .where(eq(issues.originId, routine.id));
+
+    expect(routineIssues).toHaveLength(0);
+  });
+
+  it("ignores preflight and handshake webhook payloads instead of creating execution issues", async () => {
+    const { routine, svc } = await seedFixture();
+    await svc.update(routine.id, { concurrencyPolicy: "always_enqueue" }, {});
+    const { trigger } = await svc.createTrigger(
+      routine.id,
+      {
+        kind: "webhook",
+        signingMode: "none",
+      },
+      {},
+    );
+
+    const preflight = await svc.firePublicTrigger(trigger.publicId!, {
+      payload: { kind: "preflight", _preflight: true, probeRunId: "preflight-1" },
+    });
+    const handshake = await svc.firePublicTrigger(trigger.publicId!, {
+      payload: { kind: "handshake", sourceCompany: "TSC", selfCancel: true },
+    });
+
+    expect(preflight).toMatchObject({
+      source: "webhook",
+      status: "skipped",
+      linkedIssueId: null,
+      failureReason: "preflight",
+    });
+    expect(handshake).toMatchObject({
+      source: "webhook",
+      status: "skipped",
+      linkedIssueId: null,
+      failureReason: "machine_handshake",
+    });
+
+    const routineIssues = await db
+      .select({ id: issues.id })
+      .from(issues)
+      .where(eq(issues.originId, routine.id));
+
+    expect(routineIssues).toHaveLength(0);
+  });
+
+  it("ignores receipt-ack traffic and loosely encoded probe flags instead of creating execution issues", async () => {
+    const { routine, svc } = await seedFixture();
+    await svc.update(routine.id, { concurrencyPolicy: "always_enqueue" }, {});
+    const { trigger } = await svc.createTrigger(
+      routine.id,
+      {
+        kind: "webhook",
+        signingMode: "none",
+      },
+      {},
+    );
+
+    const ack = await svc.firePublicTrigger(trigger.publicId!, {
+      payload: { type: "directive_receipt_ack", from: "thiaa-recruitment", revisionId: 5 },
+    });
+    const stringProbe = await svc.firePublicTrigger(trigger.publicId!, {
+      payload: { kind: "portfolio_directive", _binding_probe: "true", probeRunId: "probe-2" },
+    });
+
+    expect(ack).toMatchObject({
+      source: "webhook",
+      status: "skipped",
+      linkedIssueId: null,
+      failureReason: "directive_receipt_ack",
+    });
+    expect(stringProbe).toMatchObject({
+      source: "webhook",
+      status: "skipped",
+      linkedIssueId: null,
+      failureReason: "binding_probe",
+    });
+
+    const routineIssues = await db
+      .select({ id: issues.id })
+      .from(issues)
+      .where(eq(issues.originId, routine.id));
+
+    expect(routineIssues).toHaveLength(0);
+  });
+
+  it("ignores empty directive webhook payloads while preserving actionable directives", async () => {
+    const { routine, svc } = await seedFixture();
+    await svc.update(routine.id, { concurrencyPolicy: "always_enqueue" }, {});
+    const { trigger } = await svc.createTrigger(
+      routine.id,
+      {
+        kind: "webhook",
+        signingMode: "none",
+      },
+      {},
+    );
+
+    const ignored = await svc.firePublicTrigger(trigger.publicId!, {
+      payload: { kind: "portfolio_directive", type: "portfolio_directive", context: { sourceCompany: "TSC" } },
+    });
+    const actionable = await svc.firePublicTrigger(trigger.publicId!, {
+      payload: {
+        kind: "portfolio_directive",
+        type: "portfolio_directive",
+        ask: "Patch the review churn guardrail.",
+        why: "This is actionable.",
+      },
+    });
+
+    expect(ignored).toMatchObject({
+      source: "webhook",
+      status: "skipped",
+      linkedIssueId: null,
+      failureReason: "empty_directive",
+    });
+    expect(actionable.status).toBe("issue_created");
+    expect(actionable.linkedIssueId).toBeTruthy();
+  });
+
+  it("folds duplicate always_enqueue webhook fires that share a dispatch fingerprint", async () => {
+    const { routine, svc } = await seedFixture();
+    await svc.update(routine.id, { concurrencyPolicy: "always_enqueue" }, {});
+    const { trigger } = await svc.createTrigger(
+      routine.id,
+      {
+        kind: "webhook",
+        signingMode: "none",
+      },
+      {},
+    );
+
+    const payload = { type: "portfolio_status", from: "thiaa-recruitment", summaryId: "status-1" };
     const first = await svc.firePublicTrigger(trigger.publicId!, { payload });
     const second = await svc.firePublicTrigger(trigger.publicId!, { payload });
 
@@ -1750,7 +1901,7 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     expect(routineIssues[0]?.id).toBe(first.linkedIssueId);
   });
 
-  it("spawns fresh execution issues for heterogeneous always_enqueue webhook fires (TSMC-10038)", async () => {
+  it("spawns fresh execution issues only for actionable heterogeneous always_enqueue webhook fires (TSMC-10038)", async () => {
     const { routine, svc } = await seedFixture();
     await svc.update(routine.id, { concurrencyPolicy: "always_enqueue" }, {});
     const { trigger } = await svc.createTrigger(
@@ -1763,7 +1914,7 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     );
 
     const first = await svc.firePublicTrigger(trigger.publicId!, {
-      payload: { type: "directive_receipt_ack", from: "thiaa-recruitment", revisionId: 5 },
+      payload: { type: "portfolio_status", from: "thiaa-recruitment", summaryId: "status-1" },
     });
     const second = await svc.firePublicTrigger(trigger.publicId!, {
       payload: { type: "portfolio_status", from: "thiaaaaa-kiss", summaryId: "ks-2026-06-15" },
@@ -1805,7 +1956,7 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     await db.update(issues).set({ status: "blocked" }).where(eq(issues.id, anchor.linkedIssueId!));
 
     const followUp = await svc.firePublicTrigger(trigger.publicId!, {
-      payload: { type: "directive_receipt_ack", from: "thiaa-recruitment", revisionId: 8 },
+      payload: { type: "ask_reply", from: "thiaa-recruitment", askId: "revision-8" },
     });
 
     expect(followUp.status).toBe("issue_created");
@@ -2126,6 +2277,177 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     expect(result.repaired).toBe(0);
   });
 
+  it("reuses a terminal scheduled execution issue when terminal reuse mode is enabled", async () => {
+    const { companyId, routine, svc, wakeups } = await seedFixture({ wakeup: async () => null });
+    await svc.update(
+      routine.id,
+      {
+        env: {
+          PAPERCLIP_ROUTINE_ISSUE_MODE: { type: "plain", value: "reuse_terminal" },
+        },
+      },
+      {},
+    );
+    const { trigger } = await svc.createTrigger(
+      routine.id,
+      {
+        kind: "schedule",
+        label: "daily",
+        cronExpression: "0 0 * * *",
+        timezone: "UTC",
+      },
+      {},
+    );
+    const pastDue = new Date("2020-01-01T00:00:00.000Z");
+
+    await db
+      .update(routineTriggers)
+      .set({ nextRunAt: pastDue })
+      .where(eq(routineTriggers.id, trigger.id));
+
+    const firstResult = await svc.tickScheduledTriggers(new Date());
+    expect(firstResult.triggered).toBe(1);
+
+    const [firstIssue] = await db
+      .select()
+      .from(issues)
+      .where(eq(issues.companyId, companyId));
+    expect(firstIssue).toBeTruthy();
+
+    await db
+      .update(issues)
+      .set({ status: "done", completedAt: new Date(), executionRunId: null, executionLockedAt: null })
+      .where(eq(issues.id, firstIssue!.id));
+    await svc.syncRunStatusForIssue(firstIssue!.id);
+
+    await db
+      .update(routineTriggers)
+      .set({ nextRunAt: pastDue })
+      .where(eq(routineTriggers.id, trigger.id));
+
+    const secondResult = await svc.tickScheduledTriggers(new Date());
+    expect(secondResult.triggered).toBe(1);
+
+    const routineIssues = await db
+      .select()
+      .from(issues)
+      .where(eq(issues.companyId, companyId));
+    expect(routineIssues).toHaveLength(1);
+    expect(routineIssues[0]?.id).toBe(firstIssue!.id);
+    expect(routineIssues[0]?.status).toBe("todo");
+
+    const runs = (await db
+      .select()
+      .from(routineRuns)
+      .where(eq(routineRuns.routineId, routine.id)))
+      .sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime());
+    expect(runs).toHaveLength(2);
+    expect(runs[0]?.status).toBe("completed");
+    expect(runs[1]?.status).toBe("issue_reused");
+    expect(new Set(runs.map((run) => run.linkedIssueId))).toEqual(new Set([firstIssue!.id]));
+    expect(wakeups.map((wakeup) => wakeup.opts.payload?.mutation)).toEqual(["create", "update"]);
+
+    const refreshedTrigger = await db
+      .select()
+      .from(routineTriggers)
+      .where(eq(routineTriggers.id, trigger.id))
+      .then((rows) => rows[0]);
+    expect(refreshedTrigger?.lastResult).toMatch(/reused/i);
+  });
+
+  it("rolls back a reused terminal issue when queueing the assignment wakeup fails", async () => {
+    let failReuseWakeup = false;
+    const { companyId, routine, svc } = await seedFixture({
+      wakeup: async (_agentId, wakeupOpts) => {
+        if (failReuseWakeup && wakeupOpts.payload?.mutation === "update") {
+          throw new Error("Failed query: select id from issues where id = $1 and company_id = $2 for update");
+        }
+        return null;
+      },
+    });
+    await svc.update(
+      routine.id,
+      {
+        env: {
+          PAPERCLIP_ROUTINE_ISSUE_MODE: { type: "plain", value: "reuse_terminal" },
+        },
+      },
+      {},
+    );
+    const { trigger } = await svc.createTrigger(
+      routine.id,
+      {
+        kind: "schedule",
+        label: "daily",
+        cronExpression: "0 0 * * *",
+        timezone: "UTC",
+      },
+      {},
+    );
+    const pastDue = new Date("2020-01-01T00:00:00.000Z");
+
+    await db
+      .update(routineTriggers)
+      .set({ nextRunAt: pastDue })
+      .where(eq(routineTriggers.id, trigger.id));
+
+    const firstResult = await svc.tickScheduledTriggers(new Date());
+    expect(firstResult.triggered).toBe(1);
+
+    const [firstIssue] = await db
+      .select()
+      .from(issues)
+      .where(eq(issues.companyId, companyId));
+    expect(firstIssue).toBeTruthy();
+
+    await db
+      .update(issues)
+      .set({ status: "done", completedAt: new Date(), executionRunId: null, executionLockedAt: null })
+      .where(eq(issues.id, firstIssue!.id));
+    await svc.syncRunStatusForIssue(firstIssue!.id);
+
+    failReuseWakeup = true;
+    await db
+      .update(routineTriggers)
+      .set({ nextRunAt: pastDue })
+      .where(eq(routineTriggers.id, trigger.id));
+
+    const secondResult = await svc.tickScheduledTriggers(new Date());
+    expect(secondResult.triggered).toBe(1);
+
+    const routineIssues = await db
+      .select({
+        id: issues.id,
+        status: issues.status,
+        originRunId: issues.originRunId,
+        executionRunId: issues.executionRunId,
+        executionLockedAt: issues.executionLockedAt,
+        completedAt: issues.completedAt,
+      })
+      .from(issues)
+      .where(eq(issues.companyId, companyId));
+    expect(routineIssues).toHaveLength(1);
+    expect(routineIssues[0]).toMatchObject({
+      id: firstIssue!.id,
+      status: "done",
+      originRunId: firstIssue!.originRunId,
+      executionRunId: null,
+      executionLockedAt: null,
+    });
+    expect(routineIssues[0]?.completedAt).toBeTruthy();
+
+    const runs = (await db
+      .select()
+      .from(routineRuns)
+      .where(eq(routineRuns.routineId, routine.id)))
+      .sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime());
+    expect(runs).toHaveLength(2);
+    expect(runs[0]?.status).toBe("completed");
+    expect(runs[1]?.status).toBe("failed");
+    expect(runs[1]?.linkedIssueId).toBeNull();
+    expect(runs[1]?.failureReason).toContain("Failed query: select id from issues where id = $1 and company_id = $2 for update");
+  });
+
   it("suppresses scheduled ticks while the routine project is paused, then resumes when unpaused", async () => {
     const { companyId, projectId, routine, svc } = await seedFixture();
     const { trigger } = await svc.createTrigger(
@@ -2208,5 +2530,57 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
       .where(eq(routineRuns.routineId, routine.id));
     expect(runsAfterResume).toHaveLength(2);
     expect(runsAfterResume.some((run) => run.status === "issue_created")).toBe(true);
+  });
+
+  it("records failed scheduled dispatches after a trigger is claimed", async () => {
+    const { companyId, routine, svc } = await seedFixture();
+    const { trigger } = await svc.createTrigger(
+      routine.id,
+      {
+        kind: "schedule",
+        label: "daily",
+        cronExpression: "0 0 * * *",
+        timezone: "UTC",
+      },
+      {},
+    );
+    const pastDue = new Date("2020-01-01T00:00:00.000Z");
+
+    await db
+      .update(routines)
+      .set({ assigneeAgentId: null })
+      .where(eq(routines.id, routine.id));
+    await db
+      .update(routineTriggers)
+      .set({ nextRunAt: pastDue })
+      .where(eq(routineTriggers.id, trigger.id));
+
+    const result = await svc.tickScheduledTriggers(new Date());
+    expect(result.triggered).toBe(0);
+
+    const createdIssues = await db
+      .select()
+      .from(issues)
+      .where(eq(issues.companyId, companyId));
+    expect(createdIssues).toHaveLength(0);
+
+    const runs = await db
+      .select()
+      .from(routineRuns)
+      .where(eq(routineRuns.routineId, routine.id));
+    expect(runs).toHaveLength(1);
+    expect(runs[0]?.status).toBe("failed");
+    expect(runs[0]?.source).toBe("schedule");
+    expect(runs[0]?.failureReason).toMatch(/Default agent required/);
+    expect(runs[0]?.linkedIssueId).toBeNull();
+
+    const refreshedTrigger = await db
+      .select()
+      .from(routineTriggers)
+      .where(eq(routineTriggers.id, trigger.id))
+      .then((rows) => rows[0]);
+    expect(refreshedTrigger?.nextRunAt).not.toBeNull();
+    expect(refreshedTrigger!.nextRunAt!.getTime()).toBeGreaterThan(pastDue.getTime());
+    expect(refreshedTrigger?.lastResult).toBe("Execution failed");
   });
 });

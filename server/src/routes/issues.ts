@@ -945,6 +945,66 @@ function isAssigneeSelfCommentOnTerminalIssue(input: {
   return input.actorId === input.assigneeAgentId;
 }
 
+function normalizeDuplicateBlockedWakeCommentBody(body: string | null | undefined) {
+  return (body ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+const DUPLICATE_BLOCKED_COMMENT_WAKE_LOOP_WINDOW_MS = 2 * 60 * 1000;
+
+async function shouldSuppressDuplicateBlockedCommentWake(input: {
+  issueService: ReturnType<typeof issueService>;
+  issueId: string;
+  issueAssigneeAgentId: string | null;
+  comment: {
+    id: string;
+    body: string;
+    createdAt?: Date | string | null;
+    authorAgentId?: string | null;
+    authorUserId?: string | null;
+  };
+  actor: { actorType: "user" | "agent"; actorId: string };
+  stillBlockedByUnresolvedFirstClassBlockers: boolean;
+}) {
+  if (!input.stillBlockedByUnresolvedFirstClassBlockers) return false;
+  if (input.actor.actorType !== "user") return false;
+  const normalizedBody = normalizeDuplicateBlockedWakeCommentBody(input.comment.body);
+  if (!normalizedBody) return false;
+  const recentComments = await input.issueService.listComments(input.issueId, {
+    order: "desc",
+    limit: 8,
+  });
+  const hasExactDuplicate = recentComments.some((candidate) => {
+    if (!candidate || candidate.id === input.comment.id) return false;
+    if (candidate.authorUserId !== input.comment.authorUserId) return false;
+    return normalizeDuplicateBlockedWakeCommentBody(candidate.body) === normalizedBody;
+  });
+  if (hasExactDuplicate) return true;
+
+  const currentCreatedAt = input.comment.createdAt ? Date.parse(String(input.comment.createdAt)) : Date.now();
+  if (!Number.isFinite(currentCreatedAt) || !input.comment.authorUserId || !input.issueAssigneeAgentId) return false;
+
+  const recentSameUserComments = recentComments
+    .filter((candidate) =>
+      candidate &&
+      candidate.id !== input.comment.id &&
+      candidate.authorUserId === input.comment.authorUserId &&
+      Number.isFinite(Date.parse(String(candidate.createdAt))) &&
+      currentCreatedAt - Date.parse(String(candidate.createdAt)) <= DUPLICATE_BLOCKED_COMMENT_WAKE_LOOP_WINDOW_MS
+    );
+  if (recentSameUserComments.length === 0) return false;
+
+  const newestPriorUserCommentAt = Math.max(
+    ...recentSameUserComments.map((candidate) => Date.parse(String(candidate.createdAt))),
+  );
+  return recentComments.some((candidate) =>
+    candidate &&
+    candidate.authorAgentId === input.issueAssigneeAgentId &&
+    Number.isFinite(Date.parse(String(candidate.createdAt))) &&
+    Date.parse(String(candidate.createdAt)) > newestPriorUserCommentAt &&
+    Date.parse(String(candidate.createdAt)) < currentCreatedAt
+  );
+}
+
 function queueResolvedInteractionContinuationWakeup(input: {
   heartbeat: ReturnType<typeof heartbeatService>;
   issue: { id: string; assigneeAgentId: string | null; status: string };
@@ -6270,17 +6330,6 @@ export function issueRoutes(
         });
         return;
       }
-      if (targetAgentId !== actorAgentId) {
-        res.status(403).json({
-          error: "Fallback reassignment target must match the authenticated sister agent",
-          details: {
-            reason: "third_party_target",
-            actorAgentId,
-            targetAgentId,
-          },
-        });
-        return;
-      }
       if (targetAgentId === fromAgentId) {
         res.json({
           issue: existing,
@@ -6291,12 +6340,37 @@ export function issueRoutes(
         return;
       }
 
-      if (!(await assertAgentIssueMutationAllowed(req, res, existing, {
-        agentMutationOverride: {
-          action: "tasks:fallback_reassign",
-          scope: { targetAgentId },
-        },
-      }))) return;
+      if (targetAgentId !== actorAgentId) {
+        const delegatedFallbackDecision = await decideAgentIssueMutationOverride(
+          existing,
+          actorAgentId,
+          {
+            action: "tasks:fallback_reassign",
+            scope: { targetAgentId },
+          },
+        );
+        if (!delegatedFallbackDecision?.allowed) {
+          res.status(403).json({
+            error: "Fallback reassignment target must match the authenticated sister agent or an explicit fallback executor grant",
+            details: {
+              reason: "third_party_target",
+              actorAgentId,
+              targetAgentId,
+            },
+          });
+          return;
+        }
+      } else {
+        const fallbackMutationAllowed = await assertAgentIssueMutationAllowed(req, res, existing, {
+          agentMutationOverride: {
+            action: "tasks:fallback_reassign",
+            scope: { targetAgentId },
+          },
+        });
+        if (!fallbackMutationAllowed) {
+          return;
+        }
+      }
 
       const relationship = await agentsSvc.getFallbackRelationship(existing.companyId, fromAgentId, targetAgentId);
       if (!relationship) {
@@ -7343,6 +7417,15 @@ export function issueRoutes(
       }
 
       if (commentBody && comment) {
+        const suppressDuplicateBlockedCommentWake = await shouldSuppressDuplicateBlockedCommentWake({
+          issueService: svc,
+          issueId: issue.id,
+          issueAssigneeAgentId: issue.assigneeAgentId ?? null,
+          comment,
+          actor,
+          stillBlockedByUnresolvedFirstClassBlockers:
+            issue.status === "blocked" && hasUnresolvedFirstClassBlockers,
+        });
         const assigneeId = issue.assigneeAgentId;
         const actorIsAgent = actor.actorType === "agent";
         let selfComment = actorIsAgent && actor.actorId === assigneeId;
@@ -7351,7 +7434,7 @@ export function issueRoutes(
         if (!selfComment && comment && comment.authorAgentId && comment.authorAgentId === assigneeId) {
           selfComment = true;
         }
-        const skipAssigneeCommentWake = selfComment || isClosed;
+        const skipAssigneeCommentWake = selfComment || isClosedIssueStatus(issue.status) || suppressDuplicateBlockedCommentWake;
 
         if (assigneeId && !assigneeChanged && (reopened || !skipAssigneeCommentWake)) {
           addWakeup(assigneeId, {
@@ -8803,6 +8886,16 @@ export function issueRoutes(
       blockedToTodoRecovery: reopened && reopenFromStatus === "blocked" && currentIssue.status === "todo",
     });
 
+    const suppressDuplicateBlockedCommentWake = await shouldSuppressDuplicateBlockedCommentWake({
+      issueService: svc,
+      issueId: currentIssue.id,
+      issueAssigneeAgentId: currentIssue.assigneeAgentId ?? null,
+      comment,
+      actor,
+      stillBlockedByUnresolvedFirstClassBlockers:
+        currentIssue.status === "blocked" && hasUnresolvedFirstClassBlockers,
+    });
+
     // Merge all wakeups from this comment into one enqueue per agent to avoid duplicate runs.
     void (async () => {
       type WakeupRequest = NonNullable<Parameters<typeof heartbeat.wakeup>[1]>;
@@ -8830,7 +8923,10 @@ export function issueRoutes(
       // Re-derive closed-ness from the post-mutation issue so the auto-approval
       // transition (in_review -> done) suppresses a stale `issue_commented` wake
       // to the returnAssignee for an already-completed issue.
-      const skipWake = selfComment || isClosedIssueStatus(currentIssue.status);
+      const skipWake =
+        selfComment
+        || isClosedIssueStatus(currentIssue.status)
+        || suppressDuplicateBlockedCommentWake;
       if (assigneeId && (reopened || !skipWake)) {
         if (reopened) {
           addWakeup(assigneeId, {

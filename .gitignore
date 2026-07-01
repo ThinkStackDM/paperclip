@@ -73,3 +73,8 @@ hermes-paperclip-adapter/
 # Python bytecode cache (from scripts/)
 __pycache__/
 *.pyc
+
+# transient benchmark run logs
+benchmark/*.log
+# transient operator resume/preserve state
+scripts/.claude-preserve/

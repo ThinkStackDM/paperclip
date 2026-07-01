@@ -34,6 +34,11 @@ APPLY = "--apply" in sys.argv
 # present we keep that company's claude CTO (and CEO if claudeCeo) active for the
 # whole sprint — no mid-sprint park/swap. The revert clears the flag.
 SPRINT_DIR = "/Users/glad0s/paperclip/scripts/.adhoc-sprint"
+# Companies whose CTO runs on the codex sister (gpt-5.4) BY DEFAULT, with the
+# claude-opus CTO PARKED as a resumable on-escalation lane. Added 2026-06-27:
+# TSMC/Astra's always-on opus was the #1 Claude-sub drain. The triage gate (or a
+# manual resume / ad-hoc sprint flag) brings opus back for genuinely hard CTO work.
+CTO_CODEX_DEFAULT = {"e6361895-a6a4-438d-bb76-b17a0ad026cb"}  # TSMC
 
 def q(sql):
     r = subprocess.run(PG + ["-c", sql], env={**os.environ, "PGPASSWORD": "paperclip"}, capture_output=True, text=True)
@@ -149,8 +154,9 @@ def main():
             # saving the thin Claude sub. Claude CEO stays a resumable fallback.
             # CTO: opus has a REAL CTO edge (0.986 vs 0.965), so keep the windowed claude-opus
             # sprint overlay — spend Claude exactly when CTO work peaks, codex covers off-window.
-            if role == "ceo":
-                print(f"  ceo: claude {claude['name']}[{claude['status']}] PARK (codex {sister['name']} = permanent primary)")
+            if role == "ceo" or (role == "cto" and cid in CTO_CODEX_DEFAULT):
+                tag = "permanent primary" if role == "ceo" else "codex-default CTO; opus parked for escalation"
+                print(f"  {role}: claude {claude['name']}[{claude['status']}] PARK (codex {sister['name']} = {tag})")
                 want(claude, "paused")
             elif in_win:
                 print(f"  cto: claude {claude['name']}[{claude['status']}] ACTIVE (sprint window) | codex {sister['name']} covers off-window")

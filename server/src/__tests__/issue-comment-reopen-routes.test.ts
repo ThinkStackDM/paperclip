@@ -7,6 +7,7 @@ const mockIssueService = vi.hoisted(() => ({
   assertCheckoutOwner: vi.fn(),
   update: vi.fn(),
   addComment: vi.fn(),
+  listComments: vi.fn(),
   getDependencyReadiness: vi.fn(),
   getCurrentScheduledRetry: vi.fn(),
   findMentionedAgents: vi.fn(),
@@ -237,6 +238,7 @@ describe.sequential("issue comment reopen routes", () => {
     mockIssueService.assertCheckoutOwner.mockReset();
     mockIssueService.update.mockReset();
     mockIssueService.addComment.mockReset();
+    mockIssueService.listComments.mockReset();
     mockIssueService.getDependencyReadiness.mockReset();
     mockIssueService.getCurrentScheduledRetry.mockReset();
     mockIssueService.findMentionedAgents.mockReset();
@@ -317,6 +319,7 @@ describe.sequential("issue comment reopen routes", () => {
       authorUserId: "local-board",
     });
     mockIssueService.findMentionedAgents.mockResolvedValue([]);
+    mockIssueService.listComments.mockResolvedValue([]);
     mockIssueService.getDependencyReadiness.mockResolvedValue({
       issueId: "11111111-1111-4111-8111-111111111111",
       blockerIssueIds: [],
@@ -1086,6 +1089,59 @@ describe.sequential("issue comment reopen routes", () => {
         }),
       }),
     ));
+  });
+
+  it("suppresses repeated blocked-comment wakes on POST comments after an assignee reply", async () => {
+    mockIssueService.getById.mockResolvedValue(makeIssue("blocked"));
+    mockIssueService.getDependencyReadiness.mockResolvedValue({
+      issueId: "11111111-1111-4111-8111-111111111111",
+      blockerIssueIds: ["33333333-3333-4333-8333-333333333333"],
+      unresolvedBlockerIssueIds: ["33333333-3333-4333-8333-333333333333"],
+      unresolvedBlockerCount: 1,
+      allBlockersDone: false,
+      isDependencyReady: false,
+    });
+    mockIssueService.addComment.mockResolvedValue({
+      id: "comment-2",
+      issueId: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      body: "Acknowledged. This matches the current blocked chain.",
+      createdAt: new Date("2026-06-29T17:05:45.343Z"),
+      updatedAt: new Date("2026-06-29T17:05:45.343Z"),
+      authorAgentId: null,
+      authorUserId: "local-board",
+    });
+    mockIssueService.listComments.mockResolvedValue([
+      {
+        id: "comment-2",
+        authorUserId: "local-board",
+        authorAgentId: null,
+        body: "Acknowledged. This matches the current blocked chain.",
+        createdAt: new Date("2026-06-29T17:05:45.343Z"),
+      },
+      {
+        id: "agent-reply-1",
+        authorUserId: null,
+        authorAgentId: "22222222-2222-4222-8222-222222222222",
+        body: "Triaged the board comment without changing the unblock path.",
+        createdAt: new Date("2026-06-29T17:05:36.621Z"),
+      },
+      {
+        id: "comment-1",
+        authorUserId: "local-board",
+        authorAgentId: null,
+        body: "Board comment triaged. DP-2728 remains blocked exactly as requested.",
+        createdAt: new Date("2026-06-29T17:05:32.156Z"),
+      },
+    ]);
+
+    const res = await request(await installActor(createApp()))
+      .post("/api/issues/11111111-1111-4111-8111-111111111111/comments")
+      .send({ body: "Acknowledged. This matches the current blocked chain." });
+
+    expect(res.status).toBe(201);
+    expect(mockIssueService.update).not.toHaveBeenCalled();
+    expect(mockHeartbeatService.wakeup).not.toHaveBeenCalled();
   });
 
   it("does not implicitly reopen closed issues via POST comments when no agent is assigned", async () => {

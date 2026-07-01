@@ -398,9 +398,11 @@ An `in_review` issue is stalled when it has no typed participant, no pending int
 
 ### Issue monitors
 
-An issue monitor is a one-shot deferred action path for agent-owned issues in `in_progress` or `in_review`.
+An issue monitor is a one-shot deferred action path for agent-owned issues in `in_progress`, `in_review`, or `blocked`.
 
 Use a monitor when the current assignee owns a future check against an async system or external service. Examples include Greptile review loops, GitHub checks, Vercel deployments, or provider jobs where the agent should come back later and decide what happens next.
+
+This also covers deliberate calendar waits owned by the assignee, such as "check this again next Tuesday" or "come back after the filing window opens." In those cases the monitor is the first-class waiting primitive; a prose comment or continuation summary alone is not.
 
 Monitor policy lives under `executionPolicy.monitor` and includes:
 
@@ -425,6 +427,7 @@ This is explicit waiting state.
 A healthy `blocked` issue has an explicit waiting path:
 
 - first-class blockers exist, and each unresolved leaf has a valid action path under this contract
+- the assignee owns a scheduled one-shot monitor for a future calendar check or async external result
 - the issue has an explicit recovery action that itself has a live or waiting path
 - the issue is waiting on a pending interaction, linked approval, human owner, or clearly named external owner/action
 

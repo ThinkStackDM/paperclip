@@ -417,11 +417,28 @@ export function activityService(db: Db) {
               sql`${heartbeatRuns.contextSnapshot} ->> 'issueId' = ${issueId}`,
               sql`exists (
                 select 1
-                from ${activityLog}
-                where ${activityLog.companyId} = ${companyId}
-                  and ${activityLog.entityType} = 'issue'
-                  and ${activityLog.entityId} = ${issueId}
-                  and ${activityLog.runId} = ${heartbeatRuns.id}
+                from ${issueComments}
+                where ${issueComments.companyId} = ${companyId}
+                  and ${issueComments.issueId} = ${issueId}
+                  and ${issueComments.createdByRunId} = ${heartbeatRuns.id}
+              )`,
+              sql`exists (
+                select 1
+                from ${documentRevisions}
+                inner join ${issueDocuments}
+                  on ${documentRevisions.documentId} = ${issueDocuments.documentId}
+                where ${documentRevisions.companyId} = ${companyId}
+                  and ${documentRevisions.createdByRunId} = ${heartbeatRuns.id}
+                  and ${issueDocuments.companyId} = ${companyId}
+                  and ${issueDocuments.issueId} = ${issueId}
+                  and ${issueDocuments.key} != ${ISSUE_CONTINUATION_SUMMARY_DOCUMENT_KEY}
+              )`,
+              sql`exists (
+                select 1
+                from ${issueWorkProducts}
+                where ${issueWorkProducts.companyId} = ${companyId}
+                  and ${issueWorkProducts.issueId} = ${issueId}
+                  and ${issueWorkProducts.createdByRunId} = ${heartbeatRuns.id}
               )`,
             ),
           ),
