@@ -115,6 +115,14 @@ describe("paperclip-task-bridge helper", () => {
         }));
         return;
       }
+      if (req.method === "PATCH" && req.url === "/api/issues/PAP-422") {
+        res.statusCode = 422;
+        res.end(JSON.stringify({
+          error: "issue update rejected with 422",
+          details: { code: "invalid_transition" },
+        }));
+        return;
+      }
       res.statusCode = 404;
       res.end(JSON.stringify({ error: "not found" }));
     });
@@ -180,5 +188,22 @@ describe("paperclip-task-bridge helper", () => {
     expect(commentRequest?.body).toMatchObject({ body: "Progress from Hermes" });
     expect(patchRequest?.body).toMatchObject({ status: "in_review", comment: "Ready" });
     expect(comment.stdout + update.stdout).not.toContain(apiKey);
+  });
+
+  it("adds bounded backoff metadata on 422 failures to reduce retry storms", async () => {
+    const startedAt = Date.now();
+    const result = await runHelper(
+      ["update-status", "--issue", "PAP-422", "--status", "in_review", "--comment", "Retry me"],
+      {
+        ...env(),
+        PAPERCLIP_BRIDGE_ERROR_BACKOFF_MS: "25",
+      },
+    );
+
+    expect(result.code).toBe(1);
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(20);
+    expect(result.stdout).toContain('"status": 422');
+    expect(result.stdout).toContain('"retryAfterMs": 25');
+    expect(result.stdout).toContain('"code": "invalid_transition"');
   });
 });

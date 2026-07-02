@@ -50,6 +50,9 @@ Run the helper from this skill directory:
 node ./paperclip-task.mjs --help
 ```
 
+The helper adds a short backoff before surfacing `422` or `429` API failures so
+outer Hermes retry loops do not hammer Paperclip.
+
 Commands:
 
 ```sh

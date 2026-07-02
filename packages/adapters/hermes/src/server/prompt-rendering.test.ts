@@ -208,6 +208,7 @@ test("renders safe Paperclip API examples from environment variables with multil
   });
 
   expect(prompt).toContain("Use `$PAPERCLIP_API_URL`, `$PAPERCLIP_API_KEY`, and `$PAPERCLIP_RUN_ID`");
+  expect(prompt).toContain("use `$PAPERCLIP_BRIDGE_API_KEY` when it is present");
   expect(prompt).toContain("Displayed command logs may redact secrets");
   expect(prompt).toContain('-H "Authorization: Bearer $PAPERCLIP_API_KEY"');
   expect(prompt).toContain('-H "X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID"');
@@ -225,6 +226,7 @@ test("preserves custom prompt templates while exposing runtime and wake variable
       "agent={{agent.name}}",
       "api={{paperclipApiUrl}}",
       "keyEnv={{paperclipApiKeyEnv}}",
+      "bridgeKeyEnv={{paperclipBridgeApiKeyEnv}}",
       "runEnv={{paperclipRunIdEnv}}",
       "wakePrompt={{paperclipWakePrompt}}",
       "task={{paperclipTaskMarkdown}}",
@@ -237,6 +239,7 @@ test("preserves custom prompt templates while exposing runtime and wake variable
   expect(prompt).toContain("agent=Hermes Engineer");
   expect(prompt).toContain("api=http://paperclip.local/api");
   expect(prompt).toContain("keyEnv=PAPERCLIP_API_KEY");
+  expect(prompt).toContain("bridgeKeyEnv=PAPERCLIP_BRIDGE_API_KEY");
   expect(prompt).toContain("runEnv=PAPERCLIP_RUN_ID");
   expect(prompt).toContain("wakePrompt=## Paperclip Wake Payload");
   expect(prompt).toContain("task=Paperclip task context:");

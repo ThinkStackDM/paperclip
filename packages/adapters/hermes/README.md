@@ -199,7 +199,8 @@ node ./paperclip-task.mjs update-status --issue PAP-123 --status in_review --com
 
 The helper reads credentials from environment variables and prints only JSON
 summaries. It supports `create-task`, `comment`, `update-status`, and
-`list-assigned`.
+`list-assigned`. On `422` and `429` API failures it applies a short backoff
+before returning the error so outer retry loops do not hammer Paperclip.
 
 Create the bridge key with `scope.kind = "task_bridge"` plus a `parentIssueId`
 or `projectId` boundary. Do not use a normal claimed agent API key for

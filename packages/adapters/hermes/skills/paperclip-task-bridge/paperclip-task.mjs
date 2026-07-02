@@ -44,13 +44,48 @@ class UsageError extends Error {
 }
 
 class ApiError extends Error {
-  constructor(status, body) {
+  constructor(status, body, options = {}) {
     const message = typeof body?.error === "string" ? body.error : `Paperclip API request failed with status ${status}`;
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.body = body;
+    this.retryAfterMs = Number.isFinite(options.retryAfterMs) ? options.retryAfterMs : null;
   }
+}
+
+const DEFAULT_ERROR_BACKOFF_MS = 2000;
+const RATE_LIMIT_BACKOFF_MS = 5000;
+
+function getErrorBackoffOverrideMs() {
+  const raw = process.env.PAPERCLIP_BRIDGE_ERROR_BACKOFF_MS?.trim();
+  if (!raw) return null;
+  const value = Number.parseInt(raw, 10);
+  if (!Number.isFinite(value) || value < 0) return null;
+  return value;
+}
+
+function parseRetryAfterMs(value) {
+  if (!value || typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const seconds = Number.parseFloat(trimmed);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds * 1000);
+  const at = Date.parse(trimmed);
+  if (Number.isNaN(at)) return null;
+  return Math.max(0, at - Date.now());
+}
+
+function getErrorBackoffMs(status, retryAfterHeader) {
+  const overrideMs = getErrorBackoffOverrideMs();
+  if (overrideMs !== null) return overrideMs;
+  if (status === 429) return parseRetryAfterMs(retryAfterHeader) ?? RATE_LIMIT_BACKOFF_MS;
+  if (status === 422) return DEFAULT_ERROR_BACKOFF_MS;
+  return null;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function parseArgs(argv) {
@@ -155,7 +190,11 @@ async function apiFetch(config, path, options = {}) {
       body = { error: text.slice(0, 1000) };
     }
   }
-  if (!response.ok) throw new ApiError(response.status, body);
+  if (!response.ok) {
+    throw new ApiError(response.status, body, {
+      retryAfterMs: getErrorBackoffMs(response.status, response.headers.get("retry-after")),
+    });
+  }
   return body;
 }
 
@@ -331,16 +370,20 @@ async function main() {
   throw new UsageError(`Unknown command: ${command}`);
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
   if (err instanceof UsageError) {
     process.stderr.write(`Usage error: ${err.message}\n\n${HELP}\n`);
     process.exitCode = 2;
     return;
   }
   if (err instanceof ApiError) {
+    if (typeof err.retryAfterMs === "number" && err.retryAfterMs > 0) {
+      await sleep(err.retryAfterMs);
+    }
     printJson({
       error: err.message,
       status: err.status,
+      retryAfterMs: err.retryAfterMs,
       details: err.body?.details ?? null,
     });
     process.exitCode = 1;
