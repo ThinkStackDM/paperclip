@@ -464,6 +464,104 @@ describeEmbeddedPostgres("issue recovery actions", () => {
     expect(comments[0]?.body).toContain("Recovery action:");
   });
 
+  it("selects a capability-matched recovery owner for stranded media work", async () => {
+    const { companyId, managerId, coderId, sourceIssue } = await seedCompany();
+    const mediaId = randomUUID();
+    await db.insert(agents).values({
+      id: mediaId,
+      companyId,
+      name: "Designer-Media",
+      role: "designer",
+      status: "idle",
+      adapterType: "codex_local",
+      adapterConfig: {},
+      runtimeConfig: {},
+      permissions: {},
+    });
+    await db
+      .update(issues)
+      .set({
+        title: "Render image thumbnails for launch",
+      })
+      .where(eq(issues.id, sourceIssue.id));
+    const recovery = recoveryService(db, { enqueueWakeup: vi.fn(async () => null) });
+
+    await recovery.escalateStrandedAssignedIssue({
+      issue: { ...sourceIssue, title: "Render image thumbnails for launch" },
+      previousStatus: "in_progress",
+      latestRun: {
+        id: randomUUID(),
+        agentId: coderId,
+        status: "failed",
+        error: "adapter failed",
+        errorCode: "adapter_failed",
+        contextSnapshot: { retryReason: "issue_continuation_needed" },
+        livenessState: "needs_followup",
+      },
+      comment: "Automatic continuation recovery failed.",
+    });
+
+    const [updatedIssue] = await db.select().from(issues).where(eq(issues.id, sourceIssue.id));
+    expect(updatedIssue?.status).toBe("blocked");
+    expect(updatedIssue?.assigneeAgentId).toBe(mediaId);
+
+    const comments = await db.select().from(issueComments).where(eq(issueComments.issueId, sourceIssue.id));
+    expect(comments).toHaveLength(1);
+    expect(comments[0]?.body).toContain("Recovery owner: [Designer-Media]");
+    expect(comments[0]?.body).not.toContain("Capability-safe fallback assignee:");
+
+    const actions = await db
+      .select()
+      .from(issueRecoveryActions)
+      .where(eq(issueRecoveryActions.sourceIssueId, sourceIssue.id));
+    expect(actions).toHaveLength(1);
+    expect(actions[0]?.ownerAgentId).toBe(mediaId);
+    expect(actions[0]?.ownerAgentId).not.toBe(managerId);
+  });
+
+  it("keeps the current assignee when no capability-safe recovery owner exists", async () => {
+    const { companyId, managerId, coderId, sourceIssue } = await seedCompany();
+    await db
+      .update(issues)
+      .set({
+        title: "Render image thumbnails for launch",
+      })
+      .where(eq(issues.id, sourceIssue.id));
+    const recovery = recoveryService(db, { enqueueWakeup: vi.fn(async () => null) });
+
+    await recovery.escalateStrandedAssignedIssue({
+      issue: { ...sourceIssue, title: "Render image thumbnails for launch" },
+      previousStatus: "in_progress",
+      latestRun: {
+        id: randomUUID(),
+        agentId: coderId,
+        status: "failed",
+        error: "adapter failed",
+        errorCode: "adapter_failed",
+        contextSnapshot: { retryReason: "issue_continuation_needed" },
+        livenessState: "needs_followup",
+      },
+      comment: "Automatic continuation recovery failed.",
+    });
+
+    const [updatedIssue] = await db.select().from(issues).where(eq(issues.id, sourceIssue.id));
+    expect(updatedIssue?.status).toBe("blocked");
+    expect(updatedIssue?.assigneeAgentId).toBe(coderId);
+
+    const comments = await db.select().from(issueComments).where(eq(issueComments.issueId, sourceIssue.id));
+    expect(comments).toHaveLength(1);
+    expect(comments[0]?.body).toContain(
+      "Capability routing fallback: kept the current assignee because no capability-safe recovery owner was available.",
+    );
+
+    const actions = await db
+      .select()
+      .from(issueRecoveryActions)
+      .where(eq(issueRecoveryActions.sourceIssueId, sourceIssue.id));
+    expect(actions).toHaveLength(1);
+    expect(actions[0]?.ownerAgentId).toBe(managerId);
+  });
+
   it("does not create nested recovery artifacts when issue-backed fallback work itself fails", async () => {
     const { companyId, managerId, sourceIssueId, prefix } = await seedCompany();
     const recoveryIssueId = randomUUID();

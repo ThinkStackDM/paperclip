@@ -338,6 +338,20 @@ function agentUiLink(agent: { id: string; name: string | null } | null, prefix: 
   return `[${agent.name ?? agent.id}](/${prefix}/agents/${agent.id})`;
 }
 
+function readSuggestedCapabilityAgentIds(error: unknown): string[] {
+  const details = parseObject((error as { details?: unknown } | null | undefined)?.details);
+  const suggestedAgentIds = details?.suggestedAgentIds;
+  if (!Array.isArray(suggestedAgentIds)) return [];
+  return suggestedAgentIds.filter((entry): entry is string => typeof entry === "string" && entry.length > 0);
+}
+
+function isToolCapabilityAssignmentError(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { status?: unknown; message?: unknown };
+  return candidate.status === 422 &&
+    candidate.message === "Assigned agent does not satisfy the issue's required tool capabilities";
+}
+
 function formatDuration(ms: number | null) {
   if (ms === null) return "unknown";
   const minutes = Math.floor(ms / 60_000);
@@ -3060,16 +3074,94 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
       successfulRunHandoffEvidence: input.successfulRunHandoffEvidence,
     });
     const blockerIds = await existingUnresolvedBlockerIssueIds(input.issue.companyId, input.issue.id);
-    const updated = await issuesSvc.update(input.issue.id, {
-      status: "blocked",
-      blockedByIssueIds: blockerIds,
-      assigneeAgentId: recoveryAction.ownerAgentId ?? input.issue.assigneeAgentId,
-    });
+    const queuedAssigneeIds: string[] = [];
+    const attemptedAssigneeIds = new Set<string>();
+    const enqueueAssigneeId = (agentId: string | null | undefined) => {
+      if (!agentId || queuedAssigneeIds.includes(agentId) || attemptedAssigneeIds.has(agentId)) return;
+      queuedAssigneeIds.push(agentId);
+    };
+    enqueueAssigneeId(recoveryAction.ownerAgentId ?? input.issue.assigneeAgentId);
+
+    let updated: Awaited<ReturnType<typeof issuesSvc.update>> | null = null;
+    let selectedAssigneeAgentId: string | null = null;
+    let lastCapabilityError: unknown = null;
+    let preservedCurrentAssignee = false;
+
+    while (queuedAssigneeIds.length > 0) {
+      const nextAssigneeAgentId = queuedAssigneeIds.shift() ?? null;
+      if (!nextAssigneeAgentId) continue;
+      attemptedAssigneeIds.add(nextAssigneeAgentId);
+      try {
+        updated = await issuesSvc.update(input.issue.id, {
+          status: "blocked",
+          blockedByIssueIds: blockerIds,
+          assigneeAgentId: nextAssigneeAgentId,
+        });
+        selectedAssigneeAgentId = nextAssigneeAgentId;
+        break;
+      } catch (error) {
+        if (!isToolCapabilityAssignmentError(error)) throw error;
+
+        lastCapabilityError = error;
+        enqueueAssigneeId(input.issue.assigneeAgentId);
+
+        const suggestedAgentIds = readSuggestedCapabilityAgentIds(error);
+        for (const suggestedAgentId of suggestedAgentIds) {
+          const suggestedAgent = await getAgent(suggestedAgentId);
+          if (!suggestedAgent || suggestedAgent.companyId !== input.issue.companyId) continue;
+          if (await isAgentInvokable(suggestedAgent)) enqueueAssigneeId(suggestedAgentId);
+        }
+        for (const suggestedAgentId of suggestedAgentIds) {
+          enqueueAssigneeId(suggestedAgentId);
+        }
+
+        logger.warn(
+          {
+            err: error,
+            issueId: input.issue.id,
+            companyId: input.issue.companyId,
+            attemptedAssigneeAgentId: nextAssigneeAgentId,
+            recoveryOwnerAgentId: recoveryAction.ownerAgentId ?? null,
+            currentAssigneeAgentId: input.issue.assigneeAgentId ?? null,
+            queuedFallbackAssigneeIds: queuedAssigneeIds,
+          },
+          "stranded issue recovery assignee failed tool capability check",
+        );
+      }
+    }
+    if (!updated && lastCapabilityError) {
+      updated = await issuesSvc.update(input.issue.id, {
+        status: "blocked",
+        blockedByIssueIds: blockerIds,
+      });
+      if (updated) {
+        preservedCurrentAssignee = true;
+        logger.warn(
+          {
+            err: lastCapabilityError,
+            issueId: input.issue.id,
+            companyId: input.issue.companyId,
+            recoveryOwnerAgentId: recoveryAction.ownerAgentId ?? null,
+            currentAssigneeAgentId: input.issue.assigneeAgentId ?? null,
+          },
+          "stranded issue recovery kept the current assignee after tool capability routing failed",
+        );
+      }
+    }
+    if (!updated) {
+      if (lastCapabilityError) throw lastCapabilityError;
+      return null;
+    }
     if (!updated) return null;
 
     const prefix = await getCompanyIssuePrefix(input.issue.companyId);
     const recoveryOwner = recoveryAction.ownerAgentId ? await getAgent(recoveryAction.ownerAgentId) : null;
     const sourceAssignee = input.issue.assigneeAgentId ? await getAgent(input.issue.assigneeAgentId) : null;
+    const assignedFallbackOwner = !preservedCurrentAssignee &&
+      selectedAssigneeAgentId &&
+      selectedAssigneeAgentId !== recoveryAction.ownerAgentId
+      ? await getAgent(selectedAssigneeAgentId)
+      : null;
     let notice: SuccessfulRunHandoffNotice | null = null;
     if (input.recoveryCause === SUCCESSFUL_RUN_MISSING_STATE_REASON && input.successfulRunHandoffEvidence) {
       notice = buildSuccessfulRunHandoffExhaustedNotice({
@@ -3092,6 +3184,12 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
         "",
         `- Recovery action: \`${recoveryAction.id}\``,
         `- Recovery owner: ${agentUiLink(recoveryOwner, prefix)}`,
+        ...(assignedFallbackOwner
+          ? [`- Capability-safe fallback assignee: ${agentUiLink(assignedFallbackOwner, prefix)}`]
+          : []),
+        ...(preservedCurrentAssignee
+          ? ["- Capability routing fallback: kept the current assignee because no capability-safe recovery owner was available."]
+          : []),
         "- Next action: the recovery owner should either restore a live execution path or record the manual resolution on the source issue.",
       ].join("\n")
       : [
@@ -3239,132 +3337,90 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
     result.issueIds.push(...staleRecoveryActions.issueIds);
 
     for (const issue of candidates) {
+      try {
+        // Re-fetch to avoid stale data from the initial candidates query
+        const freshIssue = await db
+          .select()
+          .from(issues)
+          .where(eq(issues.id, issue.id))
+          .limit(1)
+          .then((rows) => rows[0] ?? null);
 
-      // Re-fetch to avoid stale data from the initial candidates query
-      const freshIssue = await db
-        .select()
-        .from(issues)
-        .where(eq(issues.id, issue.id))
-        .limit(1)
-        .then((rows) => rows[0] ?? null);
-
-      if (!freshIssue || isTerminalIssueStatus(freshIssue.status)) {
-        result.skipped += 1;
-        continue;
-      }
-      const agentId = issue.assigneeAgentId;
-      if (!agentId) {
-        result.skipped += 1;
-        continue;
-      }
-
-      const agent = await getAgent(agentId);
-      // Never dispatch recovery wakeups to deliberately-paused / terminated /
-      // pending-approval primaries. enqueueWakeup throws a 409 "Agent is not
-      // invokable in its current state" for these, which both spams ~986
-      // errors/day against the paused claude_local primaries AND — since these
-      // dispatch call sites are not wrapped in try/catch — aborts the entire
-      // reconcile pass, starving healthy stranded issues that sort after the
-      // first paused-assignee one. Skip here and let the fallback-swap / operator
-      // path own issues assigned to a paused agent. (Mirrors the isAgentInvokable
-      // guard in heartbeat.enqueueWakeup.) The awaited invokability check is folded
-      // into this guard (upstream fix — the earlier separate `!isAgentInvokable`
-      // check was missing its await and never actually fired).
-      if (!agent || agent.companyId !== issue.companyId || !(await isAgentInvokable(agent))) {
-        result.skipped += 1;
-        continue;
-      }
-
-      // (Dormancy skip removed here: enqueueWakeup now carries a central dormancy
-      // guard that skips all automated wakes — including this stranded-issue
-      // reconcile, which dispatches via enqueueWakeup with triggerDetail "system"
-      // / requestedByActorType "system" — when the company is outside its sprint
-      // window. Re-deriving window state here was redundant. Exempt agents
-      // (shell handlers / ignoreActivityWindow) are still dispatched, since the
-      // central guard reuses isActivityWindowExemptAgent.)
-
-      if (await hasActiveExecutionPath(issue.companyId, issue.id)) {
-        result.skipped += 1;
-        continue;
-      }
-
-      // Skip issues that already have a valid pending continuation path and
-      // should not be treated as stranded: a queued/deferred wake, a scheduled
-      // monitor wake still in the future (local), or a pending wake interaction
-      // (upstream).
-      if (
-        (await hasQueuedIssueWake(issue.companyId, issue.id)) ||
-        (issue.monitorNextCheckAt && issue.monitorNextCheckAt > new Date()) ||
-        (await hasPendingWakeInteraction(issue.companyId, issue.id))
-      ) {
-        result.skipped += 1;
-        continue;
-      }
-
-      if (await isAutomaticRecoverySuppressedByPauseHold(db, issue.companyId, issue.id, treeControlSvc)) {
-        result.skipped += 1;
-        continue;
-      }
-
-      const activeRecoveryAction = await recoveryActionsSvc.getActiveForIssue(issue.companyId, issue.id);
-      if (await shouldFoldOrDelayMissingDispositionRecovery({ issue, action: activeRecoveryAction })) {
-        result.skipped += 1;
-        continue;
-      }
-
-      const latestRun = await getLatestIssueRun(issue.companyId, issue.id);
-      if (isStrandedIssueRecoveryIssue(issue) && isUnsuccessfulTerminalIssueRun(latestRun)) {
-        const updated = await escalateStrandedRecoveryIssueInPlace({
-          issue,
-          previousStatus: issue.status as "todo" | "in_progress",
-          latestRun,
-        });
-        if (updated) {
-          result.escalated += 1;
-          result.issueIds.push(issue.id);
-        } else {
+        if (!freshIssue || isTerminalIssueStatus(freshIssue.status)) {
           result.skipped += 1;
-        }
-        continue;
-      }
-
-      if (issue.status === "todo") {
-        if (!latestRun) {
-          if (!isAgentInvokable(agent)) {
-            result.skipped += 1;
-            continue;
-          }
-
-          if (await isInvocationBudgetBlocked(issue, agentId)) {
-            result.skipped += 1;
-            continue;
-          }
-
-          const queued = await enqueueInitialAssignedTodoDispatch(issue, agentId);
-          if (queued) {
-            result.assignmentDispatched += 1;
-            result.issueIds.push(issue.id);
-          } else {
-            result.skipped += 1;
-          }
           continue;
         }
-
-        if (latestRun.status === "succeeded") {
+        const agentId = issue.assigneeAgentId;
+        if (!agentId) {
           result.skipped += 1;
           continue;
         }
 
-        if (didAutomaticRecoveryFail(latestRun, "assignment_recovery")) {
-          const failureSummary = summarizeRunFailureForIssueComment(latestRun);
-          const updated = await escalateStrandedAssignedIssue({
+        const agent = await getAgent(agentId);
+        // Never dispatch recovery wakeups to deliberately-paused / terminated /
+        // pending-approval primaries. enqueueWakeup throws a 409 "Agent is not
+        // invokable in its current state" for these, which both spams ~986
+        // errors/day against the paused claude_local primaries AND — since these
+        // dispatch call sites are not wrapped in try/catch — aborts the entire
+        // reconcile pass, starving healthy stranded issues that sort after the
+        // first paused-assignee one. Skip here and let the fallback-swap / operator
+        // path own issues assigned to a paused agent. (Mirrors the isAgentInvokable
+        // guard in heartbeat.enqueueWakeup.) The awaited invokability check is folded
+        // into this guard (upstream fix — the earlier separate `!isAgentInvokable`
+        // check was missing its await and never actually fired).
+        if (!agent || agent.companyId !== issue.companyId || !(await isAgentInvokable(agent))) {
+          result.skipped += 1;
+          continue;
+        }
+
+        // (Dormancy skip removed here: enqueueWakeup now carries a central dormancy
+        // guard that skips all automated wakes — including this stranded-issue
+        // reconcile, which dispatches via enqueueWakeup with triggerDetail "system"
+        // / requestedByActorType "system" — when the company is outside its sprint
+        // window. Re-deriving window state here was redundant. Exempt agents
+        // (shell handlers / ignoreActivityWindow) are still dispatched, since the
+        // central guard reuses isActivityWindowExemptAgent.)
+
+        if (await hasActiveExecutionPath(issue.companyId, issue.id)) {
+          result.skipped += 1;
+          continue;
+        }
+
+        if (await isAutomaticRecoverySuppressedByPauseHold(db, issue.companyId, issue.id, treeControlSvc)) {
+          result.skipped += 1;
+          continue;
+        }
+
+        const activeRecoveryAction = await recoveryActionsSvc.getActiveForIssue(issue.companyId, issue.id);
+        if (await shouldFoldOrDelayMissingDispositionRecovery({ issue, action: activeRecoveryAction })) {
+          result.skipped += 1;
+          continue;
+        }
+
+        const latestRun = await getLatestIssueRun(issue.companyId, issue.id);
+        // Skip issues that already have a valid pending continuation path and
+        // should not be treated as stranded: a queued/deferred wake, a scheduled
+        // monitor wake still in the future (local), or a pending wake interaction
+        // (upstream). Exception: assigned `todo` work whose latest run already
+        // failed must still get its one assignment-recovery requeue even if an
+        // old queued wake row is still hanging around.
+        const hasQueuedWake = await hasQueuedIssueWake(issue.companyId, issue.id);
+        const treatQueuedWakeAsLivePath =
+          issue.status !== "todo" || !latestRun || latestRun.status === "succeeded";
+        if (
+          ((treatQueuedWakeAsLivePath && hasQueuedWake)) ||
+          (issue.monitorNextCheckAt && issue.monitorNextCheckAt > new Date()) ||
+          (await hasPendingWakeInteraction(issue.companyId, issue.id))
+        ) {
+          result.skipped += 1;
+          continue;
+        }
+
+        if (isStrandedIssueRecoveryIssue(issue) && isUnsuccessfulTerminalIssueRun(latestRun)) {
+          const updated = await escalateStrandedRecoveryIssueInPlace({
             issue,
-            previousStatus: "todo",
+            previousStatus: issue.status as "todo" | "in_progress",
             latestRun,
-            comment:
-              "Paperclip automatically retried dispatch for this assigned `todo` issue after a lost wake/run, " +
-              `but it still has no live execution path.${failureSummary ?? ""} ` +
-              "Moving it to `blocked` so it is visible for intervention.",
           });
           if (updated) {
             result.escalated += 1;
@@ -3375,82 +3431,43 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
           continue;
         }
 
-        if (await isInvocationBudgetBlocked(issue, agentId)) {
-          result.skipped += 1;
-          continue;
-        }
+        if (issue.status === "todo") {
+          if (!latestRun) {
+            if (!isAgentInvokable(agent)) {
+              result.skipped += 1;
+              continue;
+            }
 
-        const queued = await enqueueStrandedIssueRecovery({
-          issueId: issue.id,
-          agentId,
-          reason: "issue_assignment_recovery",
-          retryReason: "assignment_recovery",
-          source: "issue.assignment_recovery",
-          retryOfRunId: latestRun.id,
-        });
-        if (queued) {
-          result.dispatchRequeued += 1;
-          result.issueIds.push(issue.id);
-        } else {
-          result.skipped += 1;
-        }
-        continue;
-      }
+            if (await isInvocationBudgetBlocked(issue, agentId)) {
+              result.skipped += 1;
+              continue;
+            }
 
-      if (!latestRun && !issue.checkoutRunId && !issue.executionRunId) {
-        result.skipped += 1;
-        continue;
-      }
-      const handoffEvidence = isExhaustedSuccessfulRunHandoff(latestRun);
-      if (handoffEvidence) {
-        if (!handoffEvidence.exhausted) {
-          result.skipped += 1;
-          continue;
-        }
+            const queued = await enqueueInitialAssignedTodoDispatch(issue, agentId);
+            if (queued) {
+              result.assignmentDispatched += 1;
+              result.issueIds.push(issue.id);
+            } else {
+              result.skipped += 1;
+            }
+            continue;
+          }
 
-        const updated = await escalateStrandedAssignedIssue({
-          issue,
-          previousStatus: "in_progress",
-          latestRun,
-          recoveryCause: SUCCESSFUL_RUN_MISSING_STATE_REASON,
-          successfulRunHandoffEvidence: handoffEvidence,
-        });
-        if (updated) {
-          result.successfulRunHandoffEscalated += 1;
-          result.issueIds.push(issue.id);
-        } else {
-          result.skipped += 1;
-        }
-        continue;
-      }
-      if (isSuccessfulInProgressContinuationRun(latestRun)) {
-        const successfulRun = latestRun;
+          if (latestRun.status === "succeeded") {
+            result.skipped += 1;
+            continue;
+          }
 
-        if (!isProductiveContinuationRun(successfulRun)) {
-          result.successfulContinuationObserved += 1;
-          result.skipped += 1;
-          continue;
-        }
-
-        if (isRepeatedProductiveContinuationRecovery(successfulRun)) {
-          // GGU-809: skip escalation if the assignee has shown visible progress
-          // (comment or attachment) within the exemption window. Falling
-          // through here lets the normal continuation-retry path enqueue the
-          // next wake, which is the correct behaviour for batch workflows.
-          const exempted = await hasRecentVisibleProgress(
-            issue.companyId,
-            issue.id,
-            agentId,
-            STRANDED_RECENT_PROGRESS_EXEMPTION_MS,
-          );
-          if (!exempted) {
+          if (didAutomaticRecoveryFail(latestRun, "assignment_recovery")) {
+            const failureSummary = summarizeRunFailureForIssueComment(latestRun);
             const updated = await escalateStrandedAssignedIssue({
               issue,
-              previousStatus: "in_progress",
-              latestRun: successfulRun,
+              previousStatus: "todo",
+              latestRun,
               comment:
-                "Paperclip automatically retried continuation for this assigned `in_progress` issue and the retry " +
-                "made progress, but it still has no live execution path. Moving it to `blocked` so it is visible for intervention.",
+                "Paperclip automatically retried dispatch for this assigned `todo` issue after a lost wake/run, " +
+                `but it still has no live execution path.${failureSummary ?? ""} ` +
+                "Moving it to `blocked` so it is visible for intervention.",
             });
             if (updated) {
               result.escalated += 1;
@@ -3460,7 +3477,188 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
             }
             continue;
           }
-          result.recentProgressExempted += 1;
+
+          if (await isInvocationBudgetBlocked(issue, agentId)) {
+            result.skipped += 1;
+            continue;
+          }
+
+          const queued = await enqueueStrandedIssueRecovery({
+            issueId: issue.id,
+            agentId,
+            reason: "issue_assignment_recovery",
+            retryReason: "assignment_recovery",
+            source: "issue.assignment_recovery",
+            retryOfRunId: latestRun.id,
+          });
+          if (queued) {
+            result.dispatchRequeued += 1;
+            result.issueIds.push(issue.id);
+          } else {
+            result.skipped += 1;
+          }
+          continue;
+        }
+
+        if (!latestRun && !issue.checkoutRunId && !issue.executionRunId) {
+          result.skipped += 1;
+          continue;
+        }
+        const handoffEvidence = isExhaustedSuccessfulRunHandoff(latestRun);
+        if (handoffEvidence) {
+          if (!handoffEvidence.exhausted) {
+            result.skipped += 1;
+            continue;
+          }
+
+          const updated = await escalateStrandedAssignedIssue({
+            issue,
+            previousStatus: "in_progress",
+            latestRun,
+            recoveryCause: SUCCESSFUL_RUN_MISSING_STATE_REASON,
+            successfulRunHandoffEvidence: handoffEvidence,
+          });
+          if (updated) {
+            result.successfulRunHandoffEscalated += 1;
+            result.issueIds.push(issue.id);
+          } else {
+            result.skipped += 1;
+          }
+          continue;
+        }
+        if (isSuccessfulInProgressContinuationRun(latestRun)) {
+          const successfulRun = latestRun;
+
+          if (!isProductiveContinuationRun(successfulRun)) {
+            result.successfulContinuationObserved += 1;
+            result.skipped += 1;
+            continue;
+          }
+
+          if (isRepeatedProductiveContinuationRecovery(successfulRun)) {
+            // GGU-809: skip escalation if the assignee has shown visible progress
+            // (comment or attachment) within the exemption window. Falling
+            // through here lets the normal continuation-retry path enqueue the
+            // next wake, which is the correct behaviour for batch workflows.
+            const exempted = await hasRecentVisibleProgress(
+              issue.companyId,
+              issue.id,
+              agentId,
+              STRANDED_RECENT_PROGRESS_EXEMPTION_MS,
+            );
+            if (!exempted) {
+              const updated = await escalateStrandedAssignedIssue({
+                issue,
+                previousStatus: "in_progress",
+                latestRun: successfulRun,
+                comment:
+                  "Paperclip automatically retried continuation for this assigned `in_progress` issue and the retry " +
+                  "made progress, but it still has no live execution path. Moving it to `blocked` so it is visible for intervention.",
+              });
+              if (updated) {
+                result.escalated += 1;
+                result.issueIds.push(issue.id);
+              } else {
+                result.skipped += 1;
+              }
+              continue;
+            }
+            result.recentProgressExempted += 1;
+          }
+
+          if (await isInvocationBudgetBlocked(issue, agentId)) {
+            result.skipped += 1;
+            continue;
+          }
+
+          const queued = await enqueueStrandedIssueRecovery({
+            issueId: issue.id,
+            agentId,
+            reason: "issue_continuation_needed",
+            retryReason: "issue_continuation_needed",
+            source: "issue.productive_terminal_continuation_recovery",
+            retryOfRunId: successfulRun.id,
+          });
+          if (queued) {
+            result.continuationRequeued += 1;
+            result.issueIds.push(issue.id);
+          } else {
+            result.skipped += 1;
+          }
+          continue;
+        }
+        if (isUnsuccessfulTerminalIssueRun(latestRun)) {
+          const classification = classifyContinuationFailure(latestRun);
+
+          if (classification.errorCode === CONTINUATION_WAITING_ON_REVIEW_ERROR_CODE) {
+            const resolved = await resolveContinuationWaitingOnReview(issue);
+            if (resolved) {
+              result.waitingOnReviewResolved += 1;
+              result.issueIds.push(issue.id);
+              continue;
+            }
+          }
+
+          if (classification.kind === "non_retryable") {
+            const failureSummary = summarizeRunFailureForIssueComment(latestRun);
+            const updated = await escalateStrandedAssignedIssue({
+              issue,
+              previousStatus: "in_progress",
+              latestRun,
+              comment:
+                "Paperclip detected a non-retryable failure on this issue's continuation run " +
+                `(\`${classification.errorCode}\`). Skipping automatic retries and moving it to \`blocked\` ` +
+                `so it is visible for intervention.${failureSummary ?? ""}`,
+            });
+            if (updated) {
+              result.escalated += 1;
+              result.issueIds.push(issue.id);
+            } else {
+              result.skipped += 1;
+            }
+            continue;
+          }
+
+          if (didAutomaticRecoveryFail(latestRun, "issue_continuation_needed")) {
+            const { consecutive, latestFinishedAt } = await summarizeRecentContinuationRetries(
+              issue.companyId,
+              issue.id,
+              classification.errorCode,
+            );
+            if (consecutive >= classification.maxAttempts) {
+              const failureSummary = summarizeRunFailureForIssueComment(latestRun);
+              const attemptCopy = consecutive <= 1 ? "" : ` (${consecutive}× attempts)`;
+              const causeCopy = classification.errorCode
+                ? ` Latest cause: \`${classification.errorCode}\`.`
+                : "";
+              const updated = await escalateStrandedAssignedIssue({
+                issue,
+                previousStatus: "in_progress",
+                latestRun,
+                comment:
+                  "Paperclip automatically retried continuation for this assigned `in_progress` issue after its live " +
+                  `execution disappeared, but it still has no live execution path${attemptCopy}.${causeCopy}${failureSummary ?? ""} ` +
+                  "Moving it to `blocked` so it is visible for intervention.",
+              });
+              if (updated) {
+                result.escalated += 1;
+                result.issueIds.push(issue.id);
+              } else {
+                result.skipped += 1;
+              }
+              continue;
+            }
+
+            if (classification.baseBackoffMs > 0 && latestFinishedAt) {
+              const elapsed = Date.now() - latestFinishedAt.getTime();
+              const requiredDelay = classification.baseBackoffMs *
+                Math.pow(2, Math.max(0, consecutive - 1));
+              if (elapsed < requiredDelay) {
+                result.skipped += 1;
+                continue;
+              }
+            }
+          }
         }
 
         if (await isInvocationBudgetBlocked(issue, agentId)) {
@@ -3473,8 +3671,8 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
           agentId,
           reason: "issue_continuation_needed",
           retryReason: "issue_continuation_needed",
-          source: "issue.productive_terminal_continuation_recovery",
-          retryOfRunId: successfulRun.id,
+          source: "issue.continuation_recovery",
+          retryOfRunId: latestRun?.id ?? issue.checkoutRunId ?? null,
         });
         if (queued) {
           result.continuationRequeued += 1;
@@ -3482,100 +3680,18 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
         } else {
           result.skipped += 1;
         }
-        continue;
-      }
-      if (isUnsuccessfulTerminalIssueRun(latestRun)) {
-        const classification = classifyContinuationFailure(latestRun);
-
-        if (classification.errorCode === CONTINUATION_WAITING_ON_REVIEW_ERROR_CODE) {
-          const resolved = await resolveContinuationWaitingOnReview(issue);
-          if (resolved) {
-            result.waitingOnReviewResolved += 1;
-            result.issueIds.push(issue.id);
-            continue;
-          }
-        }
-
-        if (classification.kind === "non_retryable") {
-          const failureSummary = summarizeRunFailureForIssueComment(latestRun);
-          const updated = await escalateStrandedAssignedIssue({
-            issue,
-            previousStatus: "in_progress",
-            latestRun,
-            comment:
-              "Paperclip detected a non-retryable failure on this issue's continuation run " +
-              `(\`${classification.errorCode}\`). Skipping automatic retries and moving it to \`blocked\` ` +
-              `so it is visible for intervention.${failureSummary ?? ""}`,
-          });
-          if (updated) {
-            result.escalated += 1;
-            result.issueIds.push(issue.id);
-          } else {
-            result.skipped += 1;
-          }
-          continue;
-        }
-
-        if (didAutomaticRecoveryFail(latestRun, "issue_continuation_needed")) {
-          const { consecutive, latestFinishedAt } = await summarizeRecentContinuationRetries(
-            issue.companyId,
-            issue.id,
-            classification.errorCode,
-          );
-          if (consecutive >= classification.maxAttempts) {
-            const failureSummary = summarizeRunFailureForIssueComment(latestRun);
-            const attemptCopy = consecutive <= 1 ? "" : ` (${consecutive}× attempts)`;
-            const causeCopy = classification.errorCode
-              ? ` Latest cause: \`${classification.errorCode}\`.`
-              : "";
-            const updated = await escalateStrandedAssignedIssue({
-              issue,
-              previousStatus: "in_progress",
-              latestRun,
-              comment:
-                "Paperclip automatically retried continuation for this assigned `in_progress` issue after its live " +
-                `execution disappeared, but it still has no live execution path${attemptCopy}.${causeCopy}${failureSummary ?? ""} ` +
-                "Moving it to `blocked` so it is visible for intervention.",
-            });
-            if (updated) {
-              result.escalated += 1;
-              result.issueIds.push(issue.id);
-            } else {
-              result.skipped += 1;
-            }
-            continue;
-          }
-
-          if (classification.baseBackoffMs > 0 && latestFinishedAt) {
-            const elapsed = Date.now() - latestFinishedAt.getTime();
-            const requiredDelay = classification.baseBackoffMs *
-              Math.pow(2, Math.max(0, consecutive - 1));
-            if (elapsed < requiredDelay) {
-              result.skipped += 1;
-              continue;
-            }
-          }
-        }
-      }
-
-      if (await isInvocationBudgetBlocked(issue, agentId)) {
+      } catch (error) {
         result.skipped += 1;
-        continue;
-      }
-
-      const queued = await enqueueStrandedIssueRecovery({
-        issueId: issue.id,
-        agentId,
-        reason: "issue_continuation_needed",
-        retryReason: "issue_continuation_needed",
-        source: "issue.continuation_recovery",
-        retryOfRunId: latestRun?.id ?? issue.checkoutRunId ?? null,
-      });
-      if (queued) {
-        result.continuationRequeued += 1;
-        result.issueIds.push(issue.id);
-      } else {
-        result.skipped += 1;
+        logger.warn(
+          {
+            err: error,
+            issueId: issue.id,
+            identifier: issue.identifier ?? null,
+            companyId: issue.companyId,
+            assigneeAgentId: issue.assigneeAgentId ?? null,
+          },
+          "skipped stranded issue after recovery reconcile error",
+        );
       }
     }
 
