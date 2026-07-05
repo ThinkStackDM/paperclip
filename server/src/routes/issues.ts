@@ -125,6 +125,7 @@ import { executionWorkspaceService as executionWorkspaceServiceDirect } from "..
 import { feedbackService } from "../services/feedback.js";
 import { instanceSettingsService } from "../services/instance-settings.js";
 import { readAcceptedPlanConfirmationTarget } from "../services/issues.js";
+import { hasExplicitExternalOwnerAction } from "../services/issue-blocked-gate.js";
 import { environmentService } from "../services/environments.js";
 import { environmentRuntimeService } from "../services/environment-runtime.js";
 import { redactSensitiveText } from "../redaction.js";
@@ -173,13 +174,6 @@ const promoteLowTrustOutputSchema = z.object({
   title: z.string().trim().min(1).max(200),
   summary: z.string().trim().min(1).max(8_000),
 });
-
-function hasExplicitExternalOwnerAction(description: unknown): boolean {
-  if (typeof description !== "string" || description.trim().length === 0) return false;
-  const owner = description.match(/^\s*external owner\s*:\s*(.+)$/im)?.[1]?.trim();
-  const action = description.match(/^\s*external action\s*:\s*(.+)$/im)?.[1]?.trim();
-  return Boolean(owner && action);
-}
 
 async function listIssueLinkedCases(db: Db, companyId: string, issueId: string) {
   const rows = await db

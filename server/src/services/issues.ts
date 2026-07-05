@@ -99,6 +99,8 @@ import {
   RECOVERY_ORIGIN_KINDS,
 } from "./recovery/origins.js";
 import { classifyIssueGraphLiveness, type IssueLivenessFinding } from "./recovery/issue-graph-liveness.js";
+import { logActivity } from "./activity-log.js";
+import { hasExplicitExternalOwnerAction } from "./issue-blocked-gate.js";
 
 const ALL_ISSUE_STATUSES = ["backlog", "todo", "in_progress", "in_review", "blocked", "done", "cancelled"];
 const MAX_ISSUE_COMMENT_PAGE_LIMIT = 500;
@@ -4047,6 +4049,10 @@ export function issueService(db: Db) {
     assigneeAgentId: string;
     dbOrTx?: DbReader;
   }) {
+    const titleLower = (input.title ?? "").toLowerCase();
+    const isIntakeOrAsk = titleLower.startsWith("portfolio intake") || titleLower.startsWith("ask from ");
+    if (isIntakeOrAsk) return;
+
     const requirements = inferIssueToolRequirements({
       title: input.title,
       description: input.description,
@@ -5511,6 +5517,18 @@ export function issueService(db: Db) {
       if (data.status === "in_progress" && !data.assigneeAgentId && !data.assigneeUserId) {
         throw unprocessable("in_progress issues require an assignee");
       }
+      if (data.status === "blocked") {
+        const unresolvedBlockerIssueIds = await listUnresolvedBlockerIssueIds(
+          db,
+          companyId,
+          blockedByIssueIds ?? [],
+        );
+        if (unresolvedBlockerIssueIds.length === 0 && !hasExplicitExternalOwnerAction(data.description)) {
+          throw unprocessable(
+            "Issue cannot be created blocked without unresolved blockedByIssueIds or external owner/action",
+          );
+        }
+      }
       return db.transaction(async (tx) => {
         const defaultCompanyGoal = await getDefaultCompanyGoal(tx, companyId);
         let projectWorkspaceId = issueData.projectWorkspaceId ?? null;
@@ -5817,6 +5835,22 @@ export function issueService(db: Db) {
           throw unprocessable("Issue is blocked by unresolved blockers", { unresolvedBlockerIssueIds });
         }
       }
+      if (patch.status === "blocked" && existing.status !== "blocked") {
+        const unresolvedBlockerIssueIds = blockedByIssueIds !== undefined
+          ? await listUnresolvedBlockerIssueIds(dbOrTx, existing.companyId, blockedByIssueIds)
+          : (
+              await listIssueDependencyReadinessMap(dbOrTx, existing.companyId, [id])
+            ).get(id)?.unresolvedBlockerIssueIds ?? [];
+        if (unresolvedBlockerIssueIds.length === 0) {
+          const nextDescription =
+            issueData.description !== undefined ? issueData.description : existing.description;
+          if (!hasExplicitExternalOwnerAction(nextDescription)) {
+            throw unprocessable(
+              "Issue cannot enter blocked without unresolved blockedByIssueIds or external owner/action",
+            );
+          }
+        }
+      }
       const shouldValidateNextAssignee =
         Boolean(nextAssigneeAgentId) &&
         (issueData.assigneeAgentId !== undefined || patch.status === "in_progress");
@@ -5996,6 +6030,52 @@ export function issueService(db: Db) {
                   eq(issueRelations.type, "blocks"),
                 ),
               );
+            // Deleting the escalation's blocker relation must not orphan the source
+            // issue in a blocked state nothing links to — that is invisible to
+            // relation-based hygiene scans and re-triggers liveness detection.
+            // If the source has no other unresolved blocker and no explicit external
+            // gate, return it to todo so normal scheduling resumes.
+            const sourceIssue = await tx
+              .select({ id: issues.id, status: issues.status, description: issues.description, identifier: issues.identifier })
+              .from(issues)
+              .where(and(eq(issues.id, parsedIncident.issueId), eq(issues.companyId, existing.companyId)))
+              .then((rows: Array<{ id: string; status: string; description: string | null; identifier: string | null }>) => rows[0] ?? null);
+            if (sourceIssue?.status === "blocked") {
+              const remainingUnresolved = (
+                await listIssueDependencyReadinessMap(tx, existing.companyId, [sourceIssue.id])
+              ).get(sourceIssue.id)?.unresolvedBlockerIssueIds ?? [];
+              if (remainingUnresolved.length === 0 && !hasExplicitExternalOwnerAction(sourceIssue.description)) {
+                await tx
+                  .update(issues)
+                  .set({
+                    status: "todo",
+                    checkoutRunId: null,
+                    executionRunId: null,
+                    executionAgentNameKey: null,
+                    executionLockedAt: null,
+                    updatedAt: new Date(),
+                  })
+                  .where(eq(issues.id, sourceIssue.id));
+                await logActivity(tx, {
+                  companyId: existing.companyId,
+                  actorType: "system",
+                  actorId: "system",
+                  agentId: null,
+                  runId: null,
+                  action: "issue.updated",
+                  entityType: "issue",
+                  entityId: sourceIssue.id,
+                  details: {
+                    identifier: sourceIssue.identifier,
+                    status: "todo",
+                    previousStatus: "blocked",
+                    source: "liveness_escalation_closed_unblock",
+                    escalationIssueId: existing.id,
+                    escalationIdentifier: existing.identifier,
+                  },
+                });
+              }
+            }
           }
         }
         return enriched;

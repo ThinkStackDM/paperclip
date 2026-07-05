@@ -2051,7 +2051,8 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     const issue = await issueSvc.create(companyId, {
       projectId: routine.projectId,
       title: routine.title,
-      description: routine.description,
+      // Entering blocked without a first-class blocker requires an explicit external gate.
+      description: `${routine.description}\n\nExternal owner: board operator\nExternal action: fixture gate for blocked routine execution.`,
       status: "blocked",
       priority: routine.priority,
       assigneeAgentId: routine.assigneeAgentId,
@@ -2089,7 +2090,8 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     const issue = await issueSvc.create(companyId, {
       projectId: routine.projectId,
       title: routine.title,
-      description: routine.description,
+      // Entering blocked without a first-class blocker requires an explicit external gate.
+      description: `${routine.description}\n\nExternal owner: board operator\nExternal action: fixture gate for blocked routine execution.`,
       status: "blocked",
       priority: routine.priority,
       assigneeAgentId: routine.assigneeAgentId,

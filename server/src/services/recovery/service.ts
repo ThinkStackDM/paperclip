@@ -40,6 +40,7 @@ import { instanceSettingsService } from "../instance-settings.js";
 import { issueRecoveryActionService } from "../issue-recovery-actions.js";
 import { issueTreeControlService } from "../issue-tree-control.js";
 import { TERMINAL_HEARTBEAT_RUN_STATUSES, issueService } from "../issues.js";
+import { hasExplicitExternalOwnerAction } from "../issue-blocked-gate.js";
 import { evaluateAgentInvokabilityFromDb } from "../agent-invokability.js";
 import { getRunLogStore } from "../run-log-store.js";
 import {
@@ -2317,6 +2318,21 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
     return issue.originKind === STRANDED_ISSUE_RECOVERY_ORIGIN_KIND;
   }
 
+  // Recovery escalations may block an issue that has no first-class blocker to link
+  // (the block is on a human/board intervention, not another issue). The enter-blocked
+  // guard in issuesSvc requires either an unresolved blocker relation or explicit
+  // "External owner:/External action:" lines, so stamp those lines into the description
+  // when they are missing. Returns undefined when the description already conforms.
+  function withRecoveryExternalGateDescription(description: string | null | undefined): string | undefined {
+    const base = typeof description === "string" ? description : "";
+    if (hasExplicitExternalOwnerAction(base)) return undefined;
+    const gateLines = [
+      "External owner: board operator (stranded-work recovery)",
+      "External action: restore a live execution path for this issue or record the manual resolution, then move it out of blocked.",
+    ];
+    return `${base.trimEnd()}\n\n${gateLines.join("\n")}\n`;
+  }
+
   async function buildNestedStrandedRecoveryLine(issue: typeof issues.$inferSelect, prefix: string) {
     const sourceIssueId = readNonEmptyString(issue.originId);
     const sourceIssue = sourceIssueId
@@ -2910,7 +2926,11 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
     previousStatus: "todo" | "in_progress";
     latestRun: LatestIssueRun;
   }) {
-    const updated = await issuesSvc.update(input.issue.id, { status: "blocked" });
+    const gateDescription = withRecoveryExternalGateDescription(input.issue.description);
+    const updated = await issuesSvc.update(input.issue.id, {
+      status: "blocked",
+      ...(gateDescription !== undefined ? { description: gateDescription } : {}),
+    });
     if (!updated) return null;
 
     const prefix = await getCompanyIssuePrefix(input.issue.companyId);
@@ -3074,6 +3094,10 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
       successfulRunHandoffEvidence: input.successfulRunHandoffEvidence,
     });
     const blockerIds = await existingUnresolvedBlockerIssueIds(input.issue.companyId, input.issue.id);
+    const strandedGateDescription =
+      blockerIds.length === 0 ? withRecoveryExternalGateDescription(input.issue.description) : undefined;
+    const strandedBlockedDescriptionPatch =
+      strandedGateDescription !== undefined ? { description: strandedGateDescription } : {};
     const queuedAssigneeIds: string[] = [];
     const attemptedAssigneeIds = new Set<string>();
     const enqueueAssigneeId = (agentId: string | null | undefined) => {
@@ -3096,6 +3120,7 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
           status: "blocked",
           blockedByIssueIds: blockerIds,
           assigneeAgentId: nextAssigneeAgentId,
+          ...strandedBlockedDescriptionPatch,
         });
         selectedAssigneeAgentId = nextAssigneeAgentId;
         break;
@@ -3133,6 +3158,7 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
       updated = await issuesSvc.update(input.issue.id, {
         status: "blocked",
         blockedByIssueIds: blockerIds,
+        ...strandedBlockedDescriptionPatch,
       });
       if (updated) {
         preservedCurrentAssignee = true;
@@ -3296,6 +3322,7 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
           status: "blocked",
           blockedByIssueIds: blockerIds,
           assigneeAgentId: recoveryAction.ownerAgentId,
+          ...strandedBlockedDescriptionPatch,
         });
         if (reblocked) return reblocked;
       }

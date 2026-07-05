@@ -375,6 +375,92 @@ describeEmbeddedPostgres("issueService.list participantAgentId", () => {
     };
   }
 
+  it("rejects creating an issue blocked without blockers or an external gate", async () => {
+    const companyId = await seedAssignableAgentCompany();
+    await expect(svc.create(companyId, {
+      title: "Born blocked",
+      description: "No blocker relation and no external gate.",
+      status: "blocked",
+      priority: "medium",
+    })).rejects.toMatchObject({ status: 422 });
+  });
+
+  it("allows creating a blocked issue when the description names an external gate", async () => {
+    const companyId = await seedAssignableAgentCompany();
+    const issue = await svc.create(companyId, {
+      title: "Waiting on the outside world",
+      description: "External owner: board operator\nExternal action: renew the vendor token.",
+      status: "blocked",
+      priority: "medium",
+    });
+    expect(issue.status).toBe("blocked");
+  });
+
+  it("rejects entering blocked via update without blockers or an external gate", async () => {
+    const companyId = await seedAssignableAgentCompany();
+    const issue = await svc.create(companyId, {
+      title: "Goes bare blocked",
+      description: "Nothing external here.",
+      status: "todo",
+      priority: "medium",
+    });
+    await expect(svc.update(issue.id, { status: "blocked" })).rejects.toMatchObject({ status: 422 });
+    await expect(svc.update(issue.id, { status: "blocked", blockedByIssueIds: [] })).rejects.toMatchObject({
+      status: 422,
+    });
+  });
+
+  it("allows entering blocked via update with an unresolved first-class blocker", async () => {
+    const companyId = await seedAssignableAgentCompany();
+    const blocker = await svc.create(companyId, {
+      title: "Blocker",
+      description: null,
+      status: "todo",
+      priority: "medium",
+    });
+    const issue = await svc.create(companyId, {
+      title: "Dependent",
+      description: null,
+      status: "todo",
+      priority: "medium",
+    });
+    const updated = await svc.update(issue.id, { status: "blocked", blockedByIssueIds: [blocker.id] });
+    expect(updated?.status).toBe("blocked");
+  });
+
+  it("returns an orphaned blocked source to todo when its liveness escalation closes", async () => {
+    const companyId = await seedAssignableAgentCompany();
+    const source = await svc.create(companyId, {
+      title: "Source issue",
+      description: "Stalled work.",
+      status: "todo",
+      priority: "medium",
+    });
+    const escalation = await svc.create(companyId, {
+      title: `Unblock liveness incident for ${source.identifier ?? source.id}`,
+      description: "Liveness escalation.",
+      status: "todo",
+      priority: "high",
+      originKind: "harness_liveness_escalation",
+      originId: `harness_liveness:${companyId}:${source.id}:blocked_without_actionable_blocker:${source.id}`,
+    });
+    const blockedSource = await svc.update(source.id, {
+      status: "blocked",
+      blockedByIssueIds: [escalation.id],
+    });
+    expect(blockedSource?.status).toBe("blocked");
+
+    await svc.update(escalation.id, { status: "done" });
+
+    const reopened = await svc.getById(source.id);
+    expect(reopened?.status).toBe("todo");
+    const remainingRelations = await db
+      .select()
+      .from(issueRelations)
+      .where(eq(issueRelations.relatedIssueId, source.id));
+    expect(remainingRelations).toHaveLength(0);
+  });
+
   it("rejects direct terminated assignees with structured conflict details", async () => {
     const companyId = await seedAssignableAgentCompany();
     const terminatedAgentId = randomUUID();
