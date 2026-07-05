@@ -18,6 +18,32 @@ export interface IssueAssignmentWakeupDeps {
   ) => Promise<unknown>;
 }
 
+type WakeFailure = {
+  status?: unknown;
+  message?: unknown;
+  details?: unknown;
+};
+
+function isNonInvokableAssignmentWakeFailure(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const failure = err as WakeFailure;
+  if (failure.status !== 409) return false;
+
+  const message = typeof failure.message === "string" ? failure.message.toLowerCase() : "";
+  if (message.startsWith("agent is not invokable")) {
+    return true;
+  }
+
+  const details = failure.details;
+  if (!details || typeof details !== "object") return false;
+
+  const reason = typeof (details as { reason?: unknown }).reason === "string"
+    ? String((details as { reason?: unknown }).reason).toLowerCase()
+    : "";
+  const invalidOrgChain = (details as { invalidOrgChain?: unknown }).invalidOrgChain === true;
+  return invalidOrgChain || reason.length > 0;
+}
+
 export function queueIssueAssignmentWakeup(input: {
   heartbeat: IssueAssignmentWakeupDeps;
   issue: { id: string; assigneeAgentId: string | null; status: string };
@@ -41,7 +67,14 @@ export function queueIssueAssignmentWakeup(input: {
       contextSnapshot: { issueId: input.issue.id, source: input.contextSource },
     })
     .catch((err) => {
-      logger.warn({ err, issueId: input.issue.id }, "failed to wake assignee on issue assignment");
+      if (isNonInvokableAssignmentWakeFailure(err)) {
+        logger.info(
+          { err, issueId: input.issue.id, assigneeAgentId: input.issue.assigneeAgentId },
+          "skipping assignment wake for non-invokable assignee",
+        );
+      } else {
+        logger.warn({ err, issueId: input.issue.id }, "failed to wake assignee on issue assignment");
+      }
       if (input.rethrowOnError) throw err;
       return null;
     });
