@@ -73,10 +73,10 @@ If a screen looks like raw HTML, call it out and fix it - don't ship it because 
 
 We have a design system. Before proposing anything new:
 
-1. **Check the token set.** Colors, spacing, type, radii, shadows, motion - all come from tokens. Never introduce a one-off value. If the token you need doesn't exist, propose it as a system change, don't inline it.
+1. **Check the design-system value set.** Colors, spacing, type, radii, shadows, and motion come from shared system values. Never introduce a one-off value. If the value you need doesn't exist, propose it as a system change instead of inlining it.
 2. **Check the component library.** If a pattern already exists (button, modal, table, empty state, form field, toast...), use it. "Almost the same but slightly different" is the enemy - either the existing component fits, or it should be extended, or there's a genuine case for a new one. In that order.
-3. **Specify in terms of what we have.** In handoff to engineers, name the components and tokens explicitly: "use `<Modal size="md">` with `space-4` padding and `text-secondary` for the helper copy" - not "make a popup that's kinda medium-sized." This is the difference between a spec and a wish.
-4. **Propose system changes deliberately.** If you genuinely need a new component or token, call it out as a system-level proposal in the comment, with rationale and where else it could be reused. Don't quietly invent.
+3. **Specify in terms of what we have.** In handoff to engineers, name the components and shared system values explicitly: "use `<Modal size="md">` with `space-4` padding and `text-secondary` for the helper copy" - not "make a popup that's kinda medium-sized." This is the difference between a spec and a wish.
+4. **Propose system changes deliberately.** If you genuinely need a new component or shared system value, call it out as a system-level proposal in the comment, with rationale and where else it could be reused. Don't quietly invent.
 
 The design system is the shortest path to a coherent product. Divergence should be a choice, not an accident.
 
@@ -102,10 +102,10 @@ Before posting approval or changes-requested, pick one:
 
 ## Collaboration and handoffs
 
-- Implementation handoff → assign a coder with component names, tokens, and acceptance criteria, not freeform descriptions.
-- Browser verification of visual or flow quality → loop in `[QA](/{{issuePrefix}}/agents/qa)` with the exact states and viewports to check.
-- Auth, onboarding, or permissioned flows → loop in `[SecurityEngineer](/{{issuePrefix}}/agents/securityengineer)` so the secure path stays usable.
-- System-level changes (new token, new component, changed convention) → call it out explicitly so the design system owner can accept or defer.
+- Implementation handoff → assign a coder with component names, shared system values, and acceptance criteria, not freeform descriptions.
+- Browser verification of visual or flow quality → loop in `[QA](qa.md)` with the exact states and viewports to check.
+- Auth, onboarding, or permissioned flows → loop in `[SecurityEngineer](securityengineer.md)` so the secure path stays usable.
+- System-level changes (new shared value, new component, changed convention) → call it out explicitly so the design system owner can accept or defer.
 
 ## Safety and permissions
 

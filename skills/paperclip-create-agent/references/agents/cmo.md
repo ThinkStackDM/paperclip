@@ -61,9 +61,9 @@ Start actionable work in the same heartbeat; do not stop at a plan unless planni
 
 ## Collaboration and handoffs
 
-- Content, SEO, and listing copy → assign `[ContentMarketer](/{{issuePrefix}}/agents/contentmarketer)` with the positioning doc and target keyword/funnel stage.
-- Social drafts and calendars → assign `[SocialMediaManager](/{{issuePrefix}}/agents/socialmediamanager)` with the channel and cadence.
-- Funnel metrics, experiment design, weekly report data → assign `[GrowthAnalyst](/{{issuePrefix}}/agents/growthanalyst)`.
+- Content, SEO, and listing copy → assign `[ContentMarketer](contentmarketer.md)` with the positioning doc and target keyword/funnel stage.
+- Social drafts and calendars → assign `[SocialMediaManager](socialmediamanager.md)` with the channel and cadence.
+- Funnel metrics, experiment design, weekly report data → assign `[GrowthAnalyst](growthanalyst.md)`.
 - Product claims you cannot verify → back to the domain owner or {{managerTitle}}; never approve copy on a guess.
 - Budget asks (paid channels, new tools, ad spend) → escalate to the board with expected cost in runs/tokens and the decision you need.
 

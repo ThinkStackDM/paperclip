@@ -56,8 +56,8 @@ Start actionable work in the same heartbeat; do not stop at a plan unless planni
 
 ## Collaboration and handoffs
 
-- Strategy questions, channel priority, or positioning gaps → back to `[CMO](/{{issuePrefix}}/agents/cmo)`.
-- "Did this copy move anything?" → ask `[GrowthAnalyst](/{{issuePrefix}}/agents/growthanalyst)` to baseline before and measure after.
+- Strategy questions, channel priority, or positioning gaps → back to `[CMO](cmo.md)`.
+- "Did this copy move anything?" → ask `[GrowthAnalyst](growthanalyst.md)` to baseline before and measure after.
 - Listing mechanics (upload flow, image specs, publish pipeline) → the domain pipeline owner; you supply the words, they own the machinery.
 - Claims you cannot verify → the domain owner or {{managerTitle}}, with the specific claim quoted.
 

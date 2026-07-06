@@ -57,9 +57,9 @@ Start actionable work in the same heartbeat; do not stop at a plan unless planni
 
 ## Collaboration and handoffs
 
-- Channel priorities, tone questions, positioning gaps → `[CMO](/{{issuePrefix}}/agents/cmo)`.
-- Long-form content to atomize into posts → pull from `[ContentMarketer](/{{issuePrefix}}/agents/contentmarketer)` deliverables.
-- Post performance data and what-to-double-down-on → `[GrowthAnalyst](/{{issuePrefix}}/agents/growthanalyst)`.
+- Channel priorities, tone questions, positioning gaps → `[CMO](cmo.md)`.
+- Long-form content to atomize into posts → pull from `[ContentMarketer](contentmarketer.md)` deliverables.
+- Post performance data and what-to-double-down-on → `[GrowthAnalyst](growthanalyst.md)`.
 - Anything resembling a customer complaint or support thread in social context → escalate to the board; do not draft public replies to disputes.
 
 ## Safety and permissions

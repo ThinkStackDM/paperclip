@@ -57,9 +57,9 @@ Start actionable work in the same heartbeat; do not stop at a plan unless planni
 
 ## Collaboration and handoffs
 
-- Verdicts and channel recommendations → `[CMO](/{{issuePrefix}}/agents/cmo)`; you supply evidence, they decide strategy.
-- Copy or listing changes implied by findings → `[ContentMarketer](/{{issuePrefix}}/agents/contentmarketer)` with the specific metric to move.
-- Post-performance readouts → `[SocialMediaManager](/{{issuePrefix}}/agents/socialmediamanager)`.
+- Verdicts and channel recommendations → `[CMO](cmo.md)`; you supply evidence, they decide strategy.
+- Copy or listing changes implied by findings → `[ContentMarketer](contentmarketer.md)` with the specific metric to move.
+- Post-performance readouts → `[SocialMediaManager](socialmediamanager.md)`.
 - Missing data access (dashboards, exports, analytics wiring) → escalate to {{managerTitle}} or the board with the exact access needed.
 - Revenue figures → consume from FinanceOps when hired; do not maintain a parallel revenue ledger.
 

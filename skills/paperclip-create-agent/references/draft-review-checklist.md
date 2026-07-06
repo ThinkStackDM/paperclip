@@ -45,9 +45,9 @@ Use it for every path: exact template, adjacent template, or generic fallback.
 ## F. Collaboration routing
 
 - [ ] Cross-role handoffs are named only when the role actually touches that domain
-- [ ] UX-facing role or change → routes to `[UXDesigner](/PAP/agents/uxdesigner)`
-- [ ] Security-sensitive role, permissions, secrets, auth, adapters, tool access → routes to `[SecurityEngineer](/PAP/agents/securityengineer)`
-- [ ] Browser validation or user-facing verification → routes to `[QA](/PAP/agents/qa)`
+- [ ] UX-facing role or change → routes to `[UXDesigner](agents/uxdesigner.md)`
+- [ ] Security-sensitive role, permissions, private-value handling, auth, adapters, tool access → routes to `[SecurityEngineer](agents/securityengineer.md)`
+- [ ] Browser validation or user-facing verification → routes to `[QA](agents/qa.md)`
 - [ ] Skill architecture / instruction quality changes → routes to the Skill Consultant when present
 - [ ] Engineering/runtime changes → routes to CTO and a coder
 
@@ -63,8 +63,8 @@ Use it for every path: exact template, adjacent template, or generic fallback.
 ## H. Safety and permissions (least privilege)
 
 - [ ] The hire grants only the access the role needs — no "just in case" permissions
-- [ ] No secrets are embedded in plain text in `adapterConfig`, `instructionsBundle`, or any legacy prompt field; prefer environment-injected credentials or scoped skills
-- [ ] Any `desiredSkills` or adapter settings that expand external-system access, browser/network reach, filesystem scope, or secret-handling capability are individually justified in the hire comment
+- [ ] No private values are embedded in plain text in `adapterConfig`, `instructionsBundle`, or any legacy prompt field; prefer environment-injected credentials or scoped skills
+- [ ] Any `desiredSkills` or adapter settings that expand external-system access, browser/network reach, filesystem scope, or sensitive-access capability are individually justified in the hire comment
 - [ ] `runtimeConfig.heartbeat.enabled` is `false` unless the role genuinely needs scheduled recurring work AND `intervalSec` is justified in the hire comment
 - [ ] `AGENTS.md` explicitly names anything the role must never do (external posts, shared infra changes, destructive ops without approval)
 - [ ] If the role may handle private disclosures or security advisories, the hire names a confidential workflow (dedicated skill or documented manual process) instead of relying on normal issue threads
@@ -88,7 +88,7 @@ Use it for every path: exact template, adjacent template, or generic fallback.
 
 - **Boilerplate pass-through.** If `AGENTS.md` reads like it could apply to any role, the charter and lenses are too generic — rewrite them.
 - **Quiet permission sprawl.** A big `desiredSkills` list or an open-ended adapter config usually means "just in case" access. Trim to what the charter needs.
-- **Capability expansion without review.** Browser, external-system, wide-filesystem, or secret-handling access hidden inside adapter config or `desiredSkills` must be called out explicitly in the hire comment.
+- **Capability expansion without review.** Browser, external-system, wide-filesystem, or sensitive-access hidden inside adapter config or `desiredSkills` must be called out explicitly in the hire comment.
 - **Timer-heartbeat-by-default.** If you enabled a timer heartbeat, the hire comment must state why schedule-based wake is required.
 - **No confidential path for sensitive work.** Roles that may receive private advisories or incident details need a private workflow, not normal issue comments.
 - **Missing governance fields.** A hire without `sourceIssueId`, `icon`, or a resolvable reporting line is hard to audit later.

@@ -55,7 +55,7 @@ Start actionable work in the same heartbeat; do not stop at a plan unless planni
 
 ## Collaboration and handoffs
 
-- Positioning and offer questions → `[CMO](/{{issuePrefix}}/agents/cmo)` or {{managerTitle}}.
+- Positioning and offer questions → `[CMO](cmo.md)` or {{managerTitle}}.
 - A prospect replies with interest → escalate to the board immediately with thread context and a proposed reply; deals are human-closed.
 - Delivery capability questions → the domain pipeline owner before the claim goes in a draft.
 

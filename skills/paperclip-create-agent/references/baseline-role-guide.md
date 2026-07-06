@@ -65,7 +65,7 @@ Include this line verbatim for any execution-heavy role:
 Lenses should be specific to the role. Examples of what good lenses look like:
 
 - **UX designer**: Nielsen's 10, Gestalt proximity, Fitts's Law, Jakob's Law, Tesler's Law, Recognition over Recall, Kano Model, WCAG POUR.
-- **Security engineer**: STRIDE, OWASP Top 10, least-privilege, blast radius, defence in depth, secrets in process memory vs disk, auditability, LLM prompt-injection surface, supply-chain trust.
+- **Security engineer**: STRIDE, OWASP Top 10, least-privilege, blast radius, defence in depth, sensitive values in process memory vs disk, auditability, LLM prompt-injection surface, supply-chain trust.
 - **Data engineer**: backpressure, idempotency, exactly-once vs at-least-once, schema evolution, freshness vs completeness, lineage, cost-per-query.
 - **Ops/SRE**: error budgets, blast radius, rollback path, MTTR, canary vs full deploy, observability-before-launch, runbook hygiene.
 - **Customer support**: severity triage, reproducibility bar, known-issue dedup, empathy before explanation, close-loop signal to engineering.
@@ -79,15 +79,15 @@ Describe what a good deliverable from this role looks like. Be concrete — give
 - what shape the output takes (PR, spec, report, ticket triage, screenshot bundle)
 - what it must include (repro steps, evidence, tradeoffs, acceptance criteria, sign-off from X)
 - what "not done" looks like (e.g., "a flow that works but looks unstyled is not done")
-- what never ships (e.g., "no secrets in plain text", "no deploys without a rollback path")
+- what never ships (e.g., "no private values in plain text", "no deploys without a rollback path")
 
 ### 6. Collaboration and handoffs
 
 Name the other agents or roles this agent must route to, and when:
 
-- UX-facing changes → involve `[UXDesigner](/PAP/agents/uxdesigner)`
-- security-sensitive changes, permissions, secrets, auth, adapter/tool access → involve `[SecurityEngineer](/PAP/agents/securityengineer)`
-- browser validation / user-facing workflow verification → involve `[QA](/PAP/agents/qa)`
+- UX-facing changes → involve `[UXDesigner](agents/uxdesigner.md)`
+- security-sensitive changes, permissions, private-value handling, auth, adapter/tool access → involve `[SecurityEngineer](agents/securityengineer.md)`
+- browser validation / user-facing workflow verification → involve `[QA](agents/qa.md)`
 - skill architecture / instruction quality → involve the Skill Consultant
 - engineering/runtime changes → involve CTO and a coder
 
@@ -99,7 +99,7 @@ Default to least privilege. For each new role, explicitly state:
 
 - what the role is allowed to do that other agents cannot
 - what the role must never do (examples: post to external services, modify shared infra, delete data without approval)
-- how credentials/secrets are handled (never in plain text unless the adapter requires it; use `desiredSkills` or environment-injected credentials)
+- how credentials/private values are handled (never in plain text unless the adapter requires it; use `desiredSkills` or environment-injected credentials)
 - whether a timer heartbeat is needed (default: off; only enable with an explicit justification and `intervalSec`)
 - which `desiredSkills` the role needs on day one — install missing skills before submitting the hire
 
@@ -118,7 +118,7 @@ How the agent verifies its own work before marking an issue done or handing it t
 - **Over-generic prompts.** "Be helpful, be thorough, be correct" is worthless — the next agent drafts a better version by reading the template you adapted from. Write role-specific guidance only.
 - **Lens dumping.** Copying every lens from an expert template into an unrelated role adds noise and burns context. Five well-chosen lenses beat fifteen irrelevant ones.
 - **Permission sprawl.** Do not grant write access, admin endpoints, or broad skill sets "just in case." Grant exactly what the role needs.
-- **Secrets in agent config.** Do not embed long-lived tokens, API keys, or private URLs in `adapterConfig`, `instructionsBundle`, or legacy prompt fields when environment injection or a scoped skill can carry the capability instead.
+- **Private values in agent config.** Do not embed long-lived credentials, API identifiers, or private URLs in `adapterConfig`, `instructionsBundle`, or legacy prompt fields when environment injection or a scoped skill can carry the capability instead.
 - **Silent timer heartbeats.** A timer heartbeat burns budget every interval. If the role has no scheduled work, leave it off.
 - **Bypassing governance.** Never skip `sourceIssueId`, reporting line, icon, or approval flow to ship faster. Hires without these are hard to audit and hard to hand off.
 - **Copying another company's prompt verbatim.** Placeholders like `{{companyName}}`, `{{managerTitle}}`, and `{{issuePrefix}}` must be replaced with this company's values before submitting the hire.

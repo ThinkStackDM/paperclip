@@ -49,9 +49,9 @@ When you run tests, do not default to the entire test suite. Run the minimal che
 
 ## Collaboration and handoffs
 
-- UX-facing changes → loop in `[UXDesigner](/{{issuePrefix}}/agents/uxdesigner)` for review of visual quality and flows.
-- Security-sensitive changes (auth, crypto, secrets, permissions, adapter/tool access) → loop in `[SecurityEngineer](/{{issuePrefix}}/agents/securityengineer)` before merging.
-- Browser validation / user-facing verification → hand to `[QA](/{{issuePrefix}}/agents/qa)` with a reproducible test plan.
+- UX-facing changes → loop in `[UXDesigner](uxdesigner.md)` for review of visual quality and flows.
+- Security-sensitive changes (auth, crypto, secrets, permissions, adapter/tool access) → loop in `[SecurityEngineer](securityengineer.md)` before merging.
+- Browser validation / user-facing verification → hand to `[QA](qa.md)` with a reproducible test plan.
 - Skill or instruction quality changes → hand to the skill consultant or equivalent instruction owner.
 
 ## Safety and permissions

@@ -23,28 +23,15 @@ If you do not have this permission, escalate to your CEO or board.
 
 ### 1. Confirm identity and company context
 
-```sh
-curl -sS "$PAPERCLIP_API_URL/api/agents/me" \
-  -H "Authorization: Bearer $PAPERCLIP_API_KEY"
-```
+Read your current agent identity through the authenticated Paperclip API helper described in the Paperclip skill. The exact endpoint is listed in [api-reference.md](references/api-reference.md).
 
 ### 2. Discover adapter configuration for this Paperclip instance
 
-```sh
-curl -sS "$PAPERCLIP_API_URL/llms/agent-configuration.txt" \
-  -H "Authorization: Bearer $PAPERCLIP_API_KEY"
-
-# Then the specific adapter you plan to use, e.g. claude_local:
-curl -sS "$PAPERCLIP_API_URL/llms/agent-configuration/claude_local.txt" \
-  -H "Authorization: Bearer $PAPERCLIP_API_KEY"
-```
+Read the global adapter-configuration summary first, then the specific adapter note for the runtime you plan to use (for example `claude_local`). Both endpoint paths are documented in [api-reference.md](references/api-reference.md).
 
 ### 3. Compare existing agent configurations
 
-```sh
-curl -sS "$PAPERCLIP_API_URL/api/companies/$PAPERCLIP_COMPANY_ID/agent-configurations" \
-  -H "Authorization: Bearer $PAPERCLIP_API_KEY"
-```
+List the company's current agent configurations before drafting a new one. Use the agent-configuration listing endpoint from [api-reference.md](references/api-reference.md).
 
 Note naming, icon, reporting-line, and adapter conventions the company already follows.
 
@@ -57,19 +44,16 @@ This is the single most important decision for hire quality. Pick exactly one pa
 - **Generic fallback** — no template is close. Use the baseline role guide to construct a new `AGENTS.md` from scratch, filling in each recommended section for the specific role.
 
 Template index and when-to-use guidance:
-`skills/paperclip-create-agent/references/agent-instruction-templates.md`
+`references/agent-instruction-templates.md`
 
 Generic fallback for no-template hires:
-`skills/paperclip-create-agent/references/baseline-role-guide.md`
+`references/baseline-role-guide.md`
 
 State which path you took in your hire-request comment so the board can see the reasoning.
 
 ### 5. Discover allowed agent icons
 
-```sh
-curl -sS "$PAPERCLIP_API_URL/llms/agent-icons.txt" \
-  -H "Authorization: Bearer $PAPERCLIP_API_KEY"
-```
+Read the allowed icon list from the icon-reference endpoint documented in [api-reference.md](references/api-reference.md).
 
 ### 6. Draft the new hire config
 
@@ -78,7 +62,7 @@ curl -sS "$PAPERCLIP_API_URL/llms/agent-icons.txt" \
 - reporting line (`reportsTo`)
 - adapter type
 - `desiredSkills` from the company skill library when this role needs installed skills on day one
-- if any `desiredSkills` or adapter settings expand browser access, external-system reach, filesystem scope, or secret-handling capability, justify each one in the hire comment
+- if any `desiredSkills` or adapter settings expand browser access, external-system reach, filesystem scope, or sensitive-access capability, justify each one in the hire comment
 - adapter and runtime config aligned to this environment
 - leave timer heartbeats off by default; only set `runtimeConfig.heartbeat.enabled=true` with an `intervalSec` when the role genuinely needs scheduled recurring work or the user explicitly asked for it
 - if the role may handle private advisories or sensitive disclosures, confirm a confidential workflow exists first (dedicated skill or documented manual process)
@@ -91,29 +75,11 @@ curl -sS "$PAPERCLIP_API_URL/llms/agent-icons.txt" \
 ### 7. Review the draft against the quality checklist
 
 Before submitting, walk the draft-review checklist end-to-end and fix any item that does not pass:
-`skills/paperclip-create-agent/references/draft-review-checklist.md`
+`references/draft-review-checklist.md`
 
 ### 8. Submit hire request
 
-```sh
-curl -sS -X POST "$PAPERCLIP_API_URL/api/companies/$PAPERCLIP_COMPANY_ID/agent-hires" \
-  -H "Authorization: Bearer $PAPERCLIP_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "CTO",
-    "role": "cto",
-    "title": "Chief Technology Officer",
-    "icon": "crown",
-    "reportsTo": "<ceo-agent-id>",
-    "capabilities": "Owns technical roadmap, architecture, staffing, execution",
-    "desiredSkills": ["vercel-labs/agent-browser/agent-browser"],
-    "adapterType": "codex_local",
-    "adapterConfig": {"cwd": "/abs/path/to/repo", "model": "o4-mini"},
-    "instructionsBundle": {"files": {"AGENTS.md": "You are the CTO..."}},
-    "runtimeConfig": {"heartbeat": {"enabled": false, "wakeOnDemand": true}},
-    "sourceIssueId": "<issue-id>"
-  }'
-```
+Submit the hire request through the `agent-hires` create endpoint using a structured JSON payload. A full field example lives in [api-reference.md](references/api-reference.md).
 
 ### 9. Handle governance state
 
@@ -121,34 +87,22 @@ curl -sS -X POST "$PAPERCLIP_API_URL/api/companies/$PAPERCLIP_COMPANY_ID/agent-h
 - monitor and discuss on the approval thread
 - when the board approves, you will be woken with `PAPERCLIP_APPROVAL_ID`; read linked issues and close/comment follow-up
 
-```sh
-curl -sS "$PAPERCLIP_API_URL/api/approvals/<approval-id>" \
-  -H "Authorization: Bearer $PAPERCLIP_API_KEY"
+Review the approval record, then post a follow-up comment on that approval thread summarizing:
 
-curl -sS -X POST "$PAPERCLIP_API_URL/api/approvals/<approval-id>/comments" \
-  -H "Authorization: Bearer $PAPERCLIP_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"body":"## CTO hire request submitted\n\n- Approval: [<approval-id>](/<company-prefix>/approvals/<approval-id>)\n- Pending agent: [<agent-ref>](/<company-prefix>/agents/<agent-url-key-or-id>)\n- Source issue: [<issue-ref>](/<company-prefix>/issues/<issue-identifier-or-id>)\n\nUpdated prompt and adapter config per board feedback. (Links MUST be company-prefixed per the paperclip skill.)"}'
-```
+- approval id
+- pending agent reference
+- source issue reference
+- what changed after board feedback
+
+Use company-prefixed issue and approval links in the actual comment you send.
 
 If the approval already exists and needs manual linking to the issue:
 
-```sh
-curl -sS -X POST "$PAPERCLIP_API_URL/api/issues/<issue-id>/approvals" \
-  -H "Authorization: Bearer $PAPERCLIP_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"approvalId":"<approval-id>"}'
-```
+If the approval already exists and needs manual linking, attach it to the source issue through the issue-approval link endpoint documented in [api-reference.md](references/api-reference.md).
 
 After approval is granted, run this follow-up loop:
 
-```sh
-curl -sS "$PAPERCLIP_API_URL/api/approvals/$PAPERCLIP_APPROVAL_ID" \
-  -H "Authorization: Bearer $PAPERCLIP_API_KEY"
-
-curl -sS "$PAPERCLIP_API_URL/api/approvals/$PAPERCLIP_APPROVAL_ID/issues" \
-  -H "Authorization: Bearer $PAPERCLIP_API_KEY"
-```
+After approval is granted, re-read the approval record and its linked issues through the approval endpoints documented in [api-reference.md](references/api-reference.md).
 
 For each linked issue, either:
 - close it if the approval resolved the request, or
@@ -156,8 +110,8 @@ For each linked issue, either:
 
 ## References
 
-- Template index and how to apply a template: `skills/paperclip-create-agent/references/agent-instruction-templates.md`
-- Individual role templates: `skills/paperclip-create-agent/references/agents/`
-- Generic baseline role guide (no-template fallback): `skills/paperclip-create-agent/references/baseline-role-guide.md`
-- Pre-submit draft-review checklist: `skills/paperclip-create-agent/references/draft-review-checklist.md`
-- Endpoint payload shapes and full examples: `skills/paperclip-create-agent/references/api-reference.md`
+- Template index and how to apply a template: `references/agent-instruction-templates.md`
+- Individual role templates: `references/agents/`
+- Generic baseline role guide (no-template fallback): `references/baseline-role-guide.md`
+- Pre-submit draft-review checklist: `references/draft-review-checklist.md`
+- Endpoint payload shapes and full examples: `references/api-reference.md`

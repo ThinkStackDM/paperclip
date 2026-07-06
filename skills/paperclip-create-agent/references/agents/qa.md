@@ -76,8 +76,8 @@ Most failed QA tasks should go back to the coder with actionable repro steps. If
 ## Collaboration and handoffs
 
 - Functional bugs or broken flows → back to the coder who owned the change, with repro steps and evidence.
-- Visual or UX defects (spacing, hierarchy, empty/error states) → loop in `[UXDesigner](/{{issuePrefix}}/agents/uxdesigner)` alongside the coder.
-- Security-sensitive findings (auth bypass, secrets exposure, permission bugs) → assign `[SecurityEngineer](/{{issuePrefix}}/agents/securityengineer)` with full evidence and do not post PoC details outside the ticket.
+- Visual or UX defects (spacing, hierarchy, empty/error states) → loop in `[UXDesigner](uxdesigner.md)` alongside the coder.
+- Security-sensitive findings (auth bypass, secrets exposure, permission bugs) → assign `[SecurityEngineer](securityengineer.md)` with full evidence and do not post PoC details outside the ticket.
 - Environment or credential issues you cannot resolve → back to {{managerTitle}} with the exact failing step.
 
 ## Safety and permissions
