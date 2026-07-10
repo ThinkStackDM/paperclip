@@ -186,10 +186,18 @@ describeEmbeddedPostgres("dashboard service", () => {
     ]);
 
     await db.insert(issueThreadInteractions).values([
-      // Counts: two pending operator asks on a live issue (regardless of the issue's todo status).
+      // Counts: three pending operator asks on a live issue (regardless of the issue's todo status).
       {
         id: randomUUID(), companyId, issueId: liveIssueId, kind: "request_confirmation", status: "pending",
         continuationPolicy: "none", summary: "ASK / WHY / ACTION", payload: { version: 1, prompt: "Approve?" },
+      },
+      {
+        id: randomUUID(), companyId, issueId: liveIssueId, kind: "request_checkbox_confirmation", status: "pending",
+        continuationPolicy: "wake_assignee", summary: "ASK / WHY / ACTION", payload: {
+          version: 1,
+          prompt: "Pick files",
+          options: [{ id: "file-a", label: "a.txt" }],
+        },
       },
       {
         id: randomUUID(), companyId, issueId: liveIssueId, kind: "ask_user_questions", status: "pending",
@@ -213,6 +221,6 @@ describeEmbeddedPostgres("dashboard service", () => {
     ]);
 
     const summary = await dashboardService(db).summary(companyId);
-    expect(summary.pendingInteractions).toBe(2);
+    expect(summary.pendingInteractions).toBe(3);
   });
 });

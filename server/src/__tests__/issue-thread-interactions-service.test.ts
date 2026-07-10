@@ -751,6 +751,171 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
     })).rejects.toThrow("A decline reason is required for this confirmation");
   });
 
+  it("auto-defaults overdue R-class request confirmations and leaves an audit comment", async () => {
+    const companyId = randomUUID();
+    const goalId = randomUUID();
+    const issueId = randomUUID();
+    const agentId = randomUUID();
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+    await instanceSettingsService(db).updateExperimental({ enableIsolatedWorkspaces: false });
+    await db.insert(goals).values({
+      id: goalId,
+      companyId,
+      title: "Auto default an ask",
+      level: "task",
+      status: "active",
+    });
+    await db.insert(agents).values({
+      id: agentId,
+      companyId,
+      name: "Operator Proxy",
+      role: "engineer",
+      status: "active",
+      adapterType: "codex_local",
+      adapterConfig: {},
+      runtimeConfig: {},
+      permissions: {},
+    });
+    await db.insert(issues).values({
+      id: issueId,
+      companyId,
+      goalId,
+      title: "Board ask",
+      status: "in_review",
+      priority: "medium",
+      assigneeAgentId: agentId,
+    });
+
+    const created = await interactionsSvc.create({
+      id: issueId,
+      companyId,
+    }, {
+      kind: "request_confirmation",
+      summary: "ASK: Apply the reversible change. WHY: Silence should allow the approved default. ACTION: Approve or let the SLA default apply.",
+      continuationPolicy: "wake_assignee",
+      payload: {
+        version: 1,
+        prompt: "Apply the reversible change?",
+        autoDefault: {
+          version: 1,
+          decisionClass: "R",
+          defaultDecision: "Apply the documented reversible change.",
+          revertInstructionsMarkdown: "Run the rollback script and restore the prior config snapshot.",
+        },
+      },
+    }, {
+      agentId,
+    });
+
+    await db
+      .update(issueThreadInteractions)
+      .set({
+        createdAt: new Date("2026-06-28T00:00:00.000Z"),
+        updatedAt: new Date("2026-06-28T00:00:00.000Z"),
+      })
+      .where(eq(issueThreadInteractions.id, created.id));
+
+    const resolved = await interactionsSvc.resolveDueAutoDefaultsForIssue({
+      id: issueId,
+      companyId,
+      status: "in_review",
+      assigneeAgentId: agentId,
+      assigneeUserId: null,
+      priority: "medium",
+      monitorNextCheckAt: null,
+      monitorNotes: null,
+      monitorScheduledBy: null,
+    }, {}, {
+      now: new Date("2026-07-02T12:00:00.000Z"),
+    });
+
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0]?.interaction).toMatchObject({
+      kind: "request_confirmation",
+      status: "accepted",
+      result: {
+        version: 1,
+        outcome: "accepted",
+        resolutionSource: "auto_default",
+      },
+    });
+
+    const comments = await issuesSvc.listComments(issueId, { order: "asc" });
+    expect(comments.at(-1)?.body).toContain("AUTO-DEFAULT APPLIED");
+    expect(comments.at(-1)?.body).toContain("Run the rollback script and restore the prior config snapshot.");
+  });
+
+  it("does not auto-default overdue request confirmations while the kill switch is enabled", async () => {
+    const previous = process.env.AUTODEFAULT_DISABLED;
+    process.env.AUTODEFAULT_DISABLED = "1";
+
+    try {
+      const { companyId, issueId } = await seedConfirmationIssue("Kill switch ask");
+
+      const created = await interactionsSvc.create({
+        id: issueId,
+        companyId,
+      }, {
+        kind: "request_confirmation",
+        summary: "ASK: Apply the reversible change. WHY: This is eligible for silence-based defaulting. ACTION: Approve or wait for the SLA default.",
+        payload: {
+          version: 1,
+          prompt: "Apply the reversible change?",
+          autoDefault: {
+            version: 1,
+            decisionClass: "R",
+            defaultDecision: "Apply the documented reversible change.",
+            revertInstructionsMarkdown: "Undo the config flip.",
+          },
+        },
+      }, {
+        userId: "local-board",
+      });
+
+      await db
+        .update(issueThreadInteractions)
+        .set({
+          createdAt: new Date("2026-06-28T00:00:00.000Z"),
+          updatedAt: new Date("2026-06-28T00:00:00.000Z"),
+        })
+        .where(eq(issueThreadInteractions.id, created.id));
+
+      const resolved = await interactionsSvc.resolveDueAutoDefaultsForIssue({
+        id: issueId,
+        companyId,
+        status: "in_progress",
+        assigneeAgentId: null,
+        assigneeUserId: null,
+        priority: "medium",
+        monitorNextCheckAt: null,
+        monitorNotes: null,
+        monitorScheduledBy: null,
+      }, {}, {
+        now: new Date("2026-07-02T12:00:00.000Z"),
+      });
+
+      expect(resolved).toEqual([]);
+
+      const listed = await interactionsSvc.listForIssue(issueId);
+      expect(listed[0]).toMatchObject({
+        id: created.id,
+        status: "pending",
+      });
+    } finally {
+      if (previous === undefined) {
+        delete process.env.AUTODEFAULT_DISABLED;
+      } else {
+        process.env.AUTODEFAULT_DISABLED = previous;
+      }
+    }
+  });
+
   it("accepts request_checkbox_confirmation interactions with selected option ids", async () => {
     const { companyId, goalId, issueId } = await seedConfirmationIssue("Checkbox confirmation accept");
 
@@ -1228,6 +1393,142 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
       id: issueId,
       companyId,
     })).resolves.toEqual([]);
+  });
+
+  it("expires pending interactions when an issue is closed so board action is no longer derived", async () => {
+    const { companyId, issueId } = await seedConfirmationIssue("Close stale interaction");
+
+    const created = await interactionsSvc.create({
+      id: issueId,
+      companyId,
+    }, {
+      kind: "request_confirmation",
+      summary: "ASK: Close this issue? WHY: The board action should clear when the issue closes. ACTION: Approve or reject.",
+      payload: {
+        version: 1,
+        prompt: "Close this issue?",
+      },
+    }, {
+      userId: "local-board",
+    });
+
+    const boardActionBeforeClose = await issuesSvc.getBoardActionRequirements(companyId, [{ id: issueId }]);
+    expect(boardActionBeforeClose.get(issueId)).toEqual(expect.objectContaining({ source: "interaction" }));
+
+    await db
+      .update(issues)
+      .set({ status: "done", updatedAt: new Date() })
+      .where(eq(issues.id, issueId));
+
+    const closedIssue = await issuesSvc.getById(issueId);
+    expect(closedIssue).not.toBeNull();
+
+    const expired = await interactionsSvc.expirePendingInteractionsForIssueState(
+      { id: closedIssue!.id, companyId: closedIssue!.companyId },
+      { userId: "local-board" },
+    );
+
+    expect(expired).toHaveLength(1);
+    expect(expired[0]).toMatchObject({
+      id: created.id,
+      status: "expired",
+      resolvedByUserId: "local-board",
+    });
+    await expect(issuesSvc.getBoardActionRequirements(companyId, [{ id: issueId }])).resolves.toEqual(new Map());
+  });
+
+  it("expires pending interactions when an issue is reassigned so board action is no longer derived", async () => {
+    const companyId = randomUUID();
+    const goalId = randomUUID();
+    const issueId = randomUUID();
+    const firstAgentId = randomUUID();
+    const secondAgentId = randomUUID();
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+    await instanceSettingsService(db).updateExperimental({ enableIsolatedWorkspaces: false });
+    await db.insert(agents).values([
+      {
+        id: firstAgentId,
+        companyId,
+        name: "First assignee",
+        role: "engineer",
+        status: "active",
+        adapterType: "codex_local",
+        adapterConfig: {},
+        runtimeConfig: {},
+        permissions: {},
+      },
+      {
+        id: secondAgentId,
+        companyId,
+        name: "Second assignee",
+        role: "engineer",
+        status: "active",
+        adapterType: "codex_local",
+        adapterConfig: {},
+        runtimeConfig: {},
+        permissions: {},
+      },
+    ]);
+    await db.insert(goals).values({
+      id: goalId,
+      companyId,
+      title: "Reassign stale interaction",
+      level: "task",
+      status: "active",
+    });
+    await db.insert(issues).values({
+      id: issueId,
+      companyId,
+      goalId,
+      title: "Parent issue",
+      status: "in_review",
+      priority: "medium",
+      assigneeAgentId: firstAgentId,
+    });
+
+    const created = await interactionsSvc.create({
+      id: issueId,
+      companyId,
+    }, {
+      kind: "request_confirmation",
+      summary: "ASK: Reassign this issue? WHY: Pending board action must not survive reassignment. ACTION: Approve or reject.",
+      payload: {
+        version: 1,
+        prompt: "Reassign this issue?",
+      },
+    }, {
+      userId: "local-board",
+    });
+
+    const boardActionBeforeReassign = await issuesSvc.getBoardActionRequirements(companyId, [{ id: issueId }]);
+    expect(boardActionBeforeReassign.get(issueId)).toEqual(expect.objectContaining({ source: "interaction" }));
+
+    await db
+      .update(issues)
+      .set({ assigneeAgentId: secondAgentId, updatedAt: new Date() })
+      .where(eq(issues.id, issueId));
+
+    const reassignedIssue = await issuesSvc.getById(issueId);
+    expect(reassignedIssue).not.toBeNull();
+
+    const expired = await interactionsSvc.expirePendingInteractionsForIssueState(
+      { id: reassignedIssue!.id, companyId: reassignedIssue!.companyId },
+      { agentId: secondAgentId },
+    );
+
+    expect(expired).toHaveLength(1);
+    expect(expired[0]).toMatchObject({
+      id: created.id,
+      status: "expired",
+      resolvedByAgentId: secondAgentId,
+    });
+    await expect(issuesSvc.getBoardActionRequirements(companyId, [{ id: issueId }])).resolves.toEqual(new Map());
   });
 
   it("expires request confirmations when the watched issue document revision changes", async () => {

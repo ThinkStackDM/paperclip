@@ -7,7 +7,12 @@ import type {
   ThreadSystemMessage,
   ThreadUserMessage,
 } from "@assistant-ui/react";
-import type { Agent, IssueComment } from "@paperclipai/shared";
+import {
+  buildIssueCommentSystemActivityPresentation,
+  classifyIssueCommentSystemActivity,
+  type Agent,
+  type IssueComment,
+} from "@paperclipai/shared";
 import type { ActiveRunForIssue, LiveRunForIssue } from "../api/heartbeats";
 import { formatAssigneeUserLabel } from "./assignees";
 import { isOperatorInterruptedRun } from "./interrupt-handoff";
@@ -387,9 +392,15 @@ function createCommentMessage(args: {
 }): ThreadMessage {
   const { comment, agentMap, currentUserId, userLabelMap, companyId, projectId } = args;
   const createdAt = toDate(comment.createdAt);
-  const isSystemNotice = comment.authorType === "system";
+  const systemActivityClassification = classifyIssueCommentSystemActivity(comment);
+  const isSystemNotice = systemActivityClassification !== null;
   const authorAgentId = effectiveCommentAuthorAgentId(comment);
   const authorName = authorNameForComment(comment, agentMap, currentUserId, userLabelMap, { isSystemNotice });
+  const presentation = comment.presentation ?? (
+    systemActivityClassification
+      ? buildIssueCommentSystemActivityPresentation(systemActivityClassification)
+      : null
+  );
   const custom = {
     kind: isSystemNotice ? "system_notice" : "comment",
     commentId: comment.id,
@@ -408,7 +419,7 @@ function createCommentMessage(args: {
     queueReason: comment.queueReason ?? null,
     interruptedRunId: comment.interruptedRunId ?? null,
     followUpRequested: comment.followUpRequested === true,
-    presentation: comment.presentation ?? null,
+    presentation,
     commentMetadata: comment.metadata ?? null,
     deletedAt: comment.deletedAt ? toDate(comment.deletedAt).toISOString() : null,
     deletedByType: comment.deletedByType ?? null,
@@ -451,6 +462,64 @@ function createCommentMessage(args: {
     metadata: { custom },
   };
   return message;
+}
+
+function issueChatMessageCustom(message: ThreadMessage) {
+  return (message.metadata?.custom ?? {}) as Record<string, unknown>;
+}
+
+function isSystemNoticeMessage(message: ThreadMessage) {
+  return message.role === "system" && issueChatMessageCustom(message).kind === "system_notice";
+}
+
+function createSystemActivityGroupMessage(messages: readonly ThreadMessage[]): ThreadSystemMessage {
+  const first = messages[0]!;
+  const last = messages[messages.length - 1]!;
+  const firstCustom = issueChatMessageCustom(first);
+  const lastCustom = issueChatMessageCustom(last);
+  const firstAnchorId = typeof firstCustom.anchorId === "string" ? firstCustom.anchorId : first.id;
+  const lastAnchorId = typeof lastCustom.anchorId === "string" ? lastCustom.anchorId : last.id;
+  return {
+    id: `system-activity-group:${first.id}:${last.id}`,
+    role: "system",
+    createdAt: first.createdAt,
+    content: [{ type: "text", text: `${messages.length} system activity updates` }],
+    metadata: {
+      custom: {
+        kind: "system_activity_group",
+        anchorId: `system-activity-${firstAnchorId}`,
+        firstSystemActivityAnchorId: firstAnchorId,
+        lastSystemActivityAnchorId: lastAnchorId,
+        systemActivityCount: messages.length,
+        systemActivityItems: messages,
+      },
+    },
+  };
+}
+
+function collapseSystemActivityMessages(messages: readonly ThreadMessage[]) {
+  const collapsed: ThreadMessage[] = [];
+  let index = 0;
+  while (index < messages.length) {
+    const current = messages[index]!;
+    if (!isSystemNoticeMessage(current)) {
+      collapsed.push(current);
+      index += 1;
+      continue;
+    }
+
+    const group: ThreadMessage[] = [current];
+    let cursor = index + 1;
+    while (cursor < messages.length && isSystemNoticeMessage(messages[cursor]!)) {
+      group.push(messages[cursor]!);
+      cursor += 1;
+    }
+
+    collapsed.push(group.length >= 2 ? createSystemActivityGroupMessage(group) : current);
+    index = cursor;
+  }
+
+  return collapsed;
 }
 
 function createTimelineEventMessage(args: {
@@ -1016,11 +1085,13 @@ export function buildIssueChatMessages(args: {
     });
   }
 
-  return orderedMessages
+  return collapseSystemActivityMessages(
+    orderedMessages
     .sort((a, b) => {
       if (a.createdAtMs !== b.createdAtMs) return a.createdAtMs - b.createdAtMs;
       if (a.order !== b.order) return a.order - b.order;
       return a.message.id.localeCompare(b.message.id);
     })
-    .map((entry) => entry.message);
+    .map((entry) => entry.message),
+  );
 }

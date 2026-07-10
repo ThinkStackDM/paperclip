@@ -112,6 +112,7 @@ import {
   sanitizeRuntimeServiceBaseEnv,
 } from "./workspace-runtime.js";
 import { issueService } from "./issues.js";
+import { issueThreadInteractionService } from "./issue-thread-interactions.js";
 import {
   buildIssueMonitorClearedPatch,
   buildIssueMonitorTriggeredPatch,
@@ -4338,6 +4339,72 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       maxAttempts: monitor?.maxAttempts ?? null,
       recoveryPolicy: monitor?.recoveryPolicy ?? null,
     };
+    const autoDefaultResolutions = await issueThreadInteractionService(db).resolveDueAutoDefaultsForIssue({
+      id: claimed.id,
+      companyId: claimed.companyId,
+      status: claimed.status,
+      assigneeAgentId: claimed.assigneeAgentId,
+      assigneeUserId: claimed.assigneeUserId,
+      priority: claimed.priority,
+      monitorNextCheckAt: claimed.monitorNextCheckAt,
+      monitorNotes: claimed.monitorNotes,
+      monitorScheduledBy: claimed.monitorScheduledBy,
+    }, {
+      agentId: null,
+      userId: null,
+    }, {
+      now: input.now,
+    });
+
+    if (autoDefaultResolutions.length > 0) {
+      await db
+        .update(issues)
+        .set({
+          ...buildIssueMonitorTriggeredPatch({
+            issue: claimed,
+            policy,
+            triggeredAt: input.now,
+          }),
+          updatedAt: new Date(),
+        })
+        .where(eq(issues.id, claimed.id));
+
+      for (const resolution of autoDefaultResolutions) {
+        const targetIssue = resolution.continuationIssue ?? {
+          id: claimed.id,
+          assigneeAgentId: claimed.assigneeAgentId,
+          status: claimed.status,
+        };
+        if (targetIssue.assigneeAgentId && targetIssue.status !== "done" && targetIssue.status !== "cancelled") {
+          await enqueueWakeup(targetIssue.assigneeAgentId, {
+            source: "automation",
+            triggerDetail: "system",
+            reason: "issue_commented",
+            payload: {
+              issueId: targetIssue.id,
+              interactionId: resolution.interaction.id,
+              interactionKind: resolution.interaction.kind,
+              interactionStatus: resolution.interaction.status,
+              mutation: "interaction_auto_default",
+              autoDefaultDueAt: resolution.dueAt,
+            },
+            requestedByActorType: "system",
+            requestedByActorId: "heartbeat_scheduler",
+            contextSnapshot: {
+              issueId: targetIssue.id,
+              source: "issue.monitor.auto_default",
+              wakeReason: "issue_commented",
+              interactionId: resolution.interaction.id,
+              interactionKind: resolution.interaction.kind,
+              interactionStatus: resolution.interaction.status,
+              autoDefaultDueAt: resolution.dueAt,
+            },
+          });
+        }
+      }
+
+      return { outcome: "triggered" as const };
+    }
 
     if (clearReason) {
       return clearIssueMonitorAndRecover({
@@ -5773,12 +5840,14 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
 
     if (decision.kind !== "enqueue" || !issue) return;
 
-    // --- Disposition enforcement (SHADOW only — measures, applies nothing) ---
+    // --- Disposition fallback / enforcement ---
     // The source run is stuck `in_progress` with a missing disposition. If the agent
     // stated a PAPERCLIP_DISPOSITION token (hermes adapter prompt step 7 → resultJson
-    // .disposition), record what a deterministic apply WOULD do, so we can measure on
-    // live traffic how often it would close the gap before enabling enforcement. The
-    // model still re-wakes below — shadow mode changes nothing about behaviour.
+    // .disposition), use the safest self-contained part immediately: explicit terminal
+    // states (`done` / `cancelled`). These are the close-path failures the token was
+    // added for, and applying them here prevents auth/timeout stranding without needing
+    // a second wake. Broader waiting-state enforcement (`blocked` / `in_review`) stays
+    // behind the existing env gate until more live traffic confirms it is safe.
     const statedDisposition =
       run.resultJson && typeof run.resultJson === "object"
         ? (run.resultJson as { disposition?: { status?: unknown; hasBlocker?: unknown; blocker?: unknown; reviewer?: unknown } | null }).disposition
@@ -5796,9 +5865,10 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
         ? statedDisposition.reviewer.trim()
         : null;
     const enforceDisposition = process.env.PAPERCLIP_DISPOSITION_ENFORCE === "1";
+    const terminalDispositionStated = statedStatus === "done" || statedStatus === "cancelled";
     // Isolated harness companies (e.g. the agentic-bench company) exercise the disposition
     // workflow on fixtures, which floods the shadow measurement and would trigger spurious
-    // enforcement. Skip both for them; the corrective re-wake below still runs unchanged.
+    // auto-closes. Skip both for them; the corrective re-wake below still runs unchanged.
     // Comma-separated company ids; defaults to the bench company.
     const dispositionExcluded = (process.env.PAPERCLIP_DISPOSITION_EXCLUDE_COMPANY_IDS
       ?? "e212ce50-b524-408c-b3d4-0c6108d8c2e2")
@@ -5815,7 +5885,9 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
         entityId: issue.id,
         details: {
           label: "Disposition enforcement",
-          mode: enforceDisposition ? "enforce" : "shadow",
+          mode: terminalDispositionStated
+            ? (enforceDisposition ? "enforce" : "terminal_enforce")
+            : enforceDisposition ? "enforce" : "shadow",
           tokenPresent: Boolean(statedStatus),
           statedStatus: statedStatus ?? null,
           hasBlocker: statedDisposition?.hasBlocker === true,
@@ -5824,8 +5896,9 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       });
     }
 
-    // --- Enforcement (gated by PAPERCLIP_DISPOSITION_ENFORCE; default OFF = shadow) ---
-    // Apply only what's self-contained or whose supporting structure we can build:
+    // --- Enforcement ---
+    // Always apply the self-contained terminal close path; keep broader waiting-state
+    // transitions behind PAPERCLIP_DISPOSITION_ENFORCE for now.
     //   done/cancelled → set the agent's explicit terminal decision.
     //   blocked + named blocker → create the prerequisite the agent reported, link it as
     //     a first-class blocker, then set blocked (a real, non-dangling blocked state).
@@ -5833,19 +5906,19 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     //     manager) so it is not a dangling review. blocked WITHOUT a named blocker falls
     //     through to the corrective re-wake. No token also falls through (never guess `done`).
     // Best-effort: a failed apply never breaks the handler.
-    if (enforceDisposition && !dispositionExcluded) {
+    if (!dispositionExcluded && (terminalDispositionStated || enforceDisposition)) {
       try {
         let appliedStatus: string | null = null;
         let createdBlockerId: string | null = null;
         let reviewerAssigned: string | null = null;
-        if (statedStatus === "done" || statedStatus === "cancelled") {
+        if (terminalDispositionStated) {
           const applied = await issuesSvc.update(issue.id, {
             status: statedStatus,
             actorAgentId: run.agentId,
             actorUserId: null,
           });
           if (applied) appliedStatus = statedStatus;
-        } else if (statedStatus === "blocked" && statedBlocker) {
+        } else if (enforceDisposition && statedStatus === "blocked" && statedBlocker) {
           const blockerIssue = await issuesSvc.create(issue.companyId, {
             title: `Unblock: ${statedBlocker.slice(0, 140)}`,
             description: `Auto-created from a stated disposition on ${issue.identifier ?? issue.id}. The agent reported this issue is blocked on: ${statedBlocker}`,
@@ -5862,7 +5935,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
             });
             if (applied) appliedStatus = "blocked";
           }
-        } else if (statedStatus === "in_review") {
+        } else if (enforceDisposition && statedStatus === "in_review") {
           let reviewerAgentId: string | null = null;
           if (statedReviewer) {
             const named = await getAgent(statedReviewer).catch(() => null);
@@ -7532,6 +7605,9 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       intervalSec: Math.max(0, asNumber(heartbeat.intervalSec, 0)),
       wakeOnDemand: asBoolean(heartbeat.wakeOnDemand ?? heartbeat.wakeOnAssignment ?? heartbeat.wakeOnOnDemand ?? heartbeat.wakeOnAutomation, true),
       maxConcurrentRuns: normalizeMaxConcurrentRuns(heartbeat.maxConcurrentRuns),
+      maxRunsPerHour: normalizeOptionalPositiveInteger(
+        heartbeat.maxRunsPerHour ?? heartbeat.hourlyRunLimit ?? heartbeat.hourlyRunCap,
+      ),
       skipTimerWhenNoActionableWork: asBoolean(
         heartbeat.skipTimerWhenNoActionableWork ??
           heartbeat.requireActionableTimerWork ??
@@ -7554,6 +7630,12 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     if (value === null || value === undefined || value === "") return null;
     const normalized = Math.floor(asNumber(value, 0));
     return normalized >= 0 ? normalized : null;
+  }
+
+  function normalizeOptionalPositiveInteger(value: unknown) {
+    if (value === null || value === undefined || value === "") return null;
+    const normalized = Math.floor(asNumber(value, 0));
+    return normalized >= 1 ? normalized : null;
   }
 
   function currentUtcDayWindow(now = new Date()) {
@@ -7747,6 +7829,39 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     return Number(count ?? 0);
   }
 
+  async function getRecentRunUsageForAgent(
+    agentId: string,
+    now: Date,
+    options: { excludeRunId?: string | null } = {},
+  ) {
+    const cutoff = new Date(now.getTime() - (60 * 60 * 1000));
+    const cutoffIso = cutoff.toISOString();
+    const conditions = [
+      eq(heartbeatRuns.agentId, agentId),
+      sql`${heartbeatRuns.createdAt} >= ${cutoffIso}::timestamptz`,
+    ];
+    if (options.excludeRunId) {
+      conditions.push(sql`${heartbeatRuns.id} <> ${options.excludeRunId}`);
+    }
+    const [row] = await db
+      .select({
+        count: sql<number>`count(*)::int`,
+        oldestCreatedAt: sql<Date | null>`min(${heartbeatRuns.createdAt})`,
+      })
+      .from(heartbeatRuns)
+      .where(and(...conditions));
+    const oldestCreatedAt =
+      row?.oldestCreatedAt instanceof Date
+        ? row.oldestCreatedAt
+        : row?.oldestCreatedAt
+          ? new Date(row.oldestCreatedAt)
+          : null;
+    return {
+      count: Number(row?.count ?? 0),
+      nextAllowedAt: oldestCreatedAt ? new Date(oldestCreatedAt.getTime() + (60 * 60 * 1000)) : null,
+    };
+  }
+
   async function claimQueuedRun(run: typeof heartbeatRuns.$inferSelect, companyAgents?: AgentOrgRow[]) {
     if (run.status !== "queued") return run;
     const agent = await getAgent(run.agentId);
@@ -7776,6 +7891,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       agentId: run.agentId,
       adapterType: agent.adapterType,
       agentRuntimeConfig: parseObject(agent.runtimeConfig),
+      excludeRunId: run.id,
       isManualOverride,
     });
     if (runGateBlock) {
@@ -11867,6 +11983,20 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
           await writeSkippedRequest("outside_activity_window");
           return null;
         }
+      }
+    }
+
+    const heartbeatPolicy = parseHeartbeatPolicy(agent);
+    if (heartbeatPolicy.maxRunsPerHour !== null) {
+      const usage = await getRecentRunUsageForAgent(agent.id, new Date());
+      if (usage.count >= heartbeatPolicy.maxRunsPerHour) {
+        await writeSkippedHeartbeatRequest("max_runs_per_hour", {
+          reason: "Per-agent hourly heartbeat cap reached before wake was queued.",
+          maxRunsPerHour: heartbeatPolicy.maxRunsPerHour,
+          runsLastHour: usage.count,
+          nextAllowedAt: usage.nextAllowedAt?.toISOString() ?? null,
+        });
+        return null;
       }
     }
 

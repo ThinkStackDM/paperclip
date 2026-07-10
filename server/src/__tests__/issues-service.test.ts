@@ -3341,6 +3341,65 @@ describeEmbeddedPostgres("issueService blockers and dependency wake readiness", 
         blockerIssueIds: expect.arrayContaining([blockerA, blockerB]),
       }),
     ]);
+    await expect(
+      db
+        .select({ status: issues.status })
+        .from(issues)
+        .where(eq(issues.id, blockedIssueId))
+        .then((rows) => rows[0]?.status ?? null),
+    ).resolves.toBe("todo");
+  });
+
+  it("does not auto-resume dependents blocked by a cancelled blocker", async () => {
+    const companyId = randomUUID();
+    const assigneeAgentId = randomUUID();
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+    await db.insert(agents).values({
+      id: assigneeAgentId,
+      companyId,
+      name: "QA",
+      role: "qa",
+      status: "active",
+      adapterType: "claude_local",
+      adapterConfig: {},
+      runtimeConfig: {},
+      permissions: {},
+    });
+
+    const blockerId = randomUUID();
+    const dependentId = randomUUID();
+    await db.insert(issues).values([
+      { id: blockerId, companyId, title: "Cancelled blocker", status: "cancelled", priority: "medium" },
+      {
+        id: dependentId,
+        companyId,
+        title: "Dependent",
+        status: "blocked",
+        priority: "medium",
+        assigneeAgentId,
+      },
+    ]);
+    await svc.update(dependentId, { blockedByIssueIds: [blockerId] });
+
+    await expect(svc.listWakeableBlockedDependents(blockerId)).resolves.toEqual([]);
+    await expect(
+      db
+        .select({ status: issues.status })
+        .from(issues)
+        .where(eq(issues.id, dependentId))
+        .then((rows) => rows[0]?.status ?? null),
+    ).resolves.toBe("blocked");
+    await expect(svc.getDependencyReadiness(dependentId)).resolves.toMatchObject({
+      unresolvedBlockerIssueIds: [blockerId],
+      allBlockersDone: false,
+      isDependencyReady: false,
+    });
   });
 
   it("treats done blockers on a shared workspace as ready while a foreign issue is in-flight", async () => {
@@ -5795,6 +5854,39 @@ describeEmbeddedPostgres("board action requirements", () => {
     expect(svc.applyBoardActionTitlePrefix("BOARD ACTION REQUIRED: Waiting on board", false)).toBe(
       "Waiting on board",
     );
+  });
+
+  it("treats checkbox confirmations as board actions while they are pending", async () => {
+    const { companyId, issueId } = await seedBoardActionIssue();
+
+    await db.insert(issueThreadInteractions).values({
+      id: randomUUID(),
+      companyId,
+      issueId,
+      kind: "request_checkbox_confirmation",
+      status: "pending",
+      continuationPolicy: "wake_assignee",
+      summary: "ASK / WHY / ACTION",
+      payload: {
+        version: 1,
+        prompt: "Pick the files to delete.",
+        options: [
+          { id: "file-a", label: "a.txt" },
+          { id: "file-b", label: "b.txt" },
+        ],
+      },
+      createdByUserId: "local-board",
+    });
+
+    const result = await svc.getBoardActionRequirements(companyId, [{ id: issueId }]);
+    const requirement = result.get(issueId);
+
+    expect(requirement).toEqual(expect.objectContaining({
+      source: "interaction",
+      sourceKind: "request_checkbox_confirmation",
+      state: "pending_board_decision",
+    }));
+    expect(requirement?.decisionText).toContain("Select the requested options and confirm");
   });
 
   it("does not flag ask-user-questions interactions already assigned to a specific user as board actions", async () => {

@@ -61,7 +61,7 @@ export function dashboardService(db: Db) {
         .then((rows) => Number(rows[0]?.count ?? 0));
 
       // The OTHER ask system: pending issue-thread interactions that need a human decision
-      // (request_confirmation / ask_user_questions), on issues that are still live. Counted
+      // (request_confirmation / request_checkbox_confirmation / ask_user_questions), on issues that are still live. Counted
       // alongside pendingApprovals so the sidebar inbox badge can reflect BOTH ask mechanisms
       // — previously these asks were invisible to the badge unless the issue was also unread-mine.
       const pendingInteractions = await db
@@ -71,7 +71,11 @@ export function dashboardService(db: Db) {
         .where(and(
           eq(issueThreadInteractions.companyId, companyId),
           eq(issueThreadInteractions.status, "pending"),
-          inArray(issueThreadInteractions.kind, ["request_confirmation", "ask_user_questions"]),
+          inArray(issueThreadInteractions.kind, [
+            "request_confirmation",
+            "request_checkbox_confirmation",
+            "ask_user_questions",
+          ]),
           isNull(issues.hiddenAt),
           notInArray(issues.status, ["done", "cancelled"]),
         ))

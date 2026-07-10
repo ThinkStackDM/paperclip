@@ -10,6 +10,7 @@ const mockIssueService = vi.hoisted(() => ({
   getBoardActionRequirements: vi.fn(),
   getAncestors: vi.fn(),
   addComment: vi.fn(),
+  update: vi.fn(),
 }));
 
 const mockInteractionService = vi.hoisted(() => ({
@@ -20,6 +21,7 @@ const mockInteractionService = vi.hoisted(() => ({
   rejectInteraction: vi.fn(),
   rejectSuggestedTasks: vi.fn(),
   expireRequestConfirmationsSupersededByHistoricalComments: vi.fn(),
+  expirePendingInteractionsForIssueState: vi.fn(),
   answerQuestions: vi.fn(),
   cancelQuestions: vi.fn(),
 }));
@@ -191,8 +193,10 @@ describe.sequential("issue thread interaction routes", () => {
       companyId: "company-1",
       body: "Board action required",
     });
+    mockIssueService.update.mockResolvedValue(createIssue());
     mockInteractionService.listForIssue.mockResolvedValue([]);
     mockInteractionService.expireRequestConfirmationsSupersededByHistoricalComments.mockResolvedValue([]);
+    mockInteractionService.expirePendingInteractionsForIssueState.mockResolvedValue([]);
     mockInteractionService.create.mockResolvedValue({
       id: "interaction-1",
       companyId: "company-1",
@@ -397,6 +401,20 @@ describe.sequential("issue thread interaction routes", () => {
         }),
       }),
     );
+  });
+
+  it("rejects PATCH writes to derived boardActionRequired", async () => {
+    const app = await createApp();
+
+    const res = await request(app)
+      .patch("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+      .send({ boardActionRequired: false });
+
+    expect(res.status).toBe(422);
+    expect(res.body).toEqual({
+      error: "boardActionRequired is derived from pending interactions and cannot be patched directly",
+    });
+    expect(mockIssueService.update).not.toHaveBeenCalled();
   });
 
   it("accepts suggested tasks and wakes created assignees plus the current assignee", async () => {
@@ -1063,6 +1081,87 @@ describe.sequential("issue thread interaction routes", () => {
     expect(mockIssueService.addComment).toHaveBeenCalledWith(
       "tracker-1",
       expect.stringContaining("MC-12"),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it("posts a board-action notice to the tracker ancestor when a checkbox confirmation becomes pending", async () => {
+    mockInteractionService.create.mockResolvedValueOnce({
+      id: "interaction-board-checkbox",
+      companyId: "company-1",
+      issueId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      kind: "request_checkbox_confirmation",
+      status: "pending",
+      continuationPolicy: "wake_assignee",
+      idempotencyKey: null,
+      sourceCommentId: null,
+      sourceRunId: null,
+      payload: {
+        version: 1,
+        prompt: "Pick the files to delete.",
+        options: [{ id: "file-a", label: "a.txt" }],
+      },
+      result: null,
+      summary: "ASK / WHY / ACTION",
+      createdAt: "2026-04-20T12:00:00.000Z",
+      updatedAt: "2026-04-20T12:00:00.000Z",
+    });
+    mockIssueService.getBoardActionRequirements
+      .mockResolvedValueOnce(new Map())
+      .mockResolvedValueOnce(new Map([
+        [
+          "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          {
+            source: "interaction",
+            kind: "interaction",
+            state: "pending_board_decision",
+            sourceId: "interaction-board-checkbox",
+            sourceKind: "request_checkbox_confirmation",
+            title: "Select files",
+            summary: "Need operator selection",
+            createdAt: new Date("2026-04-20T12:00:00.000Z"),
+            decisionText: "Select the requested options and confirm on the file-selection interaction.",
+            resumeText: "Execution resumes after the interaction is resolved.",
+          },
+        ],
+      ]));
+    mockIssueService.getAncestors.mockResolvedValueOnce([
+      {
+        id: "tracker-1",
+        identifier: "MC-12",
+        title: "MC v12 coordination tracker",
+      },
+    ]);
+    const app = await createApp();
+
+    const res = await request(app)
+      .post("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/interactions")
+      .send({
+        kind: "request_checkbox_confirmation",
+        summary: "ASK: Pick the files to delete. WHY: Operator confirmation is required. ACTION: Select the files and confirm.",
+        continuationPolicy: "wake_assignee",
+        payload: {
+          version: 1,
+          prompt: "Pick the files to delete.",
+          options: [{ id: "file-a", label: "a.txt" }],
+        },
+      });
+
+    expect(res.status).toBe(201);
+    expect(mockIssueService.addComment).toHaveBeenCalledWith(
+      "tracker-1",
+      expect.stringContaining("Board action required:"),
+      expect.objectContaining({
+        userId: "local-board",
+      }),
+      expect.objectContaining({
+        authorType: "user",
+      }),
+    );
+    expect(mockIssueService.addComment).toHaveBeenCalledWith(
+      "tracker-1",
+      expect.stringContaining("interaction-board-checkbox"),
       expect.anything(),
       expect.anything(),
     );

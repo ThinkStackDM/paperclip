@@ -380,7 +380,7 @@ describe("IssueChatThread system notice routing", () => {
     expect(sourceLink?.textContent).toBe("Paperclip");
   });
 
-  it("keeps agent-authored comments as assistant bubbles even when presentation requests system_notice", () => {
+  it("renders agent-authored comments as system activity when presentation explicitly marks them as system_notice", () => {
     const comment: IssueChatComment = {
       id: "comment-agent-system",
       companyId: "company-1",
@@ -401,8 +401,64 @@ describe("IssueChatThread system notice routing", () => {
 
     renderThread([comment]);
 
-    expect(container.querySelector('[role="status"]')).toBeNull();
-    expect(container.querySelector('[data-message-role="assistant"]')).not.toBeNull();
+    expect(container.querySelector('[role="status"]')).not.toBeNull();
+    expect(container.querySelector('[data-message-role="assistant"]')).toBeNull();
+  });
+
+  it("groups consecutive system notices behind a collapsed system activity band", async () => {
+    const comments: IssueChatComment[] = [
+      {
+        id: "comment-system-1",
+        companyId: "company-1",
+        issueId: "issue-1",
+        authorType: "system",
+        authorAgentId: null,
+        authorUserId: null,
+        body: "Paperclip needs a disposition before this issue can continue.",
+        presentation: {
+          kind: "system_notice",
+          tone: "warning",
+          title: "Missing issue disposition",
+          detailsDefaultOpen: false,
+        },
+        metadata: null,
+        ...baseTimestamps,
+      },
+      {
+        id: "comment-system-2",
+        companyId: "company-1",
+        issueId: "issue-1",
+        authorType: "system",
+        authorAgentId: null,
+        authorUserId: null,
+        body: "Board action resolved — no board decision is pending.",
+        presentation: {
+          kind: "system_notice",
+          tone: "info",
+          title: "Board action resolved",
+          detailsDefaultOpen: false,
+        },
+        metadata: null,
+        createdAt: new Date("2026-05-04T16:33:00.000Z"),
+        updatedAt: new Date("2026-05-04T16:33:00.000Z"),
+      },
+    ];
+
+    renderThread(comments);
+
+    expect(container.textContent).toContain("System activity");
+    expect(container.textContent).toContain("2 updates");
+    expect(container.querySelectorAll('[role="status"]')).toHaveLength(0);
+
+    const toggle = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent?.includes("System activity")) as HTMLButtonElement | undefined;
+    expect(toggle).toBeDefined();
+
+    await act(async () => {
+      toggle?.click();
+    });
+
+    expect(container.querySelectorAll('[role="status"]').length).toBeGreaterThanOrEqual(2);
   });
 
   it("folds stale successful-run disposition warnings into the activity log disclosure style", () => {

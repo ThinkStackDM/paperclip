@@ -35,6 +35,8 @@ import {
   createDocumentAnnotationThreadSchema,
   createChildIssueSchema,
   createIssueSchema,
+  buildIssueCommentSystemActivityPresentation,
+  classifyIssueCommentSystemActivity,
   resolveCreateIssueStatusDefault,
   resolveIssueRecoveryActionSchema,
   feedbackTargetTypeSchema,
@@ -154,6 +156,7 @@ import { externalObjectService } from "../services/external-objects.js";
 const MAX_ISSUE_COMMENT_LIMIT = 500;
 const updateIssueRouteSchema = updateIssueSchema.extend({
   interrupt: z.boolean().optional(),
+  boardActionRequired: z.unknown().optional(),
 });
 const refreshExternalObjectsSchema = z.object({
   objectIds: z.array(z.string().uuid()).max(50).optional(),
@@ -1974,6 +1977,7 @@ export function issueRoutes(
     issue: { assigneeUserId?: string | null },
   ) {
     if (interaction.kind === "request_confirmation") return true;
+    if (interaction.kind === "request_checkbox_confirmation") return true;
     if (interaction.kind === "ask_user_questions" && !issue.assigneeUserId) return true;
     return false;
   }
@@ -2021,6 +2025,15 @@ export function issueRoutes(
           runId: actor.runId,
         }, {
           authorType: actor.actorType === "agent" ? "agent" : "user",
+          presentation: (() => {
+            const classification = classifyIssueCommentSystemActivity({
+              body: buildBoardActionResolvedBody(interaction),
+              authorType: actor.actorType,
+              authorAgentId: actor.agentId ?? null,
+              authorUserId: actor.actorType === "user" ? actor.actorId : null,
+            });
+            return classification ? buildIssueCommentSystemActivityPresentation(classification) : null;
+          })(),
         });
         return;
       } catch (err) {
@@ -3810,8 +3823,9 @@ export function issueRoutes(
     // wake-prompt workflow). The agent reads heartbeat-context as "the task", so this is
     // where the structured-token requirement reliably lands: the bench's task-content
     // placement got ~94% emit vs ~0% when it lived only in the wake prompt. The adapter
-    // captures the line into resultJson.disposition; the server shadow-logs it (applies
-    // nothing) until live emit-rates confirm enforcement is safe.
+    // captures the line into resultJson.disposition; the server uses explicit terminal
+    // states from that token as the auth/timeout close-path fallback, while broader
+    // waiting-state enforcement remains gated.
     const dispositionContract =
       "Before you finish, the FINAL line of your response MUST be your chosen disposition " +
       "as JSON — Paperclip records your decision from this line even if a status PATCH " +
@@ -6410,6 +6424,12 @@ export function issueRoutes(
     assertNoAgentHostWorkspaceCommandMutation(req, collectIssueWorkspaceCommandPaths(req.body));
     if (!(await assertAgentIssueMutationAllowed(req, res, existing))) return;
     if (!(await assertCheapRecoveryIssueAssigneeProfileAllowed(req, res, existing, req.body))) return;
+    if (Object.prototype.hasOwnProperty.call(req.body, "boardActionRequired")) {
+      res.status(422).json({
+        error: "boardActionRequired is derived from pending interactions and cannot be patched directly",
+      });
+      return;
+    }
 
     const actor = getActorInfo(req);
     const isClosed = isClosedIssueStatus(existing.status);
@@ -6779,6 +6799,27 @@ export function issueRoutes(
     if (!issue) {
       res.status(404).json({ error: "Issue not found" });
       return;
+    }
+
+    const assigneeChanged =
+      issue.assigneeAgentId !== existing.assigneeAgentId || issue.assigneeUserId !== existing.assigneeUserId;
+    const staleStateExpiredInteractions =
+      isClosedIssueStatus(issue.status) || assigneeChanged
+        ? await issueThreadInteractionService(db).expirePendingInteractionsForIssueState(
+          issue,
+          {
+            agentId: actor.agentId,
+            userId: actor.actorType === "user" ? actor.actorId : null,
+          },
+        )
+        : [];
+    if (staleStateExpiredInteractions.length > 0) {
+      await logExpiredRequestConfirmations({
+        issue,
+        interactions: staleStateExpiredInteractions,
+        actor,
+        source: isClosedIssueStatus(issue.status) ? "issue.update.closed" : "issue.update.reassigned",
+      });
     }
 
     let cancelledStatusRunId: string | null = null;
@@ -7195,8 +7236,6 @@ export function issueRoutes(
       };
     }
 
-    const assigneeChanged =
-      issue.assigneeAgentId !== existing.assigneeAgentId || issue.assigneeUserId !== existing.assigneeUserId;
     const statusChangedFromBacklog =
       existing.status === "backlog" &&
       issue.status !== "backlog" &&
@@ -7704,6 +7743,18 @@ export function issueRoutes(
       actor,
       source: "issue.interactions.catchup_superseded_by_comment",
     });
+    const staleStateInteractions = isClosedIssueStatus(issue.status)
+      ? await interactionSvc.expirePendingInteractionsForIssueState(issue, {
+        agentId: actor.agentId,
+        userId: actor.actorType === "user" ? actor.actorId : null,
+      })
+      : [];
+    await logExpiredRequestConfirmations({
+      issue,
+      interactions: staleStateInteractions,
+      actor,
+      source: "issue.interactions.catchup_invalid_issue_state",
+    });
 
     const interactions = await interactionSvc.listForIssue(id);
     res.json(interactions);
@@ -7728,6 +7779,7 @@ export function issueRoutes(
     const agentSourceRunId = req.actor.type === "agent" ? requireAgentRunId(req, res) : null;
     if (req.actor.type === "agent" && !agentSourceRunId) return;
     const boardActionRelevantInteraction = req.body.kind === "request_confirmation" ||
+      req.body.kind === "request_checkbox_confirmation" ||
       (req.body.kind === "ask_user_questions" && !issue.assigneeUserId);
     const hadBoardActionRequirement = boardActionRelevantInteraction
       ? (await svc.getBoardActionRequirements(issue.companyId, [issue])).has(issue.id)

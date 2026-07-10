@@ -71,6 +71,30 @@ type IssueResolutionContext = {
   status: string;
   assigneeAgentId: string | null;
   assigneeUserId: string | null;
+  priority?: string | null;
+  monitorNextCheckAt?: Date | string | null;
+  monitorNotes?: string | null;
+  monitorScheduledBy?: string | null;
+};
+
+type AutoDefaultEligibleIssue = Pick<
+  IssueResolutionContext,
+  "id" | "companyId" | "status" | "assigneeAgentId" | "assigneeUserId" | "priority" | "monitorNextCheckAt" | "monitorNotes" | "monitorScheduledBy"
+>;
+
+type AutoDefaultResolution = {
+  interaction: IssueThreadInteraction;
+  continuationIssue: IssueWakeTarget | null;
+  dueAt: string;
+};
+
+const AUTO_DEFAULT_MONITOR_NOTE = "paperclip:auto-default";
+const AUTO_DEFAULT_KILL_SWITCH_ENV = "AUTODEFAULT_DISABLED";
+const AUTO_DEFAULT_SLA_MS_BY_PRIORITY: Record<string, number> = {
+  critical: 24 * 60 * 60 * 1000,
+  high: 48 * 60 * 60 * 1000,
+  medium: 72 * 60 * 60 * 1000,
+  low: 72 * 60 * 60 * 1000,
 };
 
 const REQUEST_CONFIRMATION_INTERACTION_KINDS = [
@@ -216,6 +240,123 @@ function isCommentAtOrAfterInteraction(args: {
   const interactionCreatedAtMs = new Date(args.interactionCreatedAt).getTime();
   if (!Number.isFinite(commentCreatedAtMs) || !Number.isFinite(interactionCreatedAtMs)) return false;
   return commentCreatedAtMs >= interactionCreatedAtMs;
+}
+
+function autoDefaultIsDisabled() {
+  return process.env[AUTO_DEFAULT_KILL_SWITCH_ENV] === "1";
+}
+
+function getAutoDefaultSlaMs(priority: string | null | undefined) {
+  return AUTO_DEFAULT_SLA_MS_BY_PRIORITY[priority ?? ""] ?? AUTO_DEFAULT_SLA_MS_BY_PRIORITY.medium;
+}
+
+function getAutoDefaultDueAt(input: {
+  createdAt: Date | string;
+  priority: string | null | undefined;
+}) {
+  const createdAtMs = new Date(input.createdAt).getTime();
+  if (!Number.isFinite(createdAtMs)) return null;
+  return new Date(createdAtMs + getAutoDefaultSlaMs(input.priority));
+}
+
+function getRequestConfirmationAutoDefaultPolicy(interaction: RequestConfirmationInteraction) {
+  const policy = interaction.payload.autoDefault ?? null;
+  if (!policy || policy.decisionClass !== "R") return null;
+  return policy;
+}
+
+function buildAutoDefaultAppliedComment(input: {
+  interaction: RequestConfirmationInteraction;
+  issuePriority: string | null | undefined;
+  dueAt: Date;
+}) {
+  const title = input.interaction.title?.trim() ? ` "${input.interaction.title.trim()}"` : "";
+  const policy = input.interaction.payload.autoDefault!;
+  return [
+    "AUTO-DEFAULT APPLIED",
+    "",
+    `- Interaction${title}: request_confirmation`,
+    `- Class: ${policy.decisionClass}`,
+    `- Priority SLA: ${input.issuePriority ?? "medium"} elapsed at ${input.dueAt.toISOString()}`,
+    `- Applied default: ${policy.defaultDecision}`,
+    `- Kill switch: set \`${AUTO_DEFAULT_KILL_SWITCH_ENV}=1\` to disable future auto-default application.`,
+    "",
+    "## Revert",
+    policy.revertInstructionsMarkdown,
+  ].join("\n");
+}
+
+async function syncAutoDefaultMonitor(db: Db | any, issueId: string) {
+  const issue = await db
+    .select({
+      id: issues.id,
+      companyId: issues.companyId,
+      status: issues.status,
+      assigneeAgentId: issues.assigneeAgentId,
+      assigneeUserId: issues.assigneeUserId,
+      priority: issues.priority,
+      monitorNextCheckAt: issues.monitorNextCheckAt,
+      monitorNotes: issues.monitorNotes,
+      monitorScheduledBy: issues.monitorScheduledBy,
+    })
+    .from(issues)
+    .where(eq(issues.id, issueId))
+    .then((rows: AutoDefaultEligibleIssue[]) => rows[0] ?? null);
+
+  if (!issue) return;
+
+  const isOurMonitor = issue.monitorNotes === AUTO_DEFAULT_MONITOR_NOTE;
+  const canSchedule =
+    Boolean(issue.assigneeAgentId)
+    && !issue.assigneeUserId
+    && (issue.status === "in_progress" || issue.status === "in_review");
+
+  const rows = canSchedule && !autoDefaultIsDisabled()
+    ? await db
+      .select()
+      .from(issueThreadInteractions)
+      .where(and(
+        eq(issueThreadInteractions.companyId, issue.companyId),
+        eq(issueThreadInteractions.issueId, issue.id),
+        eq(issueThreadInteractions.kind, "request_confirmation"),
+        eq(issueThreadInteractions.status, "pending"),
+      ))
+    : [];
+
+  const earliestDueAt = rows
+    .map((row: IssueThreadInteractionRow) => hydrateInteraction(row) as RequestConfirmationInteraction)
+    .filter((interaction: RequestConfirmationInteraction) => Boolean(getRequestConfirmationAutoDefaultPolicy(interaction)))
+    .map((interaction: RequestConfirmationInteraction) =>
+      getAutoDefaultDueAt({ createdAt: interaction.createdAt, priority: issue.priority }))
+    .filter((value: Date | null): value is Date => Boolean(value))
+    .sort((a: Date, b: Date) => a.getTime() - b.getTime())[0] ?? null;
+
+  if (earliestDueAt && (isOurMonitor || !issue.monitorNextCheckAt)) {
+    await db
+      .update(issues)
+      .set({
+        monitorNextCheckAt: earliestDueAt,
+        monitorWakeRequestedAt: null,
+        monitorNotes: AUTO_DEFAULT_MONITOR_NOTE,
+        monitorScheduledBy: "board",
+        updatedAt: new Date(),
+      })
+      .where(eq(issues.id, issue.id));
+    return;
+  }
+
+  if (!earliestDueAt && isOurMonitor) {
+    await db
+      .update(issues)
+      .set({
+        monitorNextCheckAt: null,
+        monitorWakeRequestedAt: null,
+        monitorNotes: null,
+        monitorScheduledBy: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(issues.id, issue.id));
+  }
 }
 
 function buildTaskCreationOrder(tasks: ReadonlyArray<SuggestTasksInteraction["payload"]["tasks"][number]>) {
@@ -518,6 +659,7 @@ async function expireStaleRequestConfirmationTarget(db: Db | any, args: {
     throw conflict("Interaction has already been resolved");
   }
   await touchIssue(db, args.row.issueId);
+  await syncAutoDefaultMonitor(db, args.row.issueId);
   return hydrateInteraction(updated);
 }
 
@@ -593,6 +735,7 @@ export function issueThreadInteractionService(db: Db) {
     current: IssueThreadInteractionRow;
     input: AcceptIssueThreadInteraction;
     actor: InteractionActor;
+    resolutionSource?: "auto_default";
   }): Promise<{
     interaction: IssueThreadInteraction;
     continuationIssue: IssueWakeTarget | null;
@@ -623,6 +766,7 @@ export function issueThreadInteractionService(db: Db) {
           result: {
             version: 1,
             outcome: "accepted",
+            ...(args.resolutionSource ? { resolutionSource: args.resolutionSource } : {}),
             ...(selectedOptionIds ? { selectedOptionIds } : {}),
           },
           resolvedByAgentId: args.actor.agentId ?? null,
@@ -735,6 +879,7 @@ export function issueThreadInteractionService(db: Db) {
       throw conflict("Interaction has already been resolved");
     }
     await touchIssue(db, args.issue.id);
+    await syncAutoDefaultMonitor(db, args.issue.id);
     return hydrateInteraction(updated);
   }
 
@@ -856,6 +1001,7 @@ export function issueThreadInteractionService(db: Db) {
       }
 
       await touchIssue(db, issue.id);
+      await syncAutoDefaultMonitor(db, issue.id);
       return hydrateInteraction(created);
     },
 
@@ -881,6 +1027,7 @@ export function issueThreadInteractionService(db: Db) {
             input: data,
             actor,
           });
+          await syncAutoDefaultMonitor(db, issue.id);
           return {
             interaction: accepted.interaction,
             continuationIssue: accepted.continuationIssue,
@@ -895,6 +1042,7 @@ export function issueThreadInteractionService(db: Db) {
             input: data,
             actor,
           });
+          await syncAutoDefaultMonitor(db, issue.id);
           return {
             interaction: accepted.interaction,
             continuationIssue: accepted.continuationIssue,
@@ -1118,7 +1266,73 @@ export function issueThreadInteractionService(db: Db) {
       }
 
       await touchIssue(db, issue.id);
+      await syncAutoDefaultMonitor(db, issue.id);
       return hydrateInteraction(updated);
+    },
+
+    resolveDueAutoDefaultsForIssue: async (
+      issue: AutoDefaultEligibleIssue,
+      actor: InteractionActor,
+      input?: { now?: Date },
+    ): Promise<AutoDefaultResolution[]> => {
+      if (autoDefaultIsDisabled()) {
+        await syncAutoDefaultMonitor(db, issue.id);
+        return [];
+      }
+
+      const now = input?.now ?? new Date();
+      const rows = await db
+        .select()
+        .from(issueThreadInteractions)
+        .where(and(
+          eq(issueThreadInteractions.companyId, issue.companyId),
+          eq(issueThreadInteractions.issueId, issue.id),
+          eq(issueThreadInteractions.kind, "request_confirmation"),
+          eq(issueThreadInteractions.status, "pending"),
+        ));
+
+      const resolved: AutoDefaultResolution[] = [];
+      for (const row of rows) {
+        const interaction = hydrateInteraction(row) as RequestConfirmationInteraction;
+        const policy = getRequestConfirmationAutoDefaultPolicy(interaction);
+        if (!policy) continue;
+        const dueAt = getAutoDefaultDueAt({ createdAt: interaction.createdAt, priority: issue.priority });
+        if (!dueAt || dueAt.getTime() > now.getTime()) continue;
+
+        const accepted = await acceptRequestConfirmation({
+          issue,
+          current: row,
+          input: {},
+          actor,
+          resolutionSource: "auto_default",
+        });
+        const resolvedInteraction = accepted.interaction as RequestConfirmationInteraction;
+        if (resolvedInteraction.status === "accepted") {
+          await issueService(db).addComment(
+            issue.id,
+            buildAutoDefaultAppliedComment({
+              interaction: resolvedInteraction,
+              issuePriority: issue.priority,
+              dueAt,
+            }),
+            {
+              agentId: actor.agentId ?? undefined,
+              userId: actor.userId ?? undefined,
+            },
+            {
+              ...(actor.agentId || actor.userId ? {} : { authorType: "system" as const }),
+            },
+          );
+        }
+        resolved.push({
+          interaction: resolvedInteraction,
+          continuationIssue: accepted.continuationIssue,
+          dueAt: dueAt.toISOString(),
+        });
+      }
+
+      await syncAutoDefaultMonitor(db, issue.id);
+      return resolved;
     },
 
     expireRequestConfirmationsSupersededByComment: async (
@@ -1178,6 +1392,7 @@ export function issueThreadInteractionService(db: Db) {
 
       if (expired.length > 0) {
         await touchIssue(db, issue.id);
+        await syncAutoDefaultMonitor(db, issue.id);
       }
       return expired;
     },
@@ -1263,6 +1478,7 @@ export function issueThreadInteractionService(db: Db) {
 
       if (expired.length > 0) {
         await touchIssue(db, issue.id);
+        await syncAutoDefaultMonitor(db, issue.id);
       }
       return expired;
     },
@@ -1338,8 +1554,38 @@ export function issueThreadInteractionService(db: Db) {
 
       if (expired.length > 0) {
         await touchIssue(db, issue.id);
+        await syncAutoDefaultMonitor(db, issue.id);
       }
       return expired;
+    },
+
+    expirePendingInteractionsForIssueState: async (
+      issue: { id: string; companyId: string },
+      actor: InteractionActor,
+    ) => {
+      const now = new Date();
+      const updatedRows = await db
+        .update(issueThreadInteractions)
+        .set({
+          status: "expired",
+          resolvedByAgentId: actor.agentId ?? null,
+          resolvedByUserId: actor.userId ?? null,
+          resolvedAt: now,
+          updatedAt: now,
+        })
+        .where(and(
+          eq(issueThreadInteractions.companyId, issue.companyId),
+          eq(issueThreadInteractions.issueId, issue.id),
+          eq(issueThreadInteractions.status, "pending"),
+        ))
+        .returning();
+
+      if (updatedRows.length > 0) {
+        await touchIssue(db, issue.id);
+        await syncAutoDefaultMonitor(db, issue.id);
+      }
+
+      return updatedRows.map((row) => hydrateInteraction(row));
     },
 
     answerQuestions: async (
@@ -1396,6 +1642,7 @@ export function issueThreadInteractionService(db: Db) {
       }
 
       await touchIssue(db, issue.id);
+      await syncAutoDefaultMonitor(db, issue.id);
       return hydrateInteraction(updated);
     },
 
@@ -1451,6 +1698,7 @@ export function issueThreadInteractionService(db: Db) {
       }
 
       await touchIssue(db, issue.id);
+      await syncAutoDefaultMonitor(db, issue.id);
       return hydrateInteraction(updated);
     },
   };

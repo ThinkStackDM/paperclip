@@ -2651,6 +2651,102 @@ function IssueChatMetadataRow({
   );
 }
 
+function isThreadMessage(value: unknown): value is ThreadMessage {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    "id" in (value as Record<string, unknown>) &&
+    "role" in (value as Record<string, unknown>) &&
+    "content" in (value as Record<string, unknown>),
+  );
+}
+
+function extractSystemActivityItems(message: ThreadMessage) {
+  const custom = message.metadata.custom as { systemActivityItems?: unknown } | undefined;
+  if (!Array.isArray(custom?.systemActivityItems)) return [];
+  return custom.systemActivityItems.filter(isThreadMessage);
+}
+
+function messageMatchesAnchor(message: ThreadMessage, anchorId: string) {
+  if (issueChatMessageAnchorId(message) === anchorId) return true;
+  return extractSystemActivityItems(message).some((item) => issueChatMessageAnchorId(item) === anchorId);
+}
+
+function systemActivitySummaryLabel(items: readonly ThreadMessage[]) {
+  const count = items.length;
+  return `${count} update${count === 1 ? "" : "s"}`;
+}
+
+function createdAtMs(value: Date | string | null | undefined) {
+  if (!value) return 0;
+  return new Date(value).getTime();
+}
+
+function SystemActivityGroupRow({
+  message,
+  anchorId,
+}: {
+  message: ThreadMessage;
+  anchorId?: string;
+}) {
+  const location = useLocation();
+  const items = extractSystemActivityItems(message);
+  const [open, setOpen] = useState(() => {
+    const hash = typeof window === "undefined" ? "" : window.location.hash;
+    const targetAnchor = hash.startsWith("#") ? hash.slice(1) : "";
+    return targetAnchor.length > 0 && items.some((item) => messageMatchesAnchor(item, targetAnchor));
+  });
+
+  useEffect(() => {
+    const targetAnchor = location.hash.startsWith("#") ? location.hash.slice(1) : "";
+    if (!targetAnchor) return;
+    if (items.some((item) => messageMatchesAnchor(item, targetAnchor))) {
+      setOpen(true);
+    }
+  }, [items, location.hash]);
+
+  const firstCreatedAt = items[0]?.createdAt ?? message.createdAt;
+  const lastCreatedAt = items[items.length - 1]?.createdAt ?? message.createdAt;
+
+  return (
+    <div id={anchorId} className="py-1.5">
+      <div className="overflow-hidden rounded-lg border border-border/70 bg-muted/20">
+        <button
+          type="button"
+          className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/40"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+        >
+          <div className="min-w-0 flex-1">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              System activity
+            </div>
+            <div className="mt-0.5 text-sm text-foreground/80">
+              {systemActivitySummaryLabel(items)}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+            <span>
+              {commentDateLabel(firstCreatedAt)}
+              {lastCreatedAt && createdAtMs(lastCreatedAt) !== createdAtMs(firstCreatedAt)
+                ? ` -> ${commentDateLabel(lastCreatedAt)}`
+                : ""}
+            </span>
+            <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")} />
+          </div>
+        </button>
+        {open ? (
+          <div className="border-t border-border/70 px-2 py-2">
+            {items.map((item) => (
+              <IssueChatSystemMessage key={item.id} message={item} />
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function IssueChatSystemMessage({ message }: { message: ThreadMessage }) {
   const {
     agentMap,
@@ -2689,6 +2785,15 @@ function IssueChatSystemMessage({ message }: { message: ThreadMessage }) {
   if (custom.kind === "system_notice") {
     return (
       <SystemNoticeCommentRow
+        message={message}
+        anchorId={anchorId}
+      />
+    );
+  }
+
+  if (custom.kind === "system_activity_group") {
+    return (
+      <SystemActivityGroupRow
         message={message}
         anchorId={anchorId}
       />
@@ -2951,14 +3056,25 @@ function issueChatMessageAnchorId(message: ThreadMessage): string | null {
   return typeof custom?.anchorId === "string" ? custom.anchorId : null;
 }
 
+function issueChatMessageAnchorIds(message: ThreadMessage): string[] {
+  const anchors = new Set<string>();
+  const primaryAnchor = issueChatMessageAnchorId(message);
+  if (primaryAnchor) anchors.add(primaryAnchor);
+  for (const item of extractSystemActivityItems(message)) {
+    const itemAnchor = issueChatMessageAnchorId(item);
+    if (itemAnchor) anchors.add(itemAnchor);
+  }
+  return [...anchors];
+}
+
 function findMessageAnchorIndex(messages: readonly ThreadMessage[], anchorId: string): number {
-  return messages.findIndex((message) => issueChatMessageAnchorId(message) === anchorId);
+  return messages.findIndex((message) => issueChatMessageAnchorIds(message).includes(anchorId));
 }
 
 export function findLatestCommentMessageIndex(messages: readonly ThreadMessage[]): number {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const anchorId = issueChatMessageAnchorId(messages[index]);
-    if (anchorId && anchorId.startsWith("comment-")) return index;
+    const anchorIds = issueChatMessageAnchorIds(messages[index]);
+    if (anchorIds.some((anchorId) => anchorId.startsWith("comment-"))) return index;
   }
   return -1;
 }
@@ -4327,8 +4443,9 @@ export function IssueChatThread({
   const messageAnchorIndex = useMemo(() => {
     const map = new Map<string, number>();
     messages.forEach((message, index) => {
-      const anchorId = issueChatMessageAnchorId(message);
-      if (anchorId) map.set(anchorId, index);
+      for (const anchorId of issueChatMessageAnchorIds(message)) {
+        map.set(anchorId, index);
+      }
     });
     return map;
   }, [messages]);
@@ -4437,7 +4554,7 @@ export function IssueChatThread({
     if (messages.length === 0 || lastScrolledHashRef.current === hash) return;
     const targetId = hash.slice(1);
     if (targetId.startsWith("comment-")) {
-      const targetMessage = messages.find((message) => issueChatMessageAnchorId(message) === targetId);
+      const targetMessage = messages.find((message) => issueChatMessageAnchorIds(message).includes(targetId));
       if (targetMessage && issueChatMessageIsDeleted(targetMessage)) {
         lastScrolledHashRef.current = hash;
         if (typeof window !== "undefined") {

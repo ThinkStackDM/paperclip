@@ -23,6 +23,13 @@ export {
   type MarkdownDoc,
 } from "./frontmatter.js";
 export {
+  buildIssueCommentSystemActivityPresentation,
+  classifyIssueCommentSystemActivity,
+  type IssueCommentSystemActivityClassification,
+  type IssueCommentSystemActivityKind,
+  type IssueCommentSystemActivityLike,
+} from "./issue-system-activity.js";
+export {
   TRUST_PRESETS,
   DEFAULT_TRUST_PRESET,
   LOW_TRUST_REVIEW_PRESET,
@@ -597,6 +604,7 @@ export type {
   AskUserQuestionsPayload,
   AskUserQuestionsAnswer,
   AskUserQuestionsResult,
+  RequestConfirmationAutoDefaultPolicy,
   RequestConfirmationIssueDocumentTarget,
   RequestConfirmationCustomTarget,
   RequestConfirmationTarget,
@@ -1130,6 +1138,7 @@ export {
   requestConfirmationIssueDocumentTargetSchema,
   requestConfirmationCustomTargetSchema,
   requestConfirmationTargetSchema,
+  requestConfirmationAutoDefaultPolicySchema,
   requestConfirmationPayloadSchema,
   requestConfirmationResultSchema,
   requiredAskSummarySchema,

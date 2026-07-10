@@ -2596,6 +2596,9 @@ function boardActionDecisionTextFromInteraction(input: {
   if (input.kind === "request_confirmation") {
     return `Approve, reject, or request revision${interactionName}.`;
   }
+  if (input.kind === "request_checkbox_confirmation") {
+    return `Select the requested options and confirm${interactionName}.`;
+  }
   return `Respond to the open question${interactionName}.`;
 }
 
@@ -2607,7 +2610,13 @@ function isBoardActionInteraction(
   interaction: { kind: string; issueId: string; title: string | null; summary: string | null },
   issueRow: { assigneeUserId?: string | null },
 ) {
-  if (interaction.kind !== "request_confirmation" && interaction.kind !== "ask_user_questions") return false;
+  if (
+    interaction.kind !== "request_confirmation"
+    && interaction.kind !== "request_checkbox_confirmation"
+    && interaction.kind !== "ask_user_questions"
+  ) {
+    return false;
+  }
   if (interaction.kind === "ask_user_questions" && issueRow.assigneeUserId) return false;
   return true;
 }
@@ -4869,12 +4878,36 @@ export function issueService(db: Db) {
         wakeableCandidates.map((candidate) => candidate.id),
       );
 
-      return wakeableCandidates
+      const readyCandidates = wakeableCandidates
         .map((candidate) => {
           const readiness = readinessMap.get(candidate.id) ?? createIssueDependencyReadiness(candidate.id);
           return { candidate, readiness };
         })
-        .filter(({ readiness }) => readiness.isDependencyReady && readiness.blockerIssueIds.length > 0)
+        .filter(({ readiness }) => readiness.isDependencyReady && readiness.blockerIssueIds.length > 0);
+
+      const readyBlockedCandidateIds = readyCandidates
+        .filter(({ candidate }) => candidate.status === "blocked")
+        .map(({ candidate }) => candidate.id);
+      if (readyBlockedCandidateIds.length > 0) {
+        // Auto-resume blocked dependents as soon as their final blocker resolves so
+        // the issue state matches the wake path and blocked-chain watchdogs do not
+        // keep reading the dependency as terminal-but-still-linked.
+        await db
+          .update(issues)
+          .set({
+            status: "todo",
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(issues.companyId, blockerIssue.companyId),
+              inArray(issues.id, readyBlockedCandidateIds),
+              eq(issues.status, "blocked"),
+            ),
+          );
+      }
+
+      return readyCandidates
         .map(({ candidate, readiness }) => ({
           id: candidate.id,
           assigneeAgentId: candidate.assigneeAgentId!,
