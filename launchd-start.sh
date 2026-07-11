@@ -40,7 +40,11 @@ if [ -x "$NODE_V20_BIN/node" ]; then
   export PATH="$NODE_V20_BIN:$PATH"
 fi
 export PAPERCLIP_UI_DEV_MIDDLEWARE=true
-export DATABASE_URL="${DATABASE_URL:-postgres://paperclip:paperclip@127.0.0.1:54329/paperclip}"
+# 2026-07-11 DB-wipe hardening: DATABASE_URL deliberately NOT exported. The server
+# reads it from ~/.paperclip/instances/default/config.json (database.connectionString),
+# so no child process — tsx, esbuild, agent lanes — can ever inherit the control-plane
+# URL from the environment. Never reintroduce an env export here (2026-06-29 SEV-1).
+unset DATABASE_URL
 ROOT="$HOME/paperclip"
 cd "$ROOT"
 
