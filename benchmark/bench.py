@@ -178,10 +178,12 @@ def execute(cells, cfg, run_dir):
                 raw = paperclip_lane.run_case(task, m, cfg, timeout)
             else:
                 raw = run_model(task["prompt"], m, adapters_cfg, timeout)
+            serving = benchlib.serving_truth(m.get("model_arg") or m["id"], raw.get("model"), raw.get("modelSource"))
             scored = score_run(task, raw, cfg, adapters_cfg, timeout)
         except Exception as e:  # never let one cell kill the sweep
             raw = benchlib.empty_result()
             raw["error"] = f"harness exception: {e}"
+            serving = benchlib.serving_truth(m.get("model_arg") or m["id"], raw.get("model"), raw.get("modelSource"))
             scored = {"quality": None, "qualityPer1kTokens": None,
                       "deterministicScore": None, "judgeScore": None}
         rec = {
@@ -190,6 +192,13 @@ def execute(cells, cfg, run_dir):
             "ok": raw.get("ok"), "error": raw.get("error"),
             "output": raw.get("output"),
             "model_reported": raw.get("model"),
+            "requestedModel": serving["requestedModel"],
+            "responseModel": serving["responseModel"],
+            "responseModelSource": serving["responseModelSource"],
+            "servingConfirmed": serving["servingConfirmed"],
+            "servingMatchedRequest": serving["servingMatchedRequest"],
+            "servingValid": serving["servingValid"],
+            "servingInvalidReason": serving["servingInvalidReason"],
             "inputTokens": raw.get("inputTokens"), "outputTokens": raw.get("outputTokens"),
             "totalTokens": raw.get("totalTokens"), "tokensEstimated": raw.get("tokensEstimated"),
             "costUsd": raw.get("costUsd"), "wallMs": raw.get("wallMs"),

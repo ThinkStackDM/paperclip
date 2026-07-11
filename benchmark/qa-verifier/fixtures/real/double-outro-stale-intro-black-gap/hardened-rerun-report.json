@@ -1,0 +1,2459 @@
+{
+  "episode": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/cc-fee-drag-pass10-remediated-v3-chartfix-master.mp4",
+  "episodeSha256": "67d02eeb1994ab3a9aa4335eb9af422e920c42aabb4253bd4ee07ebfa2769e6d",
+  "episodeBytes": 39178639,
+  "channel": "cashflow-compass",
+  "bodyWorkDir": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work",
+  "bodyManifestSha256": "16b60700824dc5f536b7a5602c6bf2ccc0b4e865fa2b7e8241a2cf5d3aef5162",
+  "generatedAt": "2026-07-10T10:19:25Z",
+  "failedGates": [
+    "bookendStructure",
+    "lockedMarkFontShineVerification"
+  ],
+  "failedGateCount": 2,
+  "failedMandatoryGateCount": 2,
+  "gates": {
+    "bookendStructure": {
+      "pass": false,
+      "totalDurationSeconds": 419.353,
+      "bodyDurationSeconds": 376.9,
+      "bodyEffectiveDurationSeconds": 367.449,
+      "bodyColdOpenDurationSeconds": 9.451,
+      "requiredColdOpenDurationSeconds": 5.0,
+      "coldOpenRequirementPassed": true,
+      "coldOpenEvidencePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/deck-chapters.json",
+      "introDurationSeconds": 20.55,
+      "outroDurationSeconds": 11.333,
+      "endscreenDurationSeconds": 20.0,
+      "expectedBoundarySeconds": [
+        20.55,
+        387.999,
+        399.353
+      ],
+      "blackClusters": [
+        {
+          "start": 0.0,
+          "end": 0.167,
+          "duration": 0.167,
+          "center": 0.083,
+          "members": [
+            {
+              "start": 0.0,
+              "end": 0.167,
+              "duration": 0.167,
+              "center": 0.083
+            }
+          ]
+        },
+        {
+          "start": 9.3,
+          "end": 9.467,
+          "duration": 0.167,
+          "center": 9.383,
+          "members": [
+            {
+              "start": 9.3,
+              "end": 9.467,
+              "duration": 0.167,
+              "center": 9.383
+            }
+          ]
+        },
+        {
+          "start": 20.333,
+          "end": 20.767,
+          "duration": 0.433,
+          "center": 20.55,
+          "members": [
+            {
+              "start": 20.333,
+              "end": 20.767,
+              "duration": 0.433,
+              "center": 20.55
+            }
+          ]
+        },
+        {
+          "start": 52.633,
+          "end": 53.067,
+          "duration": 0.433,
+          "center": 52.85,
+          "members": [
+            {
+              "start": 52.633,
+              "end": 53.067,
+              "duration": 0.433,
+              "center": 52.85
+            }
+          ]
+        },
+        {
+          "start": 387.867,
+          "end": 388.233,
+          "duration": 0.367,
+          "center": 388.05,
+          "members": [
+            {
+              "start": 387.867,
+              "end": 388.233,
+              "duration": 0.367,
+              "center": 388.05
+            }
+          ]
+        },
+        {
+          "start": 399.1,
+          "end": 399.667,
+          "duration": 0.567,
+          "center": 399.383,
+          "members": [
+            {
+              "start": 399.1,
+              "end": 399.667,
+              "duration": 0.567,
+              "center": 399.383
+            }
+          ]
+        }
+      ],
+      "matches": [
+        {
+          "boundarySeconds": 20.55,
+          "matchedCluster": {
+            "start": 20.333,
+            "end": 20.767,
+            "duration": 0.433,
+            "center": 20.55,
+            "members": [
+              {
+                "start": 20.333,
+                "end": 20.767,
+                "duration": 0.433,
+                "center": 20.55
+              }
+            ]
+          },
+          "deltaSeconds": 0.0
+        },
+        {
+          "boundarySeconds": 387.999,
+          "matchedCluster": {
+            "start": 387.867,
+            "end": 388.233,
+            "duration": 0.367,
+            "center": 388.05,
+            "members": [
+              {
+                "start": 387.867,
+                "end": 388.233,
+                "duration": 0.367,
+                "center": 388.05
+              }
+            ]
+          },
+          "deltaSeconds": 0.051
+        },
+        {
+          "boundarySeconds": 399.353,
+          "matchedCluster": {
+            "start": 399.1,
+            "end": 399.667,
+            "duration": 0.567,
+            "center": 399.383,
+            "members": [
+              {
+                "start": 399.1,
+                "end": 399.667,
+                "duration": 0.567,
+                "center": 399.383
+              }
+            ]
+          },
+          "deltaSeconds": 0.03
+        }
+      ],
+      "bodyPairDeltaSeconds": 0.051,
+      "extraBlackClustersNearIntro": [],
+      "extraBlackClustersNearOutro": [],
+      "lateTailTextSamples": [
+        {
+          "timestampSeconds": 393.88,
+          "framePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/cc-fee-drag-pass10-remediated-v3-chartfix-master-rejection-gates/tail-ocr/tail-00.png",
+          "ocrText": "cashflo ompass 7 l subscribe"
+        },
+        {
+          "timestampSeconds": 396.38,
+          "framePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/cc-fee-drag-pass10-remediated-v3-chartfix-master-rejection-gates/tail-ocr/tail-01.png",
+          "ocrText": "cashflow compass"
+        },
+        {
+          "timestampSeconds": 406.94,
+          "framePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/cc-fee-drag-pass10-remediated-v3-chartfix-master-rejection-gates/tail-ocr/tail-02.png",
+          "ocrText": "cashflow compass thanks for watching g"
+        },
+        {
+          "timestampSeconds": 415.85,
+          "framePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/cc-fee-drag-pass10-remediated-v3-chartfix-master-rejection-gates/tail-ocr/tail-03.png",
+          "ocrText": "cashflow compass a"
+        }
+      ],
+      "lateTailDetectedSubscribe": true,
+      "lateTailDetectedSecondOutroCopy": true,
+      "segmentMap": [
+        {
+          "name": "intro",
+          "start": 0.0,
+          "end": 20.55
+        },
+        {
+          "name": "body",
+          "start": 20.55,
+          "end": 387.999
+        },
+        {
+          "name": "outro",
+          "start": 388.05,
+          "end": 399.383
+        },
+        {
+          "name": "endscreen",
+          "start": 399.383,
+          "end": 419.353
+        }
+      ],
+      "violations": [
+        "detected subscribe/endscreen state followed by a second trailing outro card"
+      ]
+    },
+    "lockedMarkFontShineVerification": {
+      "pass": false,
+      "themePath": "/Users/glad0s/scripts/deck/themes/cashflow-compass.json",
+      "markAsset": "/Users/glad0s/scripts/brand/cashflow-compass/mark.png",
+      "wordmarkAsset": "/Users/glad0s/scripts/brand/cashflow-compass/logos/wordmark-dark.svg",
+      "expectedDisplayFont": "DM Serif Display",
+      "themeDisplayFont": "DM Serif Display",
+      "lockedWordmarkFont": "DM Serif Display",
+      "themeFontMatch": true,
+      "wordmarkFontMatch": true,
+      "shineStatus": "present",
+      "shineAsset": "/Users/glad0s/scripts/deck/logo-shine-cashflow-compass.mov",
+      "shineAssetFreshVsMark": true,
+      "sourceAssetMtimes": {
+        "themeJson": "2026-07-07T17:14:35Z",
+        "markPng": "2026-06-27T21:09:15Z",
+        "wordmarkSvg": "2026-06-27T13:39:04Z",
+        "shineAsset": "2026-06-27T21:31:55Z"
+      },
+      "bodyTitleFrame": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-001.png",
+      "introFrame": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5361/direct-bad-master-check-2/intro-frame.png",
+      "endscreenFrame": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5361/direct-bad-master-check-2/endscreen-frame.png",
+      "matches": {
+        "intro": {
+          "score": 0.7561,
+          "scale": 0.22,
+          "x": 1302,
+          "y": 52,
+          "w": 225,
+          "h": 225
+        },
+        "bodyTitle": {
+          "score": 0.7464,
+          "scale": 0.1,
+          "x": 364,
+          "y": 80,
+          "w": 102,
+          "h": 102
+        },
+        "endscreen": {
+          "score": 0.609,
+          "scale": 0.1,
+          "x": 456,
+          "y": 68,
+          "w": 102,
+          "h": 102
+        }
+      },
+      "introFillUniformity": {
+        "pass": false,
+        "maxStdLuminance": 0.0049,
+        "maxAllowedStdLuminance": 0.0045,
+        "samples": [
+          {
+            "region": "top",
+            "meanLuminance": 0.109,
+            "stdLuminance": 0.0023
+          },
+          {
+            "region": "left",
+            "meanLuminance": 0.1077,
+            "stdLuminance": 0.0049
+          },
+          {
+            "region": "right",
+            "meanLuminance": 0.104,
+            "stdLuminance": 0.0042
+          },
+          {
+            "region": "bottom",
+            "meanLuminance": 0.1056,
+            "stdLuminance": 0.0044
+          }
+        ]
+      }
+    },
+    "titleTextOcr": {
+      "pass": true,
+      "expectedTitle": "how a 0 04 fee quietly eats your returns",
+      "expectedTitleNormalized": "how a 0 04 fee quietly eats your returns",
+      "expectedDigitSignature": "004",
+      "introSamples": [
+        {
+          "sampleLabel": "intro-00",
+          "timestampSeconds": 1.8,
+          "framePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5361/direct-bad-master-check-2/title-text-ocr/intro-frame-00.png",
+          "cropPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5361/direct-bad-master-check-2/title-text-ocr/intro-title-00.png",
+          "ocrLines": [
+            "a e o be a 4 a i bic p y 4",
+            "i ul belts a a",
+            "xe i j s fons a",
+            "e i oes s ae i aa see s",
+            "i oe mt i per er",
+            "xe o a adel fe r",
+            "te ee 7 apie i ee ie",
+            "ia re a oo ch 4 a eo he",
+            "mg j 7 ots sons",
+            "et oy fe de ang 3 as le iia oe ai a0 f eh",
+            "aj r ig oe we vt ree pe re tw tr my r",
+            "a ro eee ae 8 iio i",
+            "ee pe ys",
+            "dog py gyms ria",
+            "ae oe to i"
+          ]
+        },
+        {
+          "sampleLabel": "intro-01",
+          "timestampSeconds": 2.4,
+          "framePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5361/direct-bad-master-check-2/title-text-ocr/intro-frame-01.png",
+          "cropPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5361/direct-bad-master-check-2/title-text-ocr/intro-title-01.png",
+          "ocrLines": [
+            "a s lt 7 ea es",
+            "see mi a ae n e sane te a jit oe",
+            "a f a zr pa 4 oe p4 y cdtas",
+            "get ae es g 7 4",
+            "8 ny f ay mee a",
+            "ie ry x my bs t t we a ey 7 ae re te",
+            "oy ee ere a",
+            "7 eee i lft we ee ee i meee sy",
+            "ee sa ee os ee 2s a ee al ee es",
+            "ar i s bee wy e 4 s 4 es",
+            "i ow em 8 p his",
+            "p ee j sees od",
+            "a ie i ae a"
+          ]
+        },
+        {
+          "sampleLabel": "intro-02",
+          "timestampSeconds": 3.2,
+          "framePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5361/direct-bad-master-check-2/title-text-ocr/intro-frame-02.png",
+          "cropPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5361/direct-bad-master-check-2/title-text-ocr/intro-title-02.png",
+          "ocrLines": [
+            "be oes a gs",
+            "f eae or i ed by a a ee ms a 2 aii 7",
+            "se os pee ag to eee ane oe a a",
+            "a lu cl ee en a ep ee ae se ale a",
+            "ae nat ae tie a",
+            "waa perea pe 0s ae",
+            "pe ay a re fi 2 amit fa are ae",
+            "9 los a a",
+            "et ae ve s i 4 sallis",
+            "fah 7 ww eee 7",
+            "i s 4 ae bag se",
+            "s ow jere s a0 a e ae",
+            "4 s72 s os a",
+            "e a a y ae oa ae",
+            "al a 4 4 ts py s",
+            "a ors ig ae ae pj a oe"
+          ]
+        },
+        {
+          "sampleLabel": "intro-03",
+          "timestampSeconds": 4.1,
+          "framePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5361/direct-bad-master-check-2/title-text-ocr/intro-frame-03.png",
+          "cropPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5361/direct-bad-master-check-2/title-text-ocr/intro-title-03.png",
+          "ocrLines": [
+            "ris 8 es ae",
+            "eae sa 7 5 x a a aa ww 2d",
+            "as oy ae 7 r a 2 we a 4",
+            "ie s td mf es a wd ah es",
+            "a s ai a at se a fi 7",
+            "me pee 0 oo",
+            "a we a x a we a",
+            "e mee ee ss are ae",
+            "rad y j ar 7 a ice ot",
+            "ba 78 7 7 1 1 4 r i rls ws es",
+            "8 a a j ae f ba wy on",
+            "e ae ee a 3 a 4 f",
+            "s ae a a j"
+          ]
+        },
+        {
+          "sampleLabel": "intro-04",
+          "timestampSeconds": 14.11,
+          "framePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5361/direct-bad-master-check-2/title-text-ocr/intro-frame-04.png",
+          "cropPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5361/direct-bad-master-check-2/title-text-ocr/intro-title-04.png",
+          "ocrLines": [
+            "how a 0 04 fee quietly eats your returns"
+          ]
+        },
+        {
+          "sampleLabel": "intro-05",
+          "timestampSeconds": 15.67,
+          "framePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5361/direct-bad-master-check-2/title-text-ocr/intro-frame-05.png",
+          "cropPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5361/direct-bad-master-check-2/title-text-ocr/intro-title-05.png",
+          "ocrLines": [
+            "how a 0 04 fee quietly eats your returns"
+          ]
+        },
+        {
+          "sampleLabel": "intro-06",
+          "timestampSeconds": 17.0,
+          "framePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5361/direct-bad-master-check-2/title-text-ocr/intro-frame-06.png",
+          "cropPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5361/direct-bad-master-check-2/title-text-ocr/intro-title-06.png",
+          "ocrLines": [
+            "how a 0 04 fee quietly eats your returns"
+          ]
+        },
+        {
+          "sampleLabel": "intro-07",
+          "timestampSeconds": 19.8,
+          "framePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5361/direct-bad-master-check-2/title-text-ocr/intro-frame-07.png",
+          "cropPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5361/direct-bad-master-check-2/title-text-ocr/intro-title-07.png",
+          "ocrLines": []
+        }
+      ],
+      "bodySamples": [
+        {
+          "sampleLabel": "body-00",
+          "timestampSeconds": null,
+          "framePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-001.png",
+          "cropPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5361/direct-bad-master-check-2/title-text-ocr/body-title-00.png",
+          "ocrLines": [
+            "illustrative fee drag mechanics",
+            "illustrative mechanics only not personalized financial tax or",
+            "investment advice"
+          ]
+        }
+      ],
+      "introBestMatch": {
+        "sampleLabel": "intro-04",
+        "timestampSeconds": 14.11,
+        "cropPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5361/direct-bad-master-check-2/title-text-ocr/intro-title-04.png",
+        "match": {
+          "candidate": "how a 0 04 fee quietly eats your returns",
+          "sharedTokens": [
+            "0",
+            "04",
+            "a",
+            "eats",
+            "fee",
+            "how",
+            "quietly",
+            "returns",
+            "your"
+          ],
+          "tokenOverlap": 9,
+          "expectedTokenCount": 9,
+          "candidateTokenCount": 9,
+          "recall": 1.0,
+          "precision": 1.0,
+          "ratio": 1.0,
+          "digitSignature": "004",
+          "digitSignatureMatches": true,
+          "score": 1.0
+        }
+      },
+      "bodyBestMatch": {
+        "sampleLabel": "body-00",
+        "timestampSeconds": null,
+        "cropPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5361/direct-bad-master-check-2/title-text-ocr/body-title-00.png",
+        "match": {
+          "candidate": "illustrative mechanics only not personalized financial tax or",
+          "sharedTokens": [],
+          "tokenOverlap": 0,
+          "expectedTokenCount": 9,
+          "candidateTokenCount": 8,
+          "recall": 0.0,
+          "precision": 0.0,
+          "ratio": 0.2574,
+          "digitSignature": "",
+          "digitSignatureMatches": false,
+          "score": 0.2574
+        }
+      },
+      "checks": {
+        "introMatchesExpectedTitle": true,
+        "bodyMatchesExpectedTitle": false
+      },
+      "notes": [
+        "Body title OCR is recorded as evidence only; Cashflow repair renders may intentionally remove duplicate intro/body title cards."
+      ],
+      "failures": []
+    },
+    "voiceLint": {
+      "pass": true,
+      "expectedVoice": "Kore",
+      "allowedVoices": [
+        "Kore"
+      ],
+      "distinctResolvedVoices": [
+        "Kore"
+      ],
+      "conversationAudiofileEvidence": [],
+      "initialismHits": [],
+      "segments": [
+        {
+          "slide": 1,
+          "title": "Illustrative Fee-Drag Mechanics",
+          "start": 0.0,
+          "end": 32.367,
+          "resolvedVoice": "Kore",
+          "pitchHz": 121.83
+        },
+        {
+          "slide": 2,
+          "title": "Lock The Baseline Before The Ending Value Moves",
+          "start": 32.367,
+          "end": 45.667,
+          "resolvedVoice": "Kore",
+          "pitchHz": 116.5
+        },
+        {
+          "slide": 3,
+          "title": "Use One Relatable Path",
+          "start": 45.667,
+          "end": 58.133,
+          "resolvedVoice": "Kore",
+          "pitchHz": 83.92
+        },
+        {
+          "slide": 4,
+          "title": "One Path, Four Fee Levels",
+          "start": 58.133,
+          "end": 79.467,
+          "resolvedVoice": "Kore",
+          "pitchHz": 200.0
+        },
+        {
+          "slide": 5,
+          "title": "The End Value Moves Even When The Fee Looks Tiny",
+          "start": 79.467,
+          "end": 114.4,
+          "resolvedVoice": "Kore",
+          "pitchHz": 205.13
+        },
+        {
+          "slide": 6,
+          "title": "Fee Drag Hits In Three Layers",
+          "start": 114.4,
+          "end": 142.133,
+          "resolvedVoice": "Kore",
+          "pitchHz": 272.73
+        },
+        {
+          "slide": 7,
+          "title": "Why Small Fees Feel Easy To Ignore",
+          "start": 142.133,
+          "end": 153.4,
+          "resolvedVoice": "Kore",
+          "pitchHz": 224.3
+        },
+        {
+          "slide": 8,
+          "title": "Five Dollars Today vs. Thousands Later",
+          "start": 153.4,
+          "end": 170.867,
+          "resolvedVoice": "Kore",
+          "pitchHz": 105.73
+        },
+        {
+          "slide": 9,
+          "title": "Most People Never See The Full Fee Stack In One Place",
+          "start": 170.867,
+          "end": 191.733,
+          "resolvedVoice": "Kore",
+          "pitchHz": 196.72
+        },
+        {
+          "slide": 10,
+          "title": "The Same Portfolio Can Be Sold At Very Different Prices",
+          "start": 191.733,
+          "end": 221.133,
+          "resolvedVoice": "Kore",
+          "pitchHz": 324.32
+        },
+        {
+          "slide": 11,
+          "title": "Find The Fee Before You Chase Performance",
+          "start": 221.133,
+          "end": 252.733,
+          "resolvedVoice": "Kore",
+          "pitchHz": 121.83
+        },
+        {
+          "slide": 12,
+          "title": "The Annual Dollar Charge Rises As The Portfolio Rises",
+          "start": 252.733,
+          "end": 277.567,
+          "resolvedVoice": "Kore",
+          "pitchHz": 230.77
+        },
+        {
+          "slide": 13,
+          "title": "Cost Has To Defend Itself",
+          "start": 277.567,
+          "end": 301.767,
+          "resolvedVoice": "Kore",
+          "pitchHz": 212.39
+        },
+        {
+          "slide": 14,
+          "title": "Cheap Alone Is Not The Goal. Earned Cost Is.",
+          "start": 301.767,
+          "end": 320.2,
+          "resolvedVoice": "Kore",
+          "pitchHz": 282.35
+        },
+        {
+          "slide": 15,
+          "title": "The Small Leak Matters Because Time Makes It Matter",
+          "start": 320.2,
+          "end": 343.233,
+          "resolvedVoice": "Kore",
+          "pitchHz": 226.42
+        },
+        {
+          "slide": 16,
+          "title": "",
+          "start": 343.233,
+          "end": 367.433,
+          "resolvedVoice": "Kore",
+          "pitchHz": 100.84
+        }
+      ],
+      "violations": []
+    },
+    "narrationCopyLint": {
+      "pass": true,
+      "segmentsChecked": 16,
+      "violations": []
+    },
+    "templateIntegrity": {
+      "pass": true,
+      "introSamples": [
+        {
+          "timestampSeconds": 9.25,
+          "framePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5361/direct-bad-master-check-2/template-integrity/intro-raw-00.png",
+          "cropPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5361/direct-bad-master-check-2/template-integrity/intro-copy-00.png",
+          "codeCropPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5361/direct-bad-master-check-2/template-integrity/intro-code-00.png",
+          "ocrText": "oe ij oe casa i oa jos segs 4 os ay of og mae 4 yee a la 7 ig fn ie ee fs to as rf a6 aly 3 eet se es ap f ee a 5 an sey ie pt ee ea ae q z wr it tf bye ow a ge as peta od a or a idl 7 ra a a a rad a bs j gee y a s eo 5 a a c wad ms be 1 5 ar x lo q m s pa os 4 waa ic j a t ee py nee 4 a po a 4 5 a as alia notes om ee me ye 50 7 aren oi 4 ms a ee 4 af ee be 2 a",
+          "tokenHits": []
+        },
+        {
+          "timestampSeconds": 13.97,
+          "framePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5361/direct-bad-master-check-2/template-integrity/intro-raw-01.png",
+          "cropPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5361/direct-bad-master-check-2/template-integrity/intro-copy-01.png",
+          "codeCropPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5361/direct-bad-master-check-2/template-integrity/intro-code-01.png",
+          "ocrText": "how a 0 04 fee quietly eats your returns how a 0 04 fee quietly eats your returns",
+          "tokenHits": []
+        },
+        {
+          "timestampSeconds": 19.7,
+          "framePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5361/direct-bad-master-check-2/template-integrity/intro-raw-02.png",
+          "cropPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5361/direct-bad-master-check-2/template-integrity/intro-copy-02.png",
+          "codeCropPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5361/direct-bad-master-check-2/template-integrity/intro-code-02.png",
+          "ocrText": "i al",
+          "tokenHits": []
+        }
+      ],
+      "slideChecks": [
+        {
+          "slide": null,
+          "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-001.dom.html",
+          "tokenHits": [],
+          "selectorChecks": [
+            {
+              "selector": ".cover .ch",
+              "declaredFontFamily": "'DM Serif Display','DM Sans',Georgia,serif",
+              "expectedFont": "DM Serif Display",
+              "pass": true
+            }
+          ]
+        },
+        {
+          "slide": 1,
+          "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-001.html",
+          "tokenHits": [],
+          "selectorChecks": [
+            {
+              "selector": ".cover .ch",
+              "declaredFontFamily": "'DM Serif Display','DM Sans',Georgia,serif",
+              "expectedFont": "DM Serif Display",
+              "pass": true
+            }
+          ]
+        },
+        {
+          "slide": null,
+          "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-002.dom.html",
+          "tokenHits": [],
+          "selectorChecks": []
+        },
+        {
+          "slide": 2,
+          "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-002.html",
+          "tokenHits": [],
+          "selectorChecks": []
+        },
+        {
+          "slide": null,
+          "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-003.dom.html",
+          "tokenHits": [],
+          "selectorChecks": []
+        },
+        {
+          "slide": 3,
+          "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-003.html",
+          "tokenHits": [],
+          "selectorChecks": []
+        },
+        {
+          "slide": null,
+          "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-004.dom.html",
+          "tokenHits": [],
+          "selectorChecks": [
+            {
+              "selector": ".cover .ch",
+              "declaredFontFamily": "'DM Serif Display','DM Sans',Georgia,serif",
+              "expectedFont": "DM Serif Display",
+              "pass": true
+            }
+          ]
+        },
+        {
+          "slide": 4,
+          "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-004.html",
+          "tokenHits": [],
+          "selectorChecks": [
+            {
+              "selector": ".cover .ch",
+              "declaredFontFamily": "'DM Serif Display','DM Sans',Georgia,serif",
+              "expectedFont": "DM Serif Display",
+              "pass": true
+            }
+          ]
+        },
+        {
+          "slide": null,
+          "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-005.dom.html",
+          "tokenHits": [],
+          "selectorChecks": [
+            {
+              "selector": ".cover .ch",
+              "declaredFontFamily": "'DM Serif Display','DM Sans',Georgia,serif",
+              "expectedFont": "DM Serif Display",
+              "pass": true
+            }
+          ]
+        },
+        {
+          "slide": 5,
+          "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-005.html",
+          "tokenHits": [],
+          "selectorChecks": [
+            {
+              "selector": ".cover .ch",
+              "declaredFontFamily": "'DM Serif Display','DM Sans',Georgia,serif",
+              "expectedFont": "DM Serif Display",
+              "pass": true
+            }
+          ]
+        },
+        {
+          "slide": null,
+          "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-006.dom.html",
+          "tokenHits": [],
+          "selectorChecks": [
+            {
+              "selector": ".cover .ch",
+              "declaredFontFamily": "'DM Serif Display','DM Sans',Georgia,serif",
+              "expectedFont": "DM Serif Display",
+              "pass": true
+            }
+          ]
+        },
+        {
+          "slide": 6,
+          "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-006.html",
+          "tokenHits": [],
+          "selectorChecks": [
+            {
+              "selector": ".cover .ch",
+              "declaredFontFamily": "'DM Serif Display','DM Sans',Georgia,serif",
+              "expectedFont": "DM Serif Display",
+              "pass": true
+            }
+          ]
+        },
+        {
+          "slide": null,
+          "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-007.dom.html",
+          "tokenHits": [],
+          "selectorChecks": []
+        },
+        {
+          "slide": 7,
+          "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-007.html",
+          "tokenHits": [],
+          "selectorChecks": []
+        },
+        {
+          "slide": null,
+          "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-008.dom.html",
+          "tokenHits": [],
+          "selectorChecks": [
+            {
+              "selector": ".cover .ch",
+              "declaredFontFamily": "'DM Serif Display','DM Sans',Georgia,serif",
+              "expectedFont": "DM Serif Display",
+              "pass": true
+            }
+          ]
+        },
+        {
+          "slide": 8,
+          "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-008.html",
+          "tokenHits": [],
+          "selectorChecks": [
+            {
+              "selector": ".cover .ch",
+              "declaredFontFamily": "'DM Serif Display','DM Sans',Georgia,serif",
+              "expectedFont": "DM Serif Display",
+              "pass": true
+            }
+          ]
+        },
+        {
+          "slide": null,
+          "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-009.dom.html",
+          "tokenHits": [],
+          "selectorChecks": []
+        },
+        {
+          "slide": 9,
+          "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-009.html",
+          "tokenHits": [],
+          "selectorChecks": []
+        },
+        {
+          "slide": null,
+          "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-010.dom.html",
+          "tokenHits": [],
+          "selectorChecks": [
+            {
+              "selector": ".cover .ch",
+              "declaredFontFamily": "'DM Serif Display','DM Sans',Georgia,serif",
+              "expectedFont": "DM Serif Display",
+              "pass": true
+            }
+          ]
+        },
+        {
+          "slide": 10,
+          "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-010.html",
+          "tokenHits": [],
+          "selectorChecks": [
+            {
+              "selector": ".cover .ch",
+              "declaredFontFamily": "'DM Serif Display','DM Sans',Georgia,serif",
+              "expectedFont": "DM Serif Display",
+              "pass": true
+            }
+          ]
+        },
+        {
+          "slide": null,
+          "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-011.dom.html",
+          "tokenHits": [],
+          "selectorChecks": [
+            {
+              "selector": ".cover .ch",
+              "declaredFontFamily": "'DM Serif Display','DM Sans',Georgia,serif",
+              "expectedFont": "DM Serif Display",
+              "pass": true
+            }
+          ]
+        },
+        {
+          "slide": 11,
+          "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-011.html",
+          "tokenHits": [],
+          "selectorChecks": [
+            {
+              "selector": ".cover .ch",
+              "declaredFontFamily": "'DM Serif Display','DM Sans',Georgia,serif",
+              "expectedFont": "DM Serif Display",
+              "pass": true
+            }
+          ]
+        },
+        {
+          "slide": null,
+          "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-012.dom.html",
+          "tokenHits": [],
+          "selectorChecks": [
+            {
+              "selector": ".cover .ch",
+              "declaredFontFamily": "'DM Serif Display','DM Sans',Georgia,serif",
+              "expectedFont": "DM Serif Display",
+              "pass": true
+            }
+          ]
+        },
+        {
+          "slide": 12,
+          "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-012.html",
+          "tokenHits": [],
+          "selectorChecks": [
+            {
+              "selector": ".cover .ch",
+              "declaredFontFamily": "'DM Serif Display','DM Sans',Georgia,serif",
+              "expectedFont": "DM Serif Display",
+              "pass": true
+            }
+          ]
+        },
+        {
+          "slide": null,
+          "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-013.dom.html",
+          "tokenHits": [],
+          "selectorChecks": []
+        },
+        {
+          "slide": 13,
+          "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-013.html",
+          "tokenHits": [],
+          "selectorChecks": []
+        },
+        {
+          "slide": null,
+          "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-014.dom.html",
+          "tokenHits": [],
+          "selectorChecks": [
+            {
+              "selector": ".cover .ch",
+              "declaredFontFamily": "'DM Serif Display','DM Sans',Georgia,serif",
+              "expectedFont": "DM Serif Display",
+              "pass": true
+            }
+          ]
+        },
+        {
+          "slide": 14,
+          "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-014.html",
+          "tokenHits": [],
+          "selectorChecks": [
+            {
+              "selector": ".cover .ch",
+              "declaredFontFamily": "'DM Serif Display','DM Sans',Georgia,serif",
+              "expectedFont": "DM Serif Display",
+              "pass": true
+            }
+          ]
+        },
+        {
+          "slide": null,
+          "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-015.dom.html",
+          "tokenHits": [],
+          "selectorChecks": []
+        },
+        {
+          "slide": 15,
+          "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-015.html",
+          "tokenHits": [],
+          "selectorChecks": []
+        },
+        {
+          "slide": null,
+          "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-016.dom.html",
+          "tokenHits": [],
+          "selectorChecks": [
+            {
+              "selector": ".cover .ch",
+              "declaredFontFamily": "'DM Serif Display','DM Sans',Georgia,serif",
+              "expectedFont": "DM Serif Display",
+              "pass": true
+            }
+          ]
+        },
+        {
+          "slide": 16,
+          "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/slide-016.html",
+          "tokenHits": [],
+          "selectorChecks": [
+            {
+              "selector": ".cover .ch",
+              "declaredFontFamily": "'DM Serif Display','DM Sans',Georgia,serif",
+              "expectedFont": "DM Serif Display",
+              "pass": true
+            }
+          ]
+        }
+      ],
+      "violations": []
+    },
+    "bulletCopyLint": {
+      "pass": true,
+      "checks": [],
+      "violations": []
+    },
+    "brollTailCheck": {
+      "pass": true,
+      "checks": [
+        {
+          "slide": 3,
+          "title": "Use One Relatable Path",
+          "start": 45.667,
+          "end": 58.133,
+          "clipPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/clip-003.mp4",
+          "maxStaticSeconds": 0.5,
+          "triggered": false,
+          "frameDiffPreview": [
+            35.4252,
+            4.4177,
+            4.6769,
+            3.4605,
+            3.6931,
+            3.3768,
+            3.5675,
+            3.0665,
+            3.1553,
+            3.0982,
+            3.1399,
+            4.2567
+          ],
+          "bestRunEndsAtFrame": 0
+        },
+        {
+          "slide": 7,
+          "title": "Why Small Fees Feel Easy To Ignore",
+          "start": 142.133,
+          "end": 153.4,
+          "clipPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/clip-007.mp4",
+          "maxStaticSeconds": 0.5,
+          "triggered": false,
+          "frameDiffPreview": [
+            33.4526,
+            0.7002,
+            0.6924,
+            0.8936,
+            0.6752,
+            0.6972,
+            0.7179,
+            0.7445,
+            0.9733,
+            0.7745,
+            0.721,
+            0.7316
+          ],
+          "bestRunEndsAtFrame": 0
+        },
+        {
+          "slide": 13,
+          "title": "Cost Has To Defend Itself",
+          "start": 277.567,
+          "end": 301.767,
+          "clipPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/clip-013.mp4",
+          "maxStaticSeconds": 0.5,
+          "triggered": false,
+          "frameDiffPreview": [
+            8.7833,
+            2.9068,
+            3.6012,
+            4.5151,
+            4.967,
+            5.3682,
+            5.3398,
+            5.5789,
+            5.5053,
+            5.513,
+            5.3977,
+            5.5057
+          ],
+          "bestRunEndsAtFrame": 0
+        },
+        {
+          "slide": 15,
+          "title": "The Small Leak Matters Because Time Makes It Matter",
+          "start": 320.2,
+          "end": 343.233,
+          "clipPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/clip-015.mp4",
+          "maxStaticSeconds": 0.5,
+          "triggered": false,
+          "frameDiffPreview": [
+            35.4176,
+            2.4518,
+            2.9163,
+            2.8382,
+            2.6577,
+            2.5483,
+            2.0445,
+            2.4261,
+            1.9152,
+            2.1575,
+            1.872,
+            1.9766
+          ],
+          "bestRunEndsAtFrame": 0
+        }
+      ],
+      "violations": []
+    },
+    "lengthVsChannelBrief": {
+      "pass": true,
+      "durationSeconds": 419.353,
+      "requiredRangeSeconds": {
+        "min": 345.0,
+        "max": 450.0
+      }
+    },
+    "audioBedCompliance": {
+      "pass": true,
+      "registryPath": "/Users/glad0s/scripts/deck/approved-audio-beds.json",
+      "manifestPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/render-manifest.json",
+      "manifestBodyBed": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/assets/audio/ambient-corporate-winniethemoog.ogg",
+      "manifestBodyBedSource": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/assets/audio/ambient-corporate-winniethemoog.ogg",
+      "manifestBodyBedRenderPath": "/Users/davin/render-jobs/build-deck-mini.yWNwcj-1783621756/inputs/audio-bed-007.ogg",
+      "bookendBed": "/Users/glad0s/scripts/brand/cashflow-compass/sting/motion.m4a",
+      "inferredBodyBed": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/assets/audio/ambient-corporate-winniethemoog.ogg",
+      "inferredBodyBedSha256": "74e99001c12e763a147a021256566d551124692e2573dc0822b6b770b956003f",
+      "approvedBodyBeds": [
+        "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/assets/audio/ambient-corporate-winniethemoog.ogg"
+      ],
+      "requireDistinctBodyBed": true,
+      "requiredKeywords": [
+        "ambient",
+        "corporate",
+        "optimistic",
+        "clean",
+        "uplift"
+      ],
+      "notes": "Pass-8 approved local body bed for the long-form Cashflow flagship.",
+      "violations": []
+    },
+    "mediaCloseOut": {
+      "pass": true,
+      "episodePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/cc-fee-drag-pass10-remediated-v3-chartfix-master.mp4",
+      "episodeHasAudio": true,
+      "episodeHasVideo": true,
+      "episodeAudioSampleRateHz": 48000,
+      "placeholderTokenHits": [],
+      "voiceSampleRateViolations": [],
+      "scratchSystemTtsDetector": {
+        "pass": true,
+        "spokenSlate": false,
+        "variants": [
+          {
+            "variant": "slide-001",
+            "pass": true,
+            "engine": "gemini-tts",
+            "sampleRateHz": 24000,
+            "probedSampleRateHz": 24000,
+            "voiceRenderPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-001.wav",
+            "voiceFingerprintReferencePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5305/rendered-av-samples/cc-voice.wav",
+            "voiceFingerprintSimilarity": 0.994,
+            "voiceFingerprintMinSimilarity": 0.98,
+            "violations": []
+          },
+          {
+            "variant": "slide-002",
+            "pass": true,
+            "engine": "gemini-tts",
+            "sampleRateHz": 24000,
+            "probedSampleRateHz": 24000,
+            "voiceRenderPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-002.wav",
+            "voiceFingerprintReferencePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5305/rendered-av-samples/cc-voice.wav",
+            "voiceFingerprintSimilarity": 0.9822,
+            "voiceFingerprintMinSimilarity": 0.98,
+            "violations": []
+          },
+          {
+            "variant": "slide-003",
+            "pass": true,
+            "engine": "gemini-tts",
+            "sampleRateHz": 24000,
+            "probedSampleRateHz": 24000,
+            "voiceRenderPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-003.wav",
+            "voiceFingerprintReferencePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5305/rendered-av-samples/cc-voice.wav",
+            "voiceFingerprintSimilarity": 0.9879,
+            "voiceFingerprintMinSimilarity": 0.98,
+            "violations": []
+          },
+          {
+            "variant": "slide-004",
+            "pass": true,
+            "engine": "gemini-tts",
+            "sampleRateHz": 24000,
+            "probedSampleRateHz": 24000,
+            "voiceRenderPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-004.wav",
+            "voiceFingerprintReferencePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5305/rendered-av-samples/cc-voice.wav",
+            "voiceFingerprintSimilarity": 0.9835,
+            "voiceFingerprintMinSimilarity": 0.98,
+            "violations": []
+          },
+          {
+            "variant": "slide-005",
+            "pass": true,
+            "engine": "gemini-tts",
+            "sampleRateHz": 24000,
+            "probedSampleRateHz": 24000,
+            "voiceRenderPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-005.wav",
+            "voiceFingerprintReferencePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5305/rendered-av-samples/cc-voice.wav",
+            "voiceFingerprintSimilarity": 0.981,
+            "voiceFingerprintMinSimilarity": 0.98,
+            "violations": []
+          },
+          {
+            "variant": "slide-006",
+            "pass": true,
+            "engine": "gemini-tts",
+            "sampleRateHz": 24000,
+            "probedSampleRateHz": 24000,
+            "voiceRenderPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-006.wav",
+            "voiceFingerprintReferencePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5305/rendered-av-samples/cc-voice.wav",
+            "voiceFingerprintSimilarity": 0.9884,
+            "voiceFingerprintMinSimilarity": 0.98,
+            "violations": []
+          },
+          {
+            "variant": "slide-007",
+            "pass": true,
+            "engine": "gemini-tts",
+            "sampleRateHz": 24000,
+            "probedSampleRateHz": 24000,
+            "voiceRenderPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-007.wav",
+            "voiceFingerprintReferencePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5305/rendered-av-samples/cc-voice.wav",
+            "voiceFingerprintSimilarity": 0.9916,
+            "voiceFingerprintMinSimilarity": 0.98,
+            "violations": []
+          },
+          {
+            "variant": "slide-008",
+            "pass": true,
+            "engine": "gemini-tts",
+            "sampleRateHz": 24000,
+            "probedSampleRateHz": 24000,
+            "voiceRenderPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-008.wav",
+            "voiceFingerprintReferencePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5305/rendered-av-samples/cc-voice.wav",
+            "voiceFingerprintSimilarity": 0.9883,
+            "voiceFingerprintMinSimilarity": 0.98,
+            "violations": []
+          },
+          {
+            "variant": "slide-009",
+            "pass": true,
+            "engine": "gemini-tts",
+            "sampleRateHz": 24000,
+            "probedSampleRateHz": 24000,
+            "voiceRenderPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-009.wav",
+            "voiceFingerprintReferencePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5305/rendered-av-samples/cc-voice.wav",
+            "voiceFingerprintSimilarity": 0.9824,
+            "voiceFingerprintMinSimilarity": 0.98,
+            "violations": []
+          },
+          {
+            "variant": "slide-010",
+            "pass": true,
+            "engine": "gemini-tts",
+            "sampleRateHz": 24000,
+            "probedSampleRateHz": 24000,
+            "voiceRenderPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-010.wav",
+            "voiceFingerprintReferencePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5305/rendered-av-samples/cc-voice.wav",
+            "voiceFingerprintSimilarity": 0.9944,
+            "voiceFingerprintMinSimilarity": 0.98,
+            "violations": []
+          },
+          {
+            "variant": "slide-011",
+            "pass": true,
+            "engine": "gemini-tts",
+            "sampleRateHz": 24000,
+            "probedSampleRateHz": 24000,
+            "voiceRenderPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-011.wav",
+            "voiceFingerprintReferencePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5305/rendered-av-samples/cc-voice.wav",
+            "voiceFingerprintSimilarity": 0.983,
+            "voiceFingerprintMinSimilarity": 0.98,
+            "violations": []
+          },
+          {
+            "variant": "slide-012",
+            "pass": true,
+            "engine": "gemini-tts",
+            "sampleRateHz": 24000,
+            "probedSampleRateHz": 24000,
+            "voiceRenderPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-012.wav",
+            "voiceFingerprintReferencePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5305/rendered-av-samples/cc-voice.wav",
+            "voiceFingerprintSimilarity": 0.9901,
+            "voiceFingerprintMinSimilarity": 0.98,
+            "violations": []
+          },
+          {
+            "variant": "slide-013",
+            "pass": true,
+            "engine": "gemini-tts",
+            "sampleRateHz": 24000,
+            "probedSampleRateHz": 24000,
+            "voiceRenderPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-013.wav",
+            "voiceFingerprintReferencePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5305/rendered-av-samples/cc-voice.wav",
+            "voiceFingerprintSimilarity": 0.9833,
+            "voiceFingerprintMinSimilarity": 0.98,
+            "violations": []
+          },
+          {
+            "variant": "slide-014",
+            "pass": true,
+            "engine": "gemini-tts",
+            "sampleRateHz": 24000,
+            "probedSampleRateHz": 24000,
+            "voiceRenderPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-014.wav",
+            "voiceFingerprintReferencePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5305/rendered-av-samples/cc-voice.wav",
+            "voiceFingerprintSimilarity": 0.9891,
+            "voiceFingerprintMinSimilarity": 0.98,
+            "violations": []
+          },
+          {
+            "variant": "slide-015",
+            "pass": true,
+            "engine": "gemini-tts",
+            "sampleRateHz": 24000,
+            "probedSampleRateHz": 24000,
+            "voiceRenderPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-015.wav",
+            "voiceFingerprintReferencePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5305/rendered-av-samples/cc-voice.wav",
+            "voiceFingerprintSimilarity": 0.9893,
+            "voiceFingerprintMinSimilarity": 0.98,
+            "violations": []
+          },
+          {
+            "variant": "slide-016",
+            "pass": true,
+            "engine": "gemini-tts",
+            "sampleRateHz": 24000,
+            "probedSampleRateHz": 24000,
+            "voiceRenderPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-016.wav",
+            "voiceFingerprintReferencePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5305/rendered-av-samples/cc-voice.wav",
+            "voiceFingerprintSimilarity": 0.9897,
+            "voiceFingerprintMinSimilarity": 0.98,
+            "violations": []
+          }
+        ],
+        "violations": []
+      },
+      "voiceTracks": [
+        {
+          "slide": 1,
+          "title": "Illustrative Fee-Drag Mechanics",
+          "resolvedVoice": "Kore",
+          "voicePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-001.wav",
+          "sampleRateHz": 24000,
+          "audioFingerprint": {
+            "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-001.wav",
+            "exists": true,
+            "sampleRateHz": 24000,
+            "durationSeconds": 29.742,
+            "sha256": "549bf107f58d382f8a4a78bf15ac6496daf5d9ced3843efbe7fa0a3044646acf",
+            "first2sSha256": "c4af717902d2dfe2098eaa41ad46a12d6c486e27d64adcfe94ac621904188d4d",
+            "last2sSha256": "30a4f8473e203c8cb54baa0c6f1fb822dc84c1e3e1a433ccd5668eca9bdc4e96"
+          }
+        },
+        {
+          "slide": 2,
+          "title": "Lock The Baseline Before The Ending Value Moves",
+          "resolvedVoice": "Kore",
+          "voicePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-002.wav",
+          "sampleRateHz": 24000,
+          "audioFingerprint": {
+            "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-002.wav",
+            "exists": true,
+            "sampleRateHz": 24000,
+            "durationSeconds": 12.691,
+            "sha256": "25e32a311abef1d7f6fe147cfa8a265aa793d10fd84480c94abac5ad706a97cf",
+            "first2sSha256": "58a0c59c5a9bebdb388dce57a04f64e5b2fdd377cc5f7d7ab7ac4b1ac6ec2725",
+            "last2sSha256": "02ec928a1eacedbbd11aea6f5b74b4722ba96ac6c710b64f79e875ef016d5178"
+          }
+        },
+        {
+          "slide": 3,
+          "title": "Use One Relatable Path",
+          "resolvedVoice": "Kore",
+          "voicePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-003.wav",
+          "sampleRateHz": 24000,
+          "audioFingerprint": {
+            "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-003.wav",
+            "exists": true,
+            "sampleRateHz": 24000,
+            "durationSeconds": 11.851,
+            "sha256": "3b8941ac3fbaa96d8a931c1f6baed07a64d365d4e9dda401ae2116e77dbee926",
+            "first2sSha256": "73897ea397fe4952db3aabd898158b472f3f9028dda4b5c11b2ff40a225b1bf6",
+            "last2sSha256": "7fa21fb2f4da4e400516f1a752546f2673f3003aba146c36342a42184d4ea4b0"
+          }
+        },
+        {
+          "slide": 4,
+          "title": "One Path, Four Fee Levels",
+          "resolvedVoice": "Kore",
+          "voicePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-004.wav",
+          "sampleRateHz": 24000,
+          "audioFingerprint": {
+            "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-004.wav",
+            "exists": true,
+            "sampleRateHz": 24000,
+            "durationSeconds": 20.691,
+            "sha256": "c7fb339d440b27fcce2627f45f854f01bf9867bccc61e7a6c4a600fa1505b4ea",
+            "first2sSha256": "80c0c9d7df1925acb5a49c355a7c26a8116606d76d01ba0707876fbe1d832f2d",
+            "last2sSha256": "1ce6932ae61ee14bc300c0b7852a7fa183b78b30446eb812d4c1b8c4ea740613"
+          }
+        },
+        {
+          "slide": 5,
+          "title": "The End Value Moves Even When The Fee Looks Tiny",
+          "resolvedVoice": "Kore",
+          "voicePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-005.wav",
+          "sampleRateHz": 24000,
+          "audioFingerprint": {
+            "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-005.wav",
+            "exists": true,
+            "sampleRateHz": 24000,
+            "durationSeconds": 34.302,
+            "sha256": "0a524c6df4bc0a058e1e93d300c54196421c93b57cb42db65be9d1168bf69f89",
+            "first2sSha256": "879ad179f7ba83918d61e1a38731fc1fa4b6c8f7a9aaf6629464be47ce2f3110",
+            "last2sSha256": "5be7acaac10488672a80df0a9c172c20271d6e389c9fd7d0698801ef2411c0f5"
+          }
+        },
+        {
+          "slide": 6,
+          "title": "Fee Drag Hits In Three Layers",
+          "resolvedVoice": "Kore",
+          "voicePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-006.wav",
+          "sampleRateHz": 24000,
+          "audioFingerprint": {
+            "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-006.wav",
+            "exists": true,
+            "sampleRateHz": 24000,
+            "durationSeconds": 27.102,
+            "sha256": "c331b91accb6310cf5c7f5d1bec45a77fbd270b8d2ac5e7abbc099d6358595da",
+            "first2sSha256": "298b58081a4e922330a66d6e40d37fd4bb1690d49ef9f648e459caac318b1dec",
+            "last2sSha256": "3fc0e571f642d7e4106d35e97ba2f8706c8e779b7eaf7e62d216e3e80fda3c8d"
+          }
+        },
+        {
+          "slide": 7,
+          "title": "Why Small Fees Feel Easy To Ignore",
+          "resolvedVoice": "Kore",
+          "voicePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-007.wav",
+          "sampleRateHz": 24000,
+          "audioFingerprint": {
+            "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-007.wav",
+            "exists": true,
+            "sampleRateHz": 24000,
+            "durationSeconds": 10.651,
+            "sha256": "eafa368b6b789b9a00cc0df70f971271104f30eacd0630504fb8bdef04b3f6fc",
+            "first2sSha256": "4f7ea17d1c7b8f532247b6d468a2a8a438ab0386970ee40526683e3136f0caa5",
+            "last2sSha256": "fa2546023abe3ea233cd051a2e675f7ecc00fc3612afb385e84e65ae57f1269e"
+          }
+        },
+        {
+          "slide": 8,
+          "title": "Five Dollars Today vs. Thousands Later",
+          "resolvedVoice": "Kore",
+          "voicePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-008.wav",
+          "sampleRateHz": 24000,
+          "audioFingerprint": {
+            "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-008.wav",
+            "exists": true,
+            "sampleRateHz": 24000,
+            "durationSeconds": 16.851,
+            "sha256": "c003fd70d4f5d65bd77322b277317731486d2e0e26a36173c95296751b35ebea",
+            "first2sSha256": "55ee31f7cbad9ad2c3677742b90d24589e5e81c09b75fb574677d0efb324e88a",
+            "last2sSha256": "341dfe31e2c76b1e2467d3edc27ba46d2e93018909cb8885bffd110effaedda9"
+          }
+        },
+        {
+          "slide": 9,
+          "title": "Most People Never See The Full Fee Stack In One Place",
+          "resolvedVoice": "Kore",
+          "voicePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-009.wav",
+          "sampleRateHz": 24000,
+          "audioFingerprint": {
+            "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-009.wav",
+            "exists": true,
+            "sampleRateHz": 24000,
+            "durationSeconds": 20.251,
+            "sha256": "11bee39c577f7963274ce8f881415f6e2b2a7bf79be27180a6be9c7b8df106b6",
+            "first2sSha256": "13d775b4873df5d8781bb60b7ed50ec9a74106f8f0e84faac8cbd6262172b84f",
+            "last2sSha256": "4451622dc6d8b6982153f0fa4e604feb782bc463e89b4b10f95c7d6f90a4f2b6"
+          }
+        },
+        {
+          "slide": 10,
+          "title": "The Same Portfolio Can Be Sold At Very Different Prices",
+          "resolvedVoice": "Kore",
+          "voicePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-010.wav",
+          "sampleRateHz": 24000,
+          "audioFingerprint": {
+            "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-010.wav",
+            "exists": true,
+            "sampleRateHz": 24000,
+            "durationSeconds": 28.782,
+            "sha256": "7cc20c98714397b2418541b50fff340103d7464687ecf5f5eb94c14b79714723",
+            "first2sSha256": "8b5299f78d205406aba124fdf91fa22188a55042507d5df8d5c6adf76d661ad9",
+            "last2sSha256": "515db3dccba0656d679293fe0e6dc4f4cbdb6f0909cf7e5f0c984085b49b1fd6"
+          }
+        },
+        {
+          "slide": 11,
+          "title": "Find The Fee Before You Chase Performance",
+          "resolvedVoice": "Kore",
+          "voicePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-011.wav",
+          "sampleRateHz": 24000,
+          "audioFingerprint": {
+            "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-011.wav",
+            "exists": true,
+            "sampleRateHz": 24000,
+            "durationSeconds": 30.982,
+            "sha256": "7c1db52d2e11edd3fa847b788b66183959bb5ee924c1cf28a79b3378fb55cd7b",
+            "first2sSha256": "19df7208d7a571b89649a46b510ab93ea9fb841b80de4a64472b5bfd4ae7e722",
+            "last2sSha256": "48f5e3c68600c90d097b54390520a7eaa978115f3aa669dc5300fe7c9e4bf216"
+          }
+        },
+        {
+          "slide": 12,
+          "title": "The Annual Dollar Charge Rises As The Portfolio Rises",
+          "resolvedVoice": "Kore",
+          "voicePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-012.wav",
+          "sampleRateHz": 24000,
+          "audioFingerprint": {
+            "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-012.wav",
+            "exists": true,
+            "sampleRateHz": 24000,
+            "durationSeconds": 24.211,
+            "sha256": "8e825242a9d5cf58ddb9a85b7397a31684309d3400227d1b9814692f385ac9b9",
+            "first2sSha256": "e3c3b200dc89ade117f3d8e08fe7558470fcdf5611fa5b43b858721c7854890d",
+            "last2sSha256": "3eff76a3fcadc1f702e9501dff431ca0afd1919a5b02581ff4f7b085a057ac2d"
+          }
+        },
+        {
+          "slide": 13,
+          "title": "Cost Has To Defend Itself",
+          "resolvedVoice": "Kore",
+          "voicePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-013.wav",
+          "sampleRateHz": 24000,
+          "audioFingerprint": {
+            "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-013.wav",
+            "exists": true,
+            "sampleRateHz": 24000,
+            "durationSeconds": 23.571,
+            "sha256": "95019ff740ccba4dd87cfb5348abbcde743b189a2389c0b229d8cdd932281c57",
+            "first2sSha256": "29c31113cebde3ffcf832f171f00ced4c420902c7ca79518775dc94b56cd9a9a",
+            "last2sSha256": "3b1bdffee16d764a4788c214299893fffae49b3375c92982c8696c2d76e85312"
+          }
+        },
+        {
+          "slide": 14,
+          "title": "Cheap Alone Is Not The Goal. Earned Cost Is.",
+          "resolvedVoice": "Kore",
+          "voicePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-014.wav",
+          "sampleRateHz": 24000,
+          "audioFingerprint": {
+            "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-014.wav",
+            "exists": true,
+            "sampleRateHz": 24000,
+            "durationSeconds": 17.811,
+            "sha256": "430c1362e91ddddc51f7ec641b5c7d1c5b693e5a2912e47e9a40e5820f45c66d",
+            "first2sSha256": "cd496efcf409358276a656aee11309c6cff8d2d83d2ea61c43e8e7bb3127cc3e",
+            "last2sSha256": "ad7fb2a7fe841a6eacaa0086e4e0bcdb9fabae67e68a9b931808c817a5485762"
+          }
+        },
+        {
+          "slide": 15,
+          "title": "The Small Leak Matters Because Time Makes It Matter",
+          "resolvedVoice": "Kore",
+          "voicePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-015.wav",
+          "sampleRateHz": 24000,
+          "audioFingerprint": {
+            "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-015.wav",
+            "exists": true,
+            "sampleRateHz": 24000,
+            "durationSeconds": 22.411,
+            "sha256": "6d02cf3d71403f055c4467c0e73203aa2a02e333de9bfc97e18376648762fdcc",
+            "first2sSha256": "cf881cf7b21d3d0490d327dbd9f55585469a17dad38705afbcbc0357f328fd3f",
+            "last2sSha256": "3adcc4c56ba2c82d6b12435d4ec7de8ab67a6ce9661f1581294f1649a2e72870"
+          }
+        },
+        {
+          "slide": 16,
+          "title": "",
+          "resolvedVoice": "Kore",
+          "voicePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-016.wav",
+          "sampleRateHz": 24000,
+          "audioFingerprint": {
+            "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-016.wav",
+            "exists": true,
+            "sampleRateHz": 24000,
+            "durationSeconds": 18.571,
+            "sha256": "59db014f7fff37476e92923e52d99e471404101abb83295bf8c03001c05d6745",
+            "first2sSha256": "0ac246b317d197ff7aca874972bba1701cf27575b9d07a3ac381f8d744479761",
+            "last2sSha256": "a5a62a1f38c5017a410f82062f2878e6e9af7dfa0963833eefa574b870626098"
+          }
+        }
+      ],
+      "violations": []
+    },
+    "audioReviewClass": {
+      "pass": true,
+      "notApplicable": false,
+      "packagePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5329/fixtures/good-gemini-av-pack.json",
+      "packageSource": "explicit",
+      "searchRoots": [
+        "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix",
+        "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326",
+        "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products"
+      ],
+      "candidates": [],
+      "report": {
+        "packagePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5329/fixtures/good-gemini-av-pack.json",
+        "packageName": "TSM-5305 CC rendered AV review proxy",
+        "channel": "CC",
+        "reviewClass": "B-audio",
+        "generatedAt": "2026-07-10T10:19:11.544683+00:00",
+        "pass": true,
+        "gates": {
+          "reviewClassCompliance": {
+            "pass": true,
+            "reviewClass": "B-audio",
+            "requiredReviewClass": "B-audio",
+            "violations": []
+          },
+          "scratchSystemTtsRemnant": {
+            "pass": true,
+            "spokenSlate": false,
+            "variants": [
+              {
+                "variant": "A",
+                "pass": true,
+                "engine": "gemini-tts",
+                "sampleRateHz": 24000,
+                "probedSampleRateHz": 24000,
+                "voiceRenderPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5305/rendered-av-samples/cc-voice.wav",
+                "voiceFingerprintReferencePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5305/rendered-av-samples/cc-voice.wav",
+                "voiceFingerprintSimilarity": 1.0,
+                "voiceFingerprintMinSimilarity": 0.999,
+                "violations": []
+              }
+            ],
+            "violations": []
+          },
+          "variantIntegrity": {
+            "pass": true,
+            "notApplicable": true,
+            "violations": [],
+            "pairs": []
+          },
+          "reviewStagingCompliance": {
+            "pass": true,
+            "missingManifestFields": [],
+            "linkedQualityGatePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5329/fixtures/linked-quality/audioDuckingHardCut-green.json",
+            "linkedQualityGate": {
+              "pass": true,
+              "violations": [],
+              "gate": "audioDuckingHardCut",
+              "fixtureName": "audio-hard-cut-green",
+              "expectedPass": true,
+              "runtimeSeconds": 0.0,
+              "estimatedCostUsd": 0.0,
+              "variant": "green",
+              "matchedExpectation": true
+            },
+            "variants": [
+              {
+                "variant": "A",
+                "avSamplePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5305/rendered-av-samples/cc-sample.mp4",
+                "violations": [],
+                "pass": true
+              }
+            ],
+            "violations": []
+          },
+          "humanListenPass": {
+            "pass": true,
+            "required": true,
+            "status": "passed",
+            "listenedBy": "fixture-listener",
+            "listenedAt": "2026-07-08T12:00:00Z",
+            "items": [
+              {
+                "variantId": "A",
+                "status": "passed",
+                "pass": true,
+                "avSamplePath": "../../TSM-5305/rendered-av-samples/cc-sample.mp4",
+                "voiceRenderPath": "../../TSM-5305/rendered-av-samples/cc-voice.wav",
+                "mixPath": "../../TSM-5305/rendered-av-samples/cc-mix.wav",
+                "violations": []
+              }
+            ],
+            "violations": []
+          }
+        }
+      },
+      "violations": []
+    },
+    "reworkDelta": {
+      "pass": true,
+      "baselineEpisodePath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/cc-fee-drag-pass10-remediated-v2-closeout-master.mp4",
+      "baselineBodyWorkDir": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v2-closeout/work",
+      "currentEpisode": {
+        "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/cc-fee-drag-pass10-remediated-v3-chartfix-master.mp4",
+        "exists": true,
+        "sampleRateHz": 48000,
+        "durationSeconds": 419.353,
+        "sha256": "67d02eeb1994ab3a9aa4335eb9af422e920c42aabb4253bd4ee07ebfa2769e6d",
+        "first2sSha256": "ab7dab68330de6f6b151bb2dfb5d1fe5835af3baa2d998e17557dc6bf4e8f1d4",
+        "last2sSha256": "c0ea3f47abd65185e7eb652b5e6a750157dd1208e9189e9a7b030b82d4eaf85e"
+      },
+      "priorEpisode": {
+        "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/cc-fee-drag-pass10-remediated-v2-closeout-master.mp4",
+        "exists": true,
+        "sampleRateHz": 48000,
+        "durationSeconds": 419.353,
+        "sha256": "c5d5ddd27d127dba27afba6d0a3381b82f2f16fff621d1c755f55bb9645c5c67",
+        "first2sSha256": "ac3df37914e360f334f296920cc069d454816ce743ee3cbce1d8f64574b4f45a",
+        "last2sSha256": "0a28dc06812fe43549fb01bc9996b953c318c4602637e7b28e9823a3ae40c979"
+      },
+      "clipDeltas": [
+        {
+          "slide": 1,
+          "title": "Illustrative Fee-Drag Mechanics",
+          "changed": false,
+          "current": {
+            "clipSha256": "b87e8618b4dd465f87b85a6d297129974a69ac5bbc2d3a7b90592bcb53e4a3c4",
+            "durationSeconds": 32.367,
+            "audioFingerprint": {
+              "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-001.wav",
+              "exists": true,
+              "sampleRateHz": 24000,
+              "durationSeconds": 29.742,
+              "sha256": "549bf107f58d382f8a4a78bf15ac6496daf5d9ced3843efbe7fa0a3044646acf",
+              "first2sSha256": "c4af717902d2dfe2098eaa41ad46a12d6c486e27d64adcfe94ac621904188d4d",
+              "last2sSha256": "30a4f8473e203c8cb54baa0c6f1fb822dc84c1e3e1a433ccd5668eca9bdc4e96"
+            }
+          },
+          "prior": {
+            "clipSha256": "b87e8618b4dd465f87b85a6d297129974a69ac5bbc2d3a7b90592bcb53e4a3c4",
+            "durationSeconds": 32.367,
+            "audioFingerprint": {
+              "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v2-closeout/work/vo-001.wav",
+              "exists": true,
+              "sampleRateHz": 24000,
+              "durationSeconds": 29.742,
+              "sha256": "549bf107f58d382f8a4a78bf15ac6496daf5d9ced3843efbe7fa0a3044646acf",
+              "first2sSha256": "c4af717902d2dfe2098eaa41ad46a12d6c486e27d64adcfe94ac621904188d4d",
+              "last2sSha256": "30a4f8473e203c8cb54baa0c6f1fb822dc84c1e3e1a433ccd5668eca9bdc4e96"
+            }
+          }
+        },
+        {
+          "slide": 2,
+          "title": "Lock The Baseline Before The Ending Value Moves",
+          "changed": false,
+          "current": {
+            "clipSha256": "2318a33f2515b48f3341a22c0f116c441f73af2e9cc0f1e77b3393c90ceffede",
+            "durationSeconds": 13.3,
+            "audioFingerprint": {
+              "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-002.wav",
+              "exists": true,
+              "sampleRateHz": 24000,
+              "durationSeconds": 12.691,
+              "sha256": "25e32a311abef1d7f6fe147cfa8a265aa793d10fd84480c94abac5ad706a97cf",
+              "first2sSha256": "58a0c59c5a9bebdb388dce57a04f64e5b2fdd377cc5f7d7ab7ac4b1ac6ec2725",
+              "last2sSha256": "02ec928a1eacedbbd11aea6f5b74b4722ba96ac6c710b64f79e875ef016d5178"
+            }
+          },
+          "prior": {
+            "clipSha256": "2318a33f2515b48f3341a22c0f116c441f73af2e9cc0f1e77b3393c90ceffede",
+            "durationSeconds": 13.3,
+            "audioFingerprint": {
+              "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v2-closeout/work/vo-002.wav",
+              "exists": true,
+              "sampleRateHz": 24000,
+              "durationSeconds": 12.691,
+              "sha256": "25e32a311abef1d7f6fe147cfa8a265aa793d10fd84480c94abac5ad706a97cf",
+              "first2sSha256": "58a0c59c5a9bebdb388dce57a04f64e5b2fdd377cc5f7d7ab7ac4b1ac6ec2725",
+              "last2sSha256": "02ec928a1eacedbbd11aea6f5b74b4722ba96ac6c710b64f79e875ef016d5178"
+            }
+          }
+        },
+        {
+          "slide": 3,
+          "title": "Use One Relatable Path",
+          "changed": false,
+          "current": {
+            "clipSha256": "6277781808d8e5e9081512ef060330b01f096fe464483da6026e105414cc6823",
+            "durationSeconds": 12.467,
+            "audioFingerprint": {
+              "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-003.wav",
+              "exists": true,
+              "sampleRateHz": 24000,
+              "durationSeconds": 11.851,
+              "sha256": "3b8941ac3fbaa96d8a931c1f6baed07a64d365d4e9dda401ae2116e77dbee926",
+              "first2sSha256": "73897ea397fe4952db3aabd898158b472f3f9028dda4b5c11b2ff40a225b1bf6",
+              "last2sSha256": "7fa21fb2f4da4e400516f1a752546f2673f3003aba146c36342a42184d4ea4b0"
+            }
+          },
+          "prior": {
+            "clipSha256": "6277781808d8e5e9081512ef060330b01f096fe464483da6026e105414cc6823",
+            "durationSeconds": 12.467,
+            "audioFingerprint": {
+              "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v2-closeout/work/vo-003.wav",
+              "exists": true,
+              "sampleRateHz": 24000,
+              "durationSeconds": 11.851,
+              "sha256": "3b8941ac3fbaa96d8a931c1f6baed07a64d365d4e9dda401ae2116e77dbee926",
+              "first2sSha256": "73897ea397fe4952db3aabd898158b472f3f9028dda4b5c11b2ff40a225b1bf6",
+              "last2sSha256": "7fa21fb2f4da4e400516f1a752546f2673f3003aba146c36342a42184d4ea4b0"
+            }
+          }
+        },
+        {
+          "slide": 4,
+          "title": "One Path, Four Fee Levels",
+          "changed": false,
+          "current": {
+            "clipSha256": "5b45bb4fee5ad5bd7af561744912190f17131d3a622294c3c1e10a2140cbc8a7",
+            "durationSeconds": 21.333,
+            "audioFingerprint": {
+              "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-004.wav",
+              "exists": true,
+              "sampleRateHz": 24000,
+              "durationSeconds": 20.691,
+              "sha256": "c7fb339d440b27fcce2627f45f854f01bf9867bccc61e7a6c4a600fa1505b4ea",
+              "first2sSha256": "80c0c9d7df1925acb5a49c355a7c26a8116606d76d01ba0707876fbe1d832f2d",
+              "last2sSha256": "1ce6932ae61ee14bc300c0b7852a7fa183b78b30446eb812d4c1b8c4ea740613"
+            }
+          },
+          "prior": {
+            "clipSha256": "5b45bb4fee5ad5bd7af561744912190f17131d3a622294c3c1e10a2140cbc8a7",
+            "durationSeconds": 21.333,
+            "audioFingerprint": {
+              "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v2-closeout/work/vo-004.wav",
+              "exists": true,
+              "sampleRateHz": 24000,
+              "durationSeconds": 20.691,
+              "sha256": "c7fb339d440b27fcce2627f45f854f01bf9867bccc61e7a6c4a600fa1505b4ea",
+              "first2sSha256": "80c0c9d7df1925acb5a49c355a7c26a8116606d76d01ba0707876fbe1d832f2d",
+              "last2sSha256": "1ce6932ae61ee14bc300c0b7852a7fa183b78b30446eb812d4c1b8c4ea740613"
+            }
+          }
+        },
+        {
+          "slide": 5,
+          "title": "The End Value Moves Even When The Fee Looks Tiny",
+          "changed": true,
+          "current": {
+            "clipSha256": "5da7ddae2f044446471bfcb131b21785742ea0901bef17698d815610e015c762",
+            "durationSeconds": 34.933,
+            "audioFingerprint": {
+              "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-005.wav",
+              "exists": true,
+              "sampleRateHz": 24000,
+              "durationSeconds": 34.302,
+              "sha256": "0a524c6df4bc0a058e1e93d300c54196421c93b57cb42db65be9d1168bf69f89",
+              "first2sSha256": "879ad179f7ba83918d61e1a38731fc1fa4b6c8f7a9aaf6629464be47ce2f3110",
+              "last2sSha256": "5be7acaac10488672a80df0a9c172c20271d6e389c9fd7d0698801ef2411c0f5"
+            }
+          },
+          "prior": {
+            "clipSha256": "bd5798db8158a129454768817b6710c8485a9b3992875a2a3aa5a6f8201b0a4f",
+            "durationSeconds": 34.933,
+            "audioFingerprint": {
+              "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v2-closeout/work/vo-005.wav",
+              "exists": true,
+              "sampleRateHz": 24000,
+              "durationSeconds": 34.302,
+              "sha256": "0a524c6df4bc0a058e1e93d300c54196421c93b57cb42db65be9d1168bf69f89",
+              "first2sSha256": "879ad179f7ba83918d61e1a38731fc1fa4b6c8f7a9aaf6629464be47ce2f3110",
+              "last2sSha256": "5be7acaac10488672a80df0a9c172c20271d6e389c9fd7d0698801ef2411c0f5"
+            }
+          }
+        },
+        {
+          "slide": 6,
+          "title": "Fee Drag Hits In Three Layers",
+          "changed": false,
+          "current": {
+            "clipSha256": "0d5d6d57d529c6a6bfecd70f448be261cdc3c0c31ff1979d1953c185f5a2ad0b",
+            "durationSeconds": 27.733,
+            "audioFingerprint": {
+              "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-006.wav",
+              "exists": true,
+              "sampleRateHz": 24000,
+              "durationSeconds": 27.102,
+              "sha256": "c331b91accb6310cf5c7f5d1bec45a77fbd270b8d2ac5e7abbc099d6358595da",
+              "first2sSha256": "298b58081a4e922330a66d6e40d37fd4bb1690d49ef9f648e459caac318b1dec",
+              "last2sSha256": "3fc0e571f642d7e4106d35e97ba2f8706c8e779b7eaf7e62d216e3e80fda3c8d"
+            }
+          },
+          "prior": {
+            "clipSha256": "0d5d6d57d529c6a6bfecd70f448be261cdc3c0c31ff1979d1953c185f5a2ad0b",
+            "durationSeconds": 27.733,
+            "audioFingerprint": {
+              "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v2-closeout/work/vo-006.wav",
+              "exists": true,
+              "sampleRateHz": 24000,
+              "durationSeconds": 27.102,
+              "sha256": "c331b91accb6310cf5c7f5d1bec45a77fbd270b8d2ac5e7abbc099d6358595da",
+              "first2sSha256": "298b58081a4e922330a66d6e40d37fd4bb1690d49ef9f648e459caac318b1dec",
+              "last2sSha256": "3fc0e571f642d7e4106d35e97ba2f8706c8e779b7eaf7e62d216e3e80fda3c8d"
+            }
+          }
+        },
+        {
+          "slide": 7,
+          "title": "Why Small Fees Feel Easy To Ignore",
+          "changed": false,
+          "current": {
+            "clipSha256": "d7ebfbb5ee589fc8853898b0a89b260d2e25bbf4f9e76b2cbb3c7250e1b4b0a0",
+            "durationSeconds": 11.267,
+            "audioFingerprint": {
+              "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-007.wav",
+              "exists": true,
+              "sampleRateHz": 24000,
+              "durationSeconds": 10.651,
+              "sha256": "eafa368b6b789b9a00cc0df70f971271104f30eacd0630504fb8bdef04b3f6fc",
+              "first2sSha256": "4f7ea17d1c7b8f532247b6d468a2a8a438ab0386970ee40526683e3136f0caa5",
+              "last2sSha256": "fa2546023abe3ea233cd051a2e675f7ecc00fc3612afb385e84e65ae57f1269e"
+            }
+          },
+          "prior": {
+            "clipSha256": "d7ebfbb5ee589fc8853898b0a89b260d2e25bbf4f9e76b2cbb3c7250e1b4b0a0",
+            "durationSeconds": 11.267,
+            "audioFingerprint": {
+              "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v2-closeout/work/vo-007.wav",
+              "exists": true,
+              "sampleRateHz": 24000,
+              "durationSeconds": 10.651,
+              "sha256": "eafa368b6b789b9a00cc0df70f971271104f30eacd0630504fb8bdef04b3f6fc",
+              "first2sSha256": "4f7ea17d1c7b8f532247b6d468a2a8a438ab0386970ee40526683e3136f0caa5",
+              "last2sSha256": "fa2546023abe3ea233cd051a2e675f7ecc00fc3612afb385e84e65ae57f1269e"
+            }
+          }
+        },
+        {
+          "slide": 8,
+          "title": "Five Dollars Today vs. Thousands Later",
+          "changed": false,
+          "current": {
+            "clipSha256": "f4b16f71d8ec41009a02503a97c0b2474dc702b3fab82ad558f4bc7a6278d114",
+            "durationSeconds": 17.467,
+            "audioFingerprint": {
+              "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-008.wav",
+              "exists": true,
+              "sampleRateHz": 24000,
+              "durationSeconds": 16.851,
+              "sha256": "c003fd70d4f5d65bd77322b277317731486d2e0e26a36173c95296751b35ebea",
+              "first2sSha256": "55ee31f7cbad9ad2c3677742b90d24589e5e81c09b75fb574677d0efb324e88a",
+              "last2sSha256": "341dfe31e2c76b1e2467d3edc27ba46d2e93018909cb8885bffd110effaedda9"
+            }
+          },
+          "prior": {
+            "clipSha256": "f4b16f71d8ec41009a02503a97c0b2474dc702b3fab82ad558f4bc7a6278d114",
+            "durationSeconds": 17.467,
+            "audioFingerprint": {
+              "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v2-closeout/work/vo-008.wav",
+              "exists": true,
+              "sampleRateHz": 24000,
+              "durationSeconds": 16.851,
+              "sha256": "c003fd70d4f5d65bd77322b277317731486d2e0e26a36173c95296751b35ebea",
+              "first2sSha256": "55ee31f7cbad9ad2c3677742b90d24589e5e81c09b75fb574677d0efb324e88a",
+              "last2sSha256": "341dfe31e2c76b1e2467d3edc27ba46d2e93018909cb8885bffd110effaedda9"
+            }
+          }
+        },
+        {
+          "slide": 9,
+          "title": "Most People Never See The Full Fee Stack In One Place",
+          "changed": false,
+          "current": {
+            "clipSha256": "cdbca6397d097d795991c0dfc739dba8b8616c966e8b9bc3cdd634f6244dac38",
+            "durationSeconds": 20.867,
+            "audioFingerprint": {
+              "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-009.wav",
+              "exists": true,
+              "sampleRateHz": 24000,
+              "durationSeconds": 20.251,
+              "sha256": "11bee39c577f7963274ce8f881415f6e2b2a7bf79be27180a6be9c7b8df106b6",
+              "first2sSha256": "13d775b4873df5d8781bb60b7ed50ec9a74106f8f0e84faac8cbd6262172b84f",
+              "last2sSha256": "4451622dc6d8b6982153f0fa4e604feb782bc463e89b4b10f95c7d6f90a4f2b6"
+            }
+          },
+          "prior": {
+            "clipSha256": "cdbca6397d097d795991c0dfc739dba8b8616c966e8b9bc3cdd634f6244dac38",
+            "durationSeconds": 20.867,
+            "audioFingerprint": {
+              "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v2-closeout/work/vo-009.wav",
+              "exists": true,
+              "sampleRateHz": 24000,
+              "durationSeconds": 20.251,
+              "sha256": "11bee39c577f7963274ce8f881415f6e2b2a7bf79be27180a6be9c7b8df106b6",
+              "first2sSha256": "13d775b4873df5d8781bb60b7ed50ec9a74106f8f0e84faac8cbd6262172b84f",
+              "last2sSha256": "4451622dc6d8b6982153f0fa4e604feb782bc463e89b4b10f95c7d6f90a4f2b6"
+            }
+          }
+        },
+        {
+          "slide": 10,
+          "title": "The Same Portfolio Can Be Sold At Very Different Prices",
+          "changed": true,
+          "current": {
+            "clipSha256": "81a54b4974643ceeb41801964905c55024de4c01f3a5e090ccb52c0829a515aa",
+            "durationSeconds": 29.4,
+            "audioFingerprint": {
+              "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-010.wav",
+              "exists": true,
+              "sampleRateHz": 24000,
+              "durationSeconds": 28.782,
+              "sha256": "7cc20c98714397b2418541b50fff340103d7464687ecf5f5eb94c14b79714723",
+              "first2sSha256": "8b5299f78d205406aba124fdf91fa22188a55042507d5df8d5c6adf76d661ad9",
+              "last2sSha256": "515db3dccba0656d679293fe0e6dc4f4cbdb6f0909cf7e5f0c984085b49b1fd6"
+            }
+          },
+          "prior": {
+            "clipSha256": "3eb1a5ab0cf48c557e8c4b87b594e6efd3fa3b2ae7ee6732446433e4bbfbfdd5",
+            "durationSeconds": 29.4,
+            "audioFingerprint": {
+              "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v2-closeout/work/vo-010.wav",
+              "exists": true,
+              "sampleRateHz": 24000,
+              "durationSeconds": 28.782,
+              "sha256": "7cc20c98714397b2418541b50fff340103d7464687ecf5f5eb94c14b79714723",
+              "first2sSha256": "8b5299f78d205406aba124fdf91fa22188a55042507d5df8d5c6adf76d661ad9",
+              "last2sSha256": "515db3dccba0656d679293fe0e6dc4f4cbdb6f0909cf7e5f0c984085b49b1fd6"
+            }
+          }
+        },
+        {
+          "slide": 11,
+          "title": "Find The Fee Before You Chase Performance",
+          "changed": false,
+          "current": {
+            "clipSha256": "f176ba9195715d172f03c488c5266e581cc2ed810ddc58567b3559bceb23d0aa",
+            "durationSeconds": 31.6,
+            "audioFingerprint": {
+              "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-011.wav",
+              "exists": true,
+              "sampleRateHz": 24000,
+              "durationSeconds": 30.982,
+              "sha256": "7c1db52d2e11edd3fa847b788b66183959bb5ee924c1cf28a79b3378fb55cd7b",
+              "first2sSha256": "19df7208d7a571b89649a46b510ab93ea9fb841b80de4a64472b5bfd4ae7e722",
+              "last2sSha256": "48f5e3c68600c90d097b54390520a7eaa978115f3aa669dc5300fe7c9e4bf216"
+            }
+          },
+          "prior": {
+            "clipSha256": "f176ba9195715d172f03c488c5266e581cc2ed810ddc58567b3559bceb23d0aa",
+            "durationSeconds": 31.6,
+            "audioFingerprint": {
+              "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v2-closeout/work/vo-011.wav",
+              "exists": true,
+              "sampleRateHz": 24000,
+              "durationSeconds": 30.982,
+              "sha256": "7c1db52d2e11edd3fa847b788b66183959bb5ee924c1cf28a79b3378fb55cd7b",
+              "first2sSha256": "19df7208d7a571b89649a46b510ab93ea9fb841b80de4a64472b5bfd4ae7e722",
+              "last2sSha256": "48f5e3c68600c90d097b54390520a7eaa978115f3aa669dc5300fe7c9e4bf216"
+            }
+          }
+        },
+        {
+          "slide": 12,
+          "title": "The Annual Dollar Charge Rises As The Portfolio Rises",
+          "changed": true,
+          "current": {
+            "clipSha256": "ff1c29a1fb154cbf1ec6ba20f3a69e6c95964ee280397df9cbf41d83b6d8b3d0",
+            "durationSeconds": 24.833,
+            "audioFingerprint": {
+              "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-012.wav",
+              "exists": true,
+              "sampleRateHz": 24000,
+              "durationSeconds": 24.211,
+              "sha256": "8e825242a9d5cf58ddb9a85b7397a31684309d3400227d1b9814692f385ac9b9",
+              "first2sSha256": "e3c3b200dc89ade117f3d8e08fe7558470fcdf5611fa5b43b858721c7854890d",
+              "last2sSha256": "3eff76a3fcadc1f702e9501dff431ca0afd1919a5b02581ff4f7b085a057ac2d"
+            }
+          },
+          "prior": {
+            "clipSha256": "96d3732c48fd1040712ffcb7e427dd368323171afe88d018b44c560b47e4db69",
+            "durationSeconds": 24.833,
+            "audioFingerprint": {
+              "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v2-closeout/work/vo-012.wav",
+              "exists": true,
+              "sampleRateHz": 24000,
+              "durationSeconds": 24.211,
+              "sha256": "8e825242a9d5cf58ddb9a85b7397a31684309d3400227d1b9814692f385ac9b9",
+              "first2sSha256": "e3c3b200dc89ade117f3d8e08fe7558470fcdf5611fa5b43b858721c7854890d",
+              "last2sSha256": "3eff76a3fcadc1f702e9501dff431ca0afd1919a5b02581ff4f7b085a057ac2d"
+            }
+          }
+        },
+        {
+          "slide": 13,
+          "title": "Cost Has To Defend Itself",
+          "changed": false,
+          "current": {
+            "clipSha256": "5aa68c5903ac127e3b2cefcdc44b97b9b623033b7006fd7e2a6947234050867b",
+            "durationSeconds": 24.2,
+            "audioFingerprint": {
+              "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-013.wav",
+              "exists": true,
+              "sampleRateHz": 24000,
+              "durationSeconds": 23.571,
+              "sha256": "95019ff740ccba4dd87cfb5348abbcde743b189a2389c0b229d8cdd932281c57",
+              "first2sSha256": "29c31113cebde3ffcf832f171f00ced4c420902c7ca79518775dc94b56cd9a9a",
+              "last2sSha256": "3b1bdffee16d764a4788c214299893fffae49b3375c92982c8696c2d76e85312"
+            }
+          },
+          "prior": {
+            "clipSha256": "5aa68c5903ac127e3b2cefcdc44b97b9b623033b7006fd7e2a6947234050867b",
+            "durationSeconds": 24.2,
+            "audioFingerprint": {
+              "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v2-closeout/work/vo-013.wav",
+              "exists": true,
+              "sampleRateHz": 24000,
+              "durationSeconds": 23.571,
+              "sha256": "95019ff740ccba4dd87cfb5348abbcde743b189a2389c0b229d8cdd932281c57",
+              "first2sSha256": "29c31113cebde3ffcf832f171f00ced4c420902c7ca79518775dc94b56cd9a9a",
+              "last2sSha256": "3b1bdffee16d764a4788c214299893fffae49b3375c92982c8696c2d76e85312"
+            }
+          }
+        },
+        {
+          "slide": 14,
+          "title": "Cheap Alone Is Not The Goal. Earned Cost Is.",
+          "changed": false,
+          "current": {
+            "clipSha256": "98bca53a30aa3918abf058332e568ede890b0379a30bd0f7867f67c229cfc14d",
+            "durationSeconds": 18.433,
+            "audioFingerprint": {
+              "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-014.wav",
+              "exists": true,
+              "sampleRateHz": 24000,
+              "durationSeconds": 17.811,
+              "sha256": "430c1362e91ddddc51f7ec641b5c7d1c5b693e5a2912e47e9a40e5820f45c66d",
+              "first2sSha256": "cd496efcf409358276a656aee11309c6cff8d2d83d2ea61c43e8e7bb3127cc3e",
+              "last2sSha256": "ad7fb2a7fe841a6eacaa0086e4e0bcdb9fabae67e68a9b931808c817a5485762"
+            }
+          },
+          "prior": {
+            "clipSha256": "98bca53a30aa3918abf058332e568ede890b0379a30bd0f7867f67c229cfc14d",
+            "durationSeconds": 18.433,
+            "audioFingerprint": {
+              "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v2-closeout/work/vo-014.wav",
+              "exists": true,
+              "sampleRateHz": 24000,
+              "durationSeconds": 17.811,
+              "sha256": "430c1362e91ddddc51f7ec641b5c7d1c5b693e5a2912e47e9a40e5820f45c66d",
+              "first2sSha256": "cd496efcf409358276a656aee11309c6cff8d2d83d2ea61c43e8e7bb3127cc3e",
+              "last2sSha256": "ad7fb2a7fe841a6eacaa0086e4e0bcdb9fabae67e68a9b931808c817a5485762"
+            }
+          }
+        },
+        {
+          "slide": 15,
+          "title": "The Small Leak Matters Because Time Makes It Matter",
+          "changed": false,
+          "current": {
+            "clipSha256": "289b8643518c3f52213c097b70e1d05ec2ac734b081968898b6d62e6851e1829",
+            "durationSeconds": 23.033,
+            "audioFingerprint": {
+              "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-015.wav",
+              "exists": true,
+              "sampleRateHz": 24000,
+              "durationSeconds": 22.411,
+              "sha256": "6d02cf3d71403f055c4467c0e73203aa2a02e333de9bfc97e18376648762fdcc",
+              "first2sSha256": "cf881cf7b21d3d0490d327dbd9f55585469a17dad38705afbcbc0357f328fd3f",
+              "last2sSha256": "3adcc4c56ba2c82d6b12435d4ec7de8ab67a6ce9661f1581294f1649a2e72870"
+            }
+          },
+          "prior": {
+            "clipSha256": "289b8643518c3f52213c097b70e1d05ec2ac734b081968898b6d62e6851e1829",
+            "durationSeconds": 23.033,
+            "audioFingerprint": {
+              "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v2-closeout/work/vo-015.wav",
+              "exists": true,
+              "sampleRateHz": 24000,
+              "durationSeconds": 22.411,
+              "sha256": "6d02cf3d71403f055c4467c0e73203aa2a02e333de9bfc97e18376648762fdcc",
+              "first2sSha256": "cf881cf7b21d3d0490d327dbd9f55585469a17dad38705afbcbc0357f328fd3f",
+              "last2sSha256": "3adcc4c56ba2c82d6b12435d4ec7de8ab67a6ce9661f1581294f1649a2e72870"
+            }
+          }
+        },
+        {
+          "slide": 16,
+          "title": "",
+          "changed": true,
+          "current": {
+            "clipSha256": "967e1fa9500608ca5cad78ac5808b1dc91189df162182dee20476b875415b84c",
+            "durationSeconds": 24.2,
+            "audioFingerprint": {
+              "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/vo-016.wav",
+              "exists": true,
+              "sampleRateHz": 24000,
+              "durationSeconds": 18.571,
+              "sha256": "59db014f7fff37476e92923e52d99e471404101abb83295bf8c03001c05d6745",
+              "first2sSha256": "0ac246b317d197ff7aca874972bba1701cf27575b9d07a3ac381f8d744479761",
+              "last2sSha256": "a5a62a1f38c5017a410f82062f2878e6e9af7dfa0963833eefa574b870626098"
+            }
+          },
+          "prior": {
+            "clipSha256": "b60a19b4f9731c0ec692be34bd5dd6a90ee63a1efd99da458a72bbfd4634b250",
+            "durationSeconds": 24.2,
+            "audioFingerprint": {
+              "path": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v2-closeout/work/vo-016.wav",
+              "exists": true,
+              "sampleRateHz": 24000,
+              "durationSeconds": 18.571,
+              "sha256": "59db014f7fff37476e92923e52d99e471404101abb83295bf8c03001c05d6745",
+              "first2sSha256": "0ac246b317d197ff7aca874972bba1701cf27575b9d07a3ac381f8d744479761",
+              "last2sSha256": "a5a62a1f38c5017a410f82062f2878e6e9af7dfa0963833eefa574b870626098"
+            }
+          }
+        }
+      ],
+      "violations": []
+    },
+    "assemblyPass": {
+      "pass": true,
+      "clipCount": 16,
+      "durationsSeconds": [
+        32.367,
+        13.3,
+        12.467,
+        21.333,
+        34.933,
+        27.733,
+        11.267,
+        17.467,
+        20.867,
+        29.4,
+        31.6,
+        24.833,
+        24.2,
+        18.433,
+        23.033,
+        24.2
+      ],
+      "histogramHalfSecondBuckets": {
+        "11.5": 1,
+        "12.5": 1,
+        "13.5": 1,
+        "17.5": 1,
+        "18.5": 1,
+        "21.0": 1,
+        "21.5": 1,
+        "23.0": 1,
+        "24.0": 2,
+        "25.0": 1,
+        "27.5": 1,
+        "29.5": 1,
+        "31.5": 1,
+        "32.5": 1,
+        "35.0": 1
+      },
+      "dominantBucketSeconds": 24.0,
+      "dominantBucketRatio": 0.125,
+      "rawGenWindowSeconds": {
+        "min": 7.0,
+        "max": 9.0
+      },
+      "violations": []
+    },
+    "pacingSpecLint": {
+      "pass": true,
+      "manifestPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/render-manifest.json",
+      "thresholdSeconds": 25.0,
+      "warningSeconds": 22.0,
+      "longestStaticRunSeconds": 23.665,
+      "longestStaticRunStartSeconds": 362.327,
+      "longestStaticRunEndSeconds": 385.992,
+      "longestStaticRunSlides": [
+        16
+      ]
+    },
+    "motionPaddingPolicy": {
+      "pass": true,
+      "checks": [
+        {
+          "slide": 2,
+          "type": "chapter",
+          "title": "Lock The Baseline Before The Ending Value Moves",
+          "sourceVisualRef": "inputs/bgmotion-005.mp4",
+          "sourceVisualKind": "bgmotion_video",
+          "sourceVideoDurationSeconds": 13.6,
+          "targetDurationEstimateSeconds": 13.053,
+          "runtimePaddingPolicy": "none",
+          "requiredPolicy": "none",
+          "paddingGapSeconds": 0.0,
+          "clipPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/clip-002.mp4",
+          "maxObservedStaticSeconds": 3.0,
+          "staticThresholdSeconds": 6.0,
+          "motionPlanRequired": false
+        },
+        {
+          "slide": 3,
+          "type": "broll",
+          "title": "Use One Relatable Path",
+          "sourceVisualRef": "inputs/clip-000.jpg",
+          "sourceVisualKind": "broll_still",
+          "sourceVideoDurationSeconds": null,
+          "targetDurationEstimateSeconds": 14.686,
+          "runtimePaddingPolicy": "ken_burns",
+          "requiredPolicy": "ken_burns",
+          "paddingGapSeconds": null,
+          "clipPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/clip-003.mp4",
+          "maxObservedStaticSeconds": 0.5,
+          "staticThresholdSeconds": 2.0,
+          "motionPlanRequired": false
+        },
+        {
+          "slide": 7,
+          "type": "broll",
+          "title": "Why Small Fees Feel Easy To Ignore",
+          "sourceVisualRef": "inputs/clip-001.mp4",
+          "sourceVisualKind": "broll_video",
+          "sourceVideoDurationSeconds": 13.6,
+          "targetDurationEstimateSeconds": 13.053,
+          "runtimePaddingPolicy": "none",
+          "requiredPolicy": "none",
+          "paddingGapSeconds": 0.0,
+          "clipPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/clip-007.mp4",
+          "maxObservedStaticSeconds": 0.5,
+          "staticThresholdSeconds": 2.0,
+          "motionPlanRequired": false
+        },
+        {
+          "slide": 9,
+          "type": "chapter",
+          "title": "Most People Never See The Full Fee Stack In One Place",
+          "sourceVisualRef": "inputs/bgmotion-006.mp4",
+          "sourceVisualKind": "bgmotion_video",
+          "sourceVideoDurationSeconds": 24.2,
+          "targetDurationEstimateSeconds": 23.665,
+          "runtimePaddingPolicy": "none",
+          "requiredPolicy": "none",
+          "paddingGapSeconds": 0.0,
+          "clipPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/clip-009.mp4",
+          "maxObservedStaticSeconds": 0.5,
+          "staticThresholdSeconds": 6.0,
+          "motionPlanRequired": false
+        },
+        {
+          "slide": 13,
+          "type": "broll",
+          "title": "Cost Has To Defend Itself",
+          "sourceVisualRef": "inputs/clip-002.mp4",
+          "sourceVisualKind": "broll_video",
+          "sourceVideoDurationSeconds": 26.7,
+          "targetDurationEstimateSeconds": 26.114,
+          "runtimePaddingPolicy": "none",
+          "requiredPolicy": "none",
+          "paddingGapSeconds": 0.0,
+          "clipPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/clip-013.mp4",
+          "maxObservedStaticSeconds": 0.5,
+          "staticThresholdSeconds": 2.0,
+          "motionPlanRequired": false
+        },
+        {
+          "slide": 15,
+          "type": "broll",
+          "title": "The Small Leak Matters Because Time Makes It Matter",
+          "sourceVisualRef": "inputs/clip-003.jpg",
+          "sourceVisualKind": "broll_still",
+          "sourceVideoDurationSeconds": null,
+          "targetDurationEstimateSeconds": 27.339,
+          "runtimePaddingPolicy": "ken_burns",
+          "requiredPolicy": "ken_burns",
+          "paddingGapSeconds": null,
+          "clipPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/clip-015.mp4",
+          "maxObservedStaticSeconds": 0.5,
+          "staticThresholdSeconds": 2.0,
+          "motionPlanRequired": false
+        },
+        {
+          "slide": 16,
+          "type": "outro",
+          "title": "",
+          "sourceVisualRef": "inputs/clip-004.mp4",
+          "sourceVisualKind": "clip_video",
+          "sourceVideoDurationSeconds": 24.2,
+          "targetDurationEstimateSeconds": 23.665,
+          "runtimePaddingPolicy": "none",
+          "requiredPolicy": "none",
+          "paddingGapSeconds": 0.0,
+          "clipPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/work/clip-016.mp4",
+          "maxObservedStaticSeconds": 0.5,
+          "staticThresholdSeconds": null,
+          "motionPlanRequired": false
+        }
+      ],
+      "violations": []
+    },
+    "referenceMasterConsistency": {
+      "pass": true,
+      "sameEpisode": false,
+      "advisoryViolations": [],
+      "thresholds": {
+        "integratedLufs": 0.8,
+        "truePeakDbtp": 1.0,
+        "lumaMean": 10.0,
+        "lumaStd": 8.0,
+        "cbMean": 7.0,
+        "crMean": 7.0,
+        "saturationMean": 10.0,
+        "lumaHistDistance": 0.22,
+        "cbHistDistance": 0.26,
+        "crHistDistance": 0.26
+      },
+      "deltas": {
+        "integratedLufs": 0.0,
+        "truePeakDbtp": 0.0,
+        "lumaMean": 0.0,
+        "lumaStd": 0.0,
+        "cbMean": 0.0,
+        "crMean": 0.0,
+        "saturationMean": 0.0,
+        "lumaHistDistance": 0.0,
+        "cbHistDistance": 0.0,
+        "crHistDistance": 0.0
+      },
+      "violations": [],
+      "referencePath": "/Users/glad0s/scripts/deck/reference-masters/cashflow-compass.json",
+      "referenceVideo": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/assets/final/VIDEO-cashflow-compass-flagship.mp4",
+      "channel": "cashflow-compass",
+      "candidateVideo": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/cc-fee-drag-pass10-remediated-v3-chartfix-master.mp4"
+    },
+    "chartTruth": {
+      "pass": true,
+      "specPath": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/cc-fee-drag-pass10-remediated.json",
+      "checked": 3,
+      "flatnessLimit": 0.85,
+      "renderTruthChecked": 3,
+      "violations": []
+    }
+  }
+}

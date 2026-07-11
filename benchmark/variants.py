@@ -103,6 +103,8 @@ def _mean(xs):
 def run_cell(role, task, model_row, af_key, sk_key, af_bodies, sk_bodies, adapters_cfg, timeout):
     prompt = build_prompt(af_bodies[af_key], sk_bodies[sk_key], task["prompt"])
     raw = run_model(prompt, model_row, adapters_cfg, timeout)
+    serving = benchlib.serving_truth(model_row.get("model_arg") or model_row["id"],
+                                     raw.get("model"), raw.get("modelSource"))
     scored = score_run(task, raw, _cfg, adapters_cfg, timeout)
     out_tok = raw.get("outputTokens")
     quality = scored.get("quality")
@@ -110,7 +112,13 @@ def run_cell(role, task, model_row, af_key, sk_key, af_bodies, sk_bodies, adapte
     rec = {"role": role, "task": task["id"], "model": model_row["id"],
            "agentFile": af_key, "skills": sk_key, "quality": quality,
            "inputTokens": raw.get("inputTokens"), "outputTokens": out_tok,
-           "qPer1kOut": qpk, "ok": bool(raw.get("ok"))}
+           "qPer1kOut": qpk, "ok": bool(raw.get("ok")),
+           "responseModel": serving["responseModel"],
+           "responseModelSource": serving["responseModelSource"],
+           "servingConfirmed": serving["servingConfirmed"],
+           "servingMatchedRequest": serving["servingMatchedRequest"],
+           "servingValid": serving["servingValid"],
+           "servingInvalidReason": serving["servingInvalidReason"]}
     with PRINT_LOCK:
         print(f"  {role:<10} {model_row['id']:<12} af={af_key:<7} skills={sk_key:<4} "
               f"q={_q(quality)} q/1k={_q(qpk)} {task['id']}", flush=True)
@@ -124,11 +132,21 @@ def aggregate(records):
         by.setdefault((r["role"], r["model"], r["agentFile"], r["skills"]), []).append(r)
     cells = {}
     for k, rs in by.items():
-        valid = [r for r in rs if r.get("ok") and r.get("quality") is not None]
+        valid = [
+            r for r in rs
+            if r.get("ok") and r.get("quality") is not None and r.get("servingValid") is True
+        ]
+        serving = benchlib.serving_truth_rollup(rs)
         cells[k] = {"n": len(valid),
                     "quality": _mean([r["quality"] for r in valid]),
                     "qPer1kOut": _mean([r["qPer1kOut"] for r in valid]),
-                    "outputTokens": _mean([r["outputTokens"] for r in valid])}
+                    "outputTokens": _mean([r["outputTokens"] for r in valid]),
+                    "responseModel": serving["responseModel"],
+                    "responseModels": serving["responseModels"],
+                    "servingConfirmedRuns": serving["servingConfirmedRuns"],
+                    "servingValidRuns": serving["servingValidRuns"],
+                    "validity": serving["validity"],
+                    "invalidReasons": serving["invalidReasons"]}
     return cells
 
 

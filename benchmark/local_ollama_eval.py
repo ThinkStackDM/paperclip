@@ -294,6 +294,8 @@ def execute(args, cfg, roster, cases, mode, subject_model_id, out_dir):
             model_row = roster[model_id]
             tag = f"{case['taskType']} :: {case['task']['id']} @ {model_id} (rep {rep}/{args.reps})"
             raw = run_model(case["prompt"], model_row, adapters_cfg, timeout_sec)
+            serving = benchlib.serving_truth(model_row.get("model_arg") or model_row["id"],
+                                             raw.get("model"), raw.get("modelSource"))
             scored = score_run(case["task"], raw, cfg, adapters_cfg, timeout_sec)
             rec = {
                 "mode": mode,
@@ -314,6 +316,13 @@ def execute(args, cfg, roster, cases, mode, subject_model_id, out_dir):
                 "error": raw.get("error"),
                 "output": raw.get("output"),
                 "model_reported": raw.get("model"),
+                "requestedModel": serving["requestedModel"],
+                "responseModel": serving["responseModel"],
+                "responseModelSource": serving["responseModelSource"],
+                "servingConfirmed": serving["servingConfirmed"],
+                "servingMatchedRequest": serving["servingMatchedRequest"],
+                "servingValid": serving["servingValid"],
+                "servingInvalidReason": serving["servingInvalidReason"],
                 "inputTokens": raw.get("inputTokens"),
                 "outputTokens": raw.get("outputTokens"),
                 "totalTokens": raw.get("totalTokens"),

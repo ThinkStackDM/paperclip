@@ -1,5 +1,11 @@
 # TSBC Lane-Hardening Readout — 2026-06-22
 
+> 2026-07-10 revalidation note (TSBC-1001): this readout predates the retired
+> `grok-4-fast` / `grok-4.1-fast` invalidation from TSBC-1000. Any Grok-fast
+> mention below is historical only unless a later serving-valid rerun restates
+> it. For the current June-management and `cv-review current+all` replacement
+> evidence, use `benchmark/results/tsbc-1001-june-lane-revalidation-20260710.md`.
+
 **Status:** BASE matrix = decision-grade (9 tasks × 6 cheap models, ≥5 samples). WITH-SKILLS = 18/24 cells decision-grade (claude-haiku + grok lanes complete; **gpt-5.4-mini with-skills still filling, n≈2–3 → preliminary, marked ⚠**). gemini lanes are excluded from the SINGLE-SHOT with-skills drill (agy can't do large single-shot prompts — see [[tsbc-bootcamp-vision]]); gemini base numbers are sound. **NEW 2026-06-22: gemini with-skills now measured AGENTICALLY** (`variants_agentic.py`, production-faithful frame) for cv-review / book-chapter / content — see §2b. This closes the gemini with-skills gap for the decision-relevant lanes.
 
 ## 1) Base leaderboard — best cheap model per task (bare model, no skills)

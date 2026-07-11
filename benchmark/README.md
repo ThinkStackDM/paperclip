@@ -76,7 +76,11 @@ local agent harness. (Measuring the harness — skills/tools — is #16's job.)
 
 The normalized per-run record mirrors Paperclip's `usage_json`
 (`inputTokens`/`outputTokens`/`model`/`costUsd`) so the agent-scorecard and
-tiering tooling speak the same dialect.
+tiering tooling speak the same dialect. Every emitted run record now also
+carries `requestedModel`, `responseModel`, `responseModelSource`,
+`servingConfirmed`, and `servingValid`. A row without confirmed serving truth
+is **INVALID** by definition and is excluded from recommendations / trusted
+ledger queries.
 
 ## Scoring
 
@@ -120,6 +124,7 @@ claude quota, flip `config.json → judge` to `gemini-pro`. `python3 bench.py re
 | `ops` | 5 | recovery-loop + 3-defect restart-race diagnosis, escalate-after-3, failover routing, pseudo-stop classify |
 | `content` | 5 | KDP blurb, launch tweet, forbidden-word trap, exact 3-line structure, tighten-to-40-words |
 | `designer` | 5 | grok-imagine prompt, status pill, exact-geometry bar chart, hex palette, accessible badge |
+| `qa-verifier` | 8 | release-signoff trap packets: real double-outro/stale-intro, real flat-bars chart render, real system-TTS audio, real harsh-swoosh transition, plus red-gate contradiction, sha-mismatch refusal, missing-promotion refusal, and clean control pass |
 
 Adding a task = appending one object to a suite's `tasks[]`. Task schema:
 
@@ -135,12 +140,68 @@ Adding a task = appending one object to a suite's `tasks[]`. Task schema:
 }
 ```
 
+## QA verifier suite (`qa-verifier`)
+
+TSBC-997 adds a verifier-specific suite for the release-signoff role. It uses a
+compact `pass` / `reject` / `refuse` packet format plus a 6-row A-G table so the
+normal harness can grade the verdict while a verifier-specific post-processor
+turns the run into the metrics the operator actually cares about:
+
+- detection rate on known-bad fixtures
+- false-pass rate on bad or invalid packets
+- refusal discipline on invalid packets
+- clean-control pass rate
+- evidence quality
+- output-token cost proxy per verdict
+
+Run the suite against the requested verifier candidates:
+
+```bash
+python3 bench.py all --roles qa-verifier \
+  --models codex-gpt-5.4,claude-sonnet,claude-opus,gemini-pro,grok-4.3
+```
+
+For the decision-grade TSBC-997 baseline, run the suite three times and then
+aggregate the repeats:
+
+```bash
+python3 bench.py all --roles qa-verifier \
+  --models codex-gpt-5.4,claude-sonnet,claude-opus,grok-4.3
+python3 bench.py all --roles qa-verifier \
+  --models codex-gpt-5.4,claude-sonnet,claude-opus,grok-4.3
+python3 bench.py all --roles qa-verifier \
+  --models codex-gpt-5.4,claude-sonnet,claude-opus,grok-4.3
+python3 verifier_report.py results/run-<ts1> results/run-<ts2> results/run-<ts3>
+```
+
+Render the verifier-specific report:
+
+```bash
+python3 verifier_report.py results/run-<ts>
+python3 verifier_report.py results/run-<ts1> results/run-<ts2> results/run-<ts3>
+python3 verifier_report.py results/run-<ts> --json
+```
+
+The full fixture inventory lives in `qa-verifier/trap-manifest.json`. The real
+TSM-source bundles exported by [TSBC-998](/TSBC/issues/TSBC-998) now live under
+`qa-verifier/fixtures/real/`, with `bundle-manifest.json` files recording the
+copied source artifacts and per-file SHA-256 values. The suite now mixes those
+real-source reject fixtures with the synthetic refusal/control traps. One
+historical black-gap defect on the cashflow chain is still documented only as a
+manifest note because the exported black-QA sidecar is already green on the
+bundle currently in TSBC scope.
+
+The TSKB-side operational record for the verifier lane lives in
+`docs/TSKB/TSKB0055-G8-qa-verifier-trap-suite.md`, including the current model
+recommendation plus the Cerberus onboarding and weekly self-test gate.
+
 ## Output (`results/run-<ts>/`)
 
 - `raw/<role>__<task>__<model>.json` — every run: output, tokens, scores, errors
-- `runs.json` — all runs, flat
+- `runs.json` — all runs, flat (`requestedModel` / `responseModel` / serving-validity included)
 - `report.md` — human report: overall + per-role tables, recommendations, grok verdict
 - `recommendations.json` — machine-readable per-role recommendation → **tiering #9**
+  (invalid-serving rows stay visible in the stats, but never drive picks)
 
 `recommendations.json → roles.<role>.recommendation.pick` is the model to tier
 that role onto; `roles.<role>.grokHeadToHead` carries the 4.3-vs-4.20 result.
@@ -183,6 +244,9 @@ python3 skillbench.py --keep-threshold 0.03
   blind judge sees the candidate's OUTPUT and the real objective, never the skill text — we
   measure whether the skill made the ANSWER better, not whether the model parrots the skill.
 - Reports lift AND the extra tokens the skill costs (a small lift may not justify a big skill).
+- Skillbench / variants / team-decomp result files follow the same serving-truth rule:
+  they emit first-class response-model columns, and any cell without confirmed serving truth
+  is invalid by definition.
 - This is the keep/kill gate for the skill-creator eval loop: iterate the SKILL.md, keep it
   only if it beats baseline.
 

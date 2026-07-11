@@ -37,6 +37,7 @@ import benchlib
 
 LEDGER_DIR = benchlib.ROOT / "ledger"
 LEDGER_PATH = LEDGER_DIR / "results.jsonl"
+INVALIDATIONS_PATH = LEDGER_DIR / "invalidations.jsonl"
 DEFAULT_DAYS = 30
 DEFAULT_MIN_RESULTS = 3
 
@@ -75,11 +76,25 @@ def append_records(records):
     return len(records)
 
 
-def read_all():
-    if not LEDGER_PATH.exists():
+def append_invalidations(records):
+    LEDGER_DIR.mkdir(parents=True, exist_ok=True)
+    with open(INVALIDATIONS_PATH, "a") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            for r in records:
+                f.write(json.dumps(r, separators=(",", ":")) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+    return len(records)
+
+
+def read_invalidations():
+    if not INVALIDATIONS_PATH.exists():
         return []
     out = []
-    with open(LEDGER_PATH) as f:
+    with open(INVALIDATIONS_PATH) as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -91,6 +106,49 @@ def read_all():
     return out
 
 
+def _invalidations_for(ledger_file):
+    rows = {}
+    for rec in read_invalidations():
+        if rec.get("ledgerFile") != ledger_file:
+            continue
+        try:
+            lineno = int(rec.get("lineNumber"))
+        except (TypeError, ValueError):
+            continue
+        rows[lineno] = rec
+    return rows
+
+
+def _invalidated_lines(ledger_file):
+    return set(_invalidations_for(ledger_file))
+
+
+def read_all(path=None, include_invalid=True):
+    path = Path(path) if path else LEDGER_PATH
+    if not path.exists():
+        return []
+    invalidations = _invalidations_for(path.name)
+    out = []
+    with open(path) as f:
+        for lineno, line in enumerate(f, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if lineno in invalidations and row.get("validity") != "invalid":
+                inv = invalidations[lineno]
+                row = dict(row)
+                row["validity"] = "invalid"
+                row["invalid_reason"] = row.get("invalid_reason") or inv.get("reason") or "sidecar_invalidation"
+            if not include_invalid and row.get("validity") == "invalid":
+                continue
+            out.append(row)
+    return out
+
+
 # --------------------------------------------------------------------------
 # recording from run dirs
 # --------------------------------------------------------------------------
@@ -98,10 +156,12 @@ def read_all():
 def record_bench_run(run_id, company=None):
     """Ingest a #15 model-eval run's recommendations.json -> one record per (role, model)."""
     company = company or _company()
+    run_dir = benchlib.RESULTS_DIR / run_id
     rec_path = benchlib.RESULTS_DIR / run_id / "recommendations.json"
     if not rec_path.exists():
         raise FileNotFoundError(f"no recommendations.json for {run_id}")
     rep = json.load(open(rec_path))
+    runs = json.load(open(run_dir / "runs.json")) if (run_dir / "runs.json").exists() else []
     judge = rep.get("judge")
     ts = (rep.get("meta") or {}).get("finished_at") or _now_iso()
     out = []
@@ -109,16 +169,27 @@ def record_bench_run(run_id, company=None):
         for model_id, s in rd.get("models", {}).items():
             if s.get("meanQuality") is None:
                 continue
+            serving = benchlib.serving_truth_rollup(
+                [r for r in runs if r.get("role") == role and r.get("model_id") == model_id]
+            )
             out.append({
                 "ts": ts, "company": company, "kind": "model_eval",
                 "test_class": role, "model": model_id, "model_class": _model_class(model_id),
                 "metrics": {
                     "quality": _r(s.get("meanQuality")),
+                    "qualityValid": _r(s.get("meanQualityValid")),
                     "qPer1kOut": _r(s.get("meanQualityPer1kOutput")),
+                    "qPer1kOutValid": _r(s.get("meanQualityPer1kOutputValid")),
                     "meanOutputTokens": _r(s.get("meanOutputTokens"), 0),
                     "meanInputTokens": _r(s.get("meanInputTokens"), 0),
                 },
                 "n_tasks": s.get("tasks"), "run_id": run_id, "judge": judge,
+                "response_model": serving.get("responseModel"),
+                "response_models": serving.get("responseModels"),
+                "serving_confirmed_runs": serving.get("servingConfirmedRuns"),
+                "serving_valid_runs": serving.get("servingValidRuns"),
+                "validity": serving.get("validity"),
+                "invalid_reason": _first_invalid_reason(serving.get("invalidReasons")),
                 "skill": None, "source": "bench.py",
             })
     return append_records(out), len(out)
@@ -150,6 +221,12 @@ def record_skill_run(run_id, company=None):
                 "skillExtraInputTokens": _r(s.get("meanExtraTokens"), 0),
             },
             "n_tasks": s.get("n"), "run_id": run_id, "judge": summ.get("judge") or "claude-opus",
+            "response_model": s.get("responseModel"),
+            "response_models": s.get("responseModels"),
+            "serving_confirmed_runs": s.get("servingConfirmedRuns"),
+            "serving_valid_runs": s.get("servingValidRuns"),
+            "validity": s.get("validity") or "invalid",
+            "invalid_reason": _first_invalid_reason(s.get("invalidReasons")),
             "skill": {"id": pair, "path": pairs_meta.get(pair),
                       "verdict": (summ.get("verdicts", {}).get(pair, {}) or {}).get("verdict")},
             "source": "skillbench.py",
@@ -185,6 +262,12 @@ def record_variants_run(run_id, company=None):
                 "meanOutputTokens": _r(c.get("outputTokens"), 0),
             },
             "n_tasks": c.get("n"), "run_id": run_id, "judge": None,
+            "response_model": c.get("responseModel"),
+            "response_models": c.get("responseModels"),
+            "serving_confirmed_runs": c.get("servingConfirmedRuns"),
+            "serving_valid_runs": c.get("servingValidRuns"),
+            "validity": c.get("validity") or "invalid",
+            "invalid_reason": _first_invalid_reason(c.get("invalidReasons")),
             "variant": {"role": role, "agentFile": af, "skills": skills},
             "skill": None, "source": "variants.py",
         })
@@ -221,6 +304,12 @@ def record_agentic_variants_run(run_id, company=None):
                 "meanOutputTokens": _r(c.get("outputTokens"), 0),
             },
             "n_tasks": c.get("n"), "run_id": run_id, "judge": None,
+            "response_model": c.get("responseModel"),
+            "response_models": c.get("responseModels"),
+            "serving_confirmed_runs": c.get("servingConfirmedRuns"),
+            "serving_valid_runs": c.get("servingValidRuns"),
+            "validity": c.get("validity") or "invalid",
+            "invalid_reason": _first_invalid_reason(c.get("invalidReasons")),
             "variant": {"role": role, "agentFile": af, "skills": skills},
             "frame": "agentic", "skill": None, "source": "variants_agentic.py",
         })
@@ -254,6 +343,12 @@ def record_team_run(run_id, company=None):
                 "meanWallMs": _r(c.get("meanWallMs"), 0),
             },
             "n_tasks": c.get("n"), "run_id": run_id, "judge": None,
+            "response_model": c.get("responseModel"),
+            "response_models": c.get("responseModels"),
+            "serving_confirmed_runs": c.get("servingConfirmedRuns"),
+            "serving_valid_runs": c.get("servingValidRuns"),
+            "validity": c.get("validity") or "invalid",
+            "invalid_reason": _first_invalid_reason(c.get("invalidReasons")) or "missing_serving_confirmation",
             "frame": "team", "skill": None, "source": "team_bench.py",
         })
     return append_records(out), len(out)
@@ -265,6 +360,12 @@ def _r(x, default=None):
     return round(float(x), 4)
 
 
+def _first_invalid_reason(reason_counts):
+    if not isinstance(reason_counts, dict) or not reason_counts:
+        return None
+    return sorted(reason_counts.items(), key=lambda item: (-item[1], item[0]))[0][0]
+
+
 # --------------------------------------------------------------------------
 # the TRUST decision
 # --------------------------------------------------------------------------
@@ -272,7 +373,7 @@ def _r(x, default=None):
 def query(test_class, model, days=DEFAULT_DAYS, min_results=DEFAULT_MIN_RESULTS):
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     hits = []
-    for r in read_all():
+    for r in read_all(include_invalid=False):
         if r.get("test_class") != test_class or r.get("model") != model:
             continue
         ts = _parse(r.get("ts"))
@@ -343,7 +444,7 @@ def _parse(ts):
 def summary(days=DEFAULT_DAYS, min_results=DEFAULT_MIN_RESULTS):
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     by = {}
-    for r in read_all():
+    for r in read_all(include_invalid=False):
         ts = _parse(r.get("ts"))
         if ts is None or ts < cutoff:
             continue
@@ -364,7 +465,7 @@ def summary(days=DEFAULT_DAYS, min_results=DEFAULT_MIN_RESULTS):
 
 def skills_index():
     seen = {}
-    for r in read_all():
+    for r in read_all(include_invalid=False):
         sk = r.get("skill")
         if not sk:
             continue

@@ -1,0 +1,67 @@
+{
+  "id": "double-outro-stale-intro-black-gap",
+  "title": "Rejected flagship master rerun bundle for the 67d02eeb cashflow master",
+  "exportedAt": "2026-07-10",
+  "source": {
+    "issueIdentifiers": [
+      "TSM-5361",
+      "TSM-5326",
+      "TSM-5360"
+    ],
+    "description": "Post-hardening rerun against the real 67d02eeb master, plus the bound late-tail OCR frames and black-QA sidecar from the promoted cashflow flagship tree.",
+    "sourceMasterSha256": "67d02eeb1994ab3a9aa4335eb9af422e920c42aabb4253bd4ee07ebfa2769e6d",
+    "sourcePaths": [
+      "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5361/direct-bad-master-check-2/rejection-qa-report.json",
+      "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v3-chartfix/cc-fee-drag-pass10-remediated-v3-chartfix-master-rejection-gates/tail-ocr/",
+      "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5360/fee-drag-rerender-restage-packet-2026-07-10.md"
+    ],
+    "evidenceNotes": [
+      "The hardened rerun records the double-outro and stale-intro failures on the real promoted master.",
+      "TSM-5360 documents that the later repair cleared an earlier late-tail black-gap defect on this same cashflow flagship chain."
+    ]
+  },
+  "primaryArtifact": "hardened-rerun-report.json",
+  "primaryArtifactSha256": "d0ff2cdd838e8ae9814fa6ae620e047151d74b9c5d8d9ba362039b18d7c0dcef",
+  "files": [
+    {
+      "path": "endscreen-frame.png",
+      "sha256": "b2f674be1603ddbd9eaebc47941771d937cf49ce7d4f3d57ccd3eb420f1af9e3",
+      "byteSize": 507442
+    },
+    {
+      "path": "hardened-rerun-report.json",
+      "sha256": "d0ff2cdd838e8ae9814fa6ae620e047151d74b9c5d8d9ba362039b18d7c0dcef",
+      "byteSize": 112932
+    },
+    {
+      "path": "intro-frame.png",
+      "sha256": "7353948cef7c113942ff7b81c1b32445ba1311cae0c60d78e4dfdab9930d43b6",
+      "byteSize": 397498
+    },
+    {
+      "path": "source-black-qa.json",
+      "sha256": "3374a1fa50f5549294e91e65665668a61c7550565741ffb75c29ebc24d8b227e",
+      "byteSize": 450
+    },
+    {
+      "path": "tail-00.png",
+      "sha256": "759b4d0b44c04b9ad81b2d1e2fdef62697450170caa5510ecf70861dadd0366b",
+      "byteSize": 668996
+    },
+    {
+      "path": "tail-01.png",
+      "sha256": "7340fb12c49789dba0763efcd5edeb95b46142887197dda40da6077848d2732e",
+      "byteSize": 613834
+    },
+    {
+      "path": "tail-02.png",
+      "sha256": "dd2a29c3630c09c695f95f768eac2db93465979015cea1109f261d5b4fec9759",
+      "byteSize": 579759
+    },
+    {
+      "path": "tail-03.png",
+      "sha256": "479389b37415ea7888ba57037c440680335e67db29f40f94a1aa83a63d76002d",
+      "byteSize": 390741
+    }
+  ]
+}

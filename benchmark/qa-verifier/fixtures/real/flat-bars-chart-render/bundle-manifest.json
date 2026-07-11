@@ -1,0 +1,38 @@
+{
+  "id": "flat-bars-chart-render",
+  "title": "Pre-fix chartTruth frame bundle for the flat-bars opener defect",
+  "exportedAt": "2026-07-10",
+  "source": {
+    "issueIdentifiers": [
+      "TSM-5326"
+    ],
+    "description": "Pre-chartfix opener frames from the superseded v2-closeout cashflow body. slide-005 captures the flat four-block chart that the chartTruth rerender replaced.",
+    "sourceMasterSha256": "c5d5ddd27d127dba27afba6d0a3381b82f2f16fff621d1c755f55bb9645c5c67",
+    "sourcePaths": [
+      "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/pass10-body-v2-closeout/work/slide-005.png",
+      "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/promotion-2026-07-09-chartfix/fee-drag-pass10-chartfix-board-review-rehandoff-2026-07-09.md"
+    ],
+    "evidenceNotes": [
+      "The 2026-07-09 chartfix handoff explicitly archives the v2-closeout final-slot binary as the known-bad flat-bars fixture."
+    ]
+  },
+  "primaryArtifact": "slide-005-flat-bars.png",
+  "primaryArtifactSha256": "c340ffc34d936eeee3aae691831924c00f660cd30188847c1304a2d98ac73dcb",
+  "files": [
+    {
+      "path": "slide-004-context.png",
+      "sha256": "e877820bcfc291cb39c57e4a578c03c5c12964d88d0b44eb3787d0d86ea8a942",
+      "byteSize": 565559
+    },
+    {
+      "path": "slide-005-flat-bars.png",
+      "sha256": "c340ffc34d936eeee3aae691831924c00f660cd30188847c1304a2d98ac73dcb",
+      "byteSize": 545252
+    },
+    {
+      "path": "source-master-black-qa.json",
+      "sha256": "696bd98c46c39a292f21d461543be72cf50e6dd843b0817908cc26e68bcbc8ba",
+      "byteSize": 450
+    }
+  ]
+}

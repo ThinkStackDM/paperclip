@@ -10,6 +10,8 @@ import json
 import statistics
 from collections import defaultdict
 
+import benchlib
+
 
 def _mean(xs):
     xs = [x for x in xs if x is not None]
@@ -63,23 +65,38 @@ def aggregate(runs, cfg):
         for mid in models:
             rs = cells.get((role, mid), [])
             ran = [r for r in rs if r.get("ok")]
+            valid = [r for r in ran if r.get("servingValid") is True]
+            serving = benchlib.serving_truth_rollup(ran)
             qualities = [r.get("quality") for r in ran]
+            valid_qualities = [r.get("quality") for r in valid]
             qpks = [r.get("qualityPer1kTokens") for r in ran]
+            valid_qpks = [r.get("qualityPer1kTokens") for r in valid]
             qpk_out = [_q_per_1k(r.get("quality"), r.get("outputTokens")) for r in ran]
+            valid_qpk_out = [_q_per_1k(r.get("quality"), r.get("outputTokens")) for r in valid]
             toks = [r.get("totalTokens") for r in ran]
             in_toks = [r.get("inputTokens") for r in ran]
             out_toks = [r.get("outputTokens") for r in ran]
             model_stats[mid] = {
                 "tasks": len(rs),
                 "okRuns": len(ran),
+                "validRuns": len(valid),
+                "invalidServingRuns": len(ran) - len(valid),
                 "successRate": (len(ran) / len(rs)) if rs else None,
                 "meanQuality": _mean(qualities),
+                "meanQualityValid": _mean(valid_qualities),
                 "meanQualityPer1k": _mean(qpks),            # per TOTAL tokens (incl CLI overhead)
+                "meanQualityPer1kValid": _mean(valid_qpks),
                 "meanQualityPer1kOutput": _mean(qpk_out),   # per OUTPUT tokens (marginal cost; fairer)
+                "meanQualityPer1kOutputValid": _mean(valid_qpk_out),
                 "meanTokens": _mean(toks),
                 "meanInputTokens": _mean(in_toks),
                 "meanOutputTokens": _mean(out_toks),
                 "estimatedTokens": any(r.get("tokensEstimated") for r in rs),
+                "responseModel": serving["responseModel"],
+                "responseModels": serving["responseModels"],
+                "servingConfirmedRuns": serving["servingConfirmedRuns"],
+                "rowValidity": serving["validity"],
+                "invalidReasons": serving["invalidReasons"],
             }
         per_role[role] = {
             "models": model_stats,
@@ -109,25 +126,36 @@ def _recommend(model_stats, cfg, labels):
     vkey = _value_key(cfg)
 
     rated = {mid: s for mid, s in model_stats.items()
-             if s["meanQuality"] is not None and s["meanQuality"] >= floor}
+             if s.get("rowValidity") == "valid"
+             and s["meanQualityValid"] is not None
+             and s["meanQualityValid"] >= floor}
     if not rated:
         # nobody cleared the floor — fall back to best raw quality
-        any_rated = {m: s for m, s in model_stats.items() if s["meanQuality"] is not None}
+        any_rated = {
+            m: s for m, s in model_stats.items()
+            if s.get("rowValidity") == "valid" and s["meanQualityValid"] is not None
+        }
         if not any_rated:
-            return {"pick": None, "reason": "no successful runs"}
-        bq = max(any_rated, key=lambda m: any_rated[m]["meanQuality"])
+            invalid_models = sorted(
+                labels.get(m, m) for m, s in model_stats.items() if s.get("rowValidity") == "invalid"
+            )
+            reason = "no successful runs"
+            if invalid_models:
+                reason = "no serving-valid runs"
+            return {"pick": None, "reason": reason, "invalidModels": invalid_models}
+        bq = max(any_rated, key=lambda m: any_rated[m]["meanQualityValid"])
         return {"pick": bq, "pickLabel": labels.get(bq), "objective": "peak_quality_cost_aware",
                 "reason": f"no model cleared the {floor:.2f} quality floor; took highest quality",
                 "bestQuality": bq, "bestQualityLabel": labels.get(bq),
                 "bestValue": bq, "bestValueLabel": labels.get(bq)}
 
-    best_quality = max(rated, key=lambda m: rated[m]["meanQuality"])
-    peak_q = rated[best_quality]["meanQuality"]
+    best_quality = max(rated, key=lambda m: rated[m]["meanQualityValid"])
+    peak_q = rated[best_quality]["meanQualityValid"]
     peak_out = rated[best_quality].get("meanOutputTokens") or 0
 
     # peak-quality, cost-aware: among models within eps of the peak, prefer the cheapest
     # (lowest output tokens) — but only drop from the peak if it's materially cheaper.
-    near_peak = {m: s for m, s in rated.items() if peak_q - s["meanQuality"] <= eps}
+    near_peak = {m: s for m, s in rated.items() if peak_q - s["meanQualityValid"] <= eps}
     cheapest = min(near_peak, key=lambda m: (near_peak[m].get("meanOutputTokens") or float("inf")))
     cheap_out = near_peak[cheapest].get("meanOutputTokens") or 0
     cost_ratio = (peak_out / cheap_out) if cheap_out else None
@@ -136,7 +164,7 @@ def _recommend(model_stats, cfg, labels):
         pick = cheapest
         reason = (f"peak quality is {labels.get(best_quality)} ({peak_q:.3f}); picked "
                   f"{labels.get(cheapest)} — within {eps:.2f} quality "
-                  f"(−{peak_q - rated[cheapest]['meanQuality']:.3f}) at {cost_ratio:.1f}× less output cost")
+                  f"(−{peak_q - rated[cheapest]['meanQualityValid']:.3f}) at {cost_ratio:.1f}× less output cost")
     else:
         pick = best_quality
         if cheapest != best_quality and cost_ratio is not None:
@@ -158,7 +186,7 @@ def _recommend(model_stats, cfg, labels):
         "pickLabel": labels.get(pick),
         "objective": "peak_quality_cost_aware",
         "reason": reason,
-        "qualityGivenUp": round(peak_q - rated[pick]["meanQuality"], 4),
+        "qualityGivenUp": round(peak_q - rated[pick]["meanQualityValid"], 4),
         "outputCostRatioVsPeak": round(cost_ratio, 2) if cost_ratio else None,
         "bestQuality": best_quality,
         "bestQualityLabel": labels.get(best_quality),
@@ -193,9 +221,24 @@ def _overall(per_role, models, labels, cfg):
     # average each model's per-role mean quality across roles where it ran
     agg = {}
     for mid in models:
-        qs = [per_role[role]["models"][mid]["meanQuality"] for role in per_role]
-        vs = [per_role[role]["models"][mid]["meanQualityPer1k"] for role in per_role]
-        vo = [per_role[role]["models"][mid]["meanQualityPer1kOutput"] for role in per_role]
+        qs = [
+            per_role[role]["models"][mid]["meanQualityValid"]
+            if per_role[role]["models"][mid].get("rowValidity") == "valid"
+            else None
+            for role in per_role
+        ]
+        vs = [
+            per_role[role]["models"][mid]["meanQualityPer1kValid"]
+            if per_role[role]["models"][mid].get("rowValidity") == "valid"
+            else None
+            for role in per_role
+        ]
+        vo = [
+            per_role[role]["models"][mid]["meanQualityPer1kOutputValid"]
+            if per_role[role]["models"][mid].get("rowValidity") == "valid"
+            else None
+            for role in per_role
+        ]
         agg[mid] = {"meanQuality": _mean(qs), "meanQualityPer1k": _mean(vs),
                     "meanQualityPer1kOutput": _mean(vo)}
     rated = {m: s for m, s in agg.items() if s["meanQuality"] is not None}
@@ -233,7 +276,9 @@ def to_markdown(report, run_id, meta):
              "because total tokens are ~95% fixed CLI system-prompt overhead (a harness artifact) "
              "that would otherwise reward whichever CLI ships the smallest base prompt rather than "
              "the better model. `in`/`out` = mean input/output tokens. Models run in a neutralized "
-             "temp CWD — base-model capability, not the local agent harness.\n")
+             "temp CWD — base-model capability, not the local agent harness. Rows with missing "
+             "serving confirmation or a served-model mismatch are marked **INVALID** and excluded "
+             "from recommendations.\n")
 
     # overall
     ov = report["overall"]
@@ -258,14 +303,17 @@ def to_markdown(report, run_id, meta):
     for role in cli_roles:
         rd = report["roles"][role]
         L.append(f"### `{role}`\n")
-        L.append("| Model | Quality | q/1k-out | in | out | Success |")
-        L.append("|---|---|---|---|---|---|")
+        L.append("| Model | Quality | q/1k-out | in | out | Success | Serving |")
+        L.append("|---|---|---|---|---|---|---|")
         for m in report["models"]:
             s = rd["models"][m["id"]]
             est = " *(est)*" if s["estimatedTokens"] else ""
+            serving = "VALID" if s.get("rowValidity") == "valid" else "INVALID"
+            if s.get("responseModel"):
+                serving += f" ({s['responseModel']})"
             L.append(f"| {m['label']} | {_fmt(s['meanQuality'])} | {_fmt(s.get('meanQualityPer1kOutput'))} "
                      f"| {_fmt_int(s['meanInputTokens'])} | {_fmt_int(s['meanOutputTokens'])}{est} "
-                     f"| {_fmt(s['successRate'], pct=True)} |")
+                     f"| {_fmt(s['successRate'], pct=True)} | {serving} |")
         rec = rd["recommendation"]
         L.append(f"\n**→ Recommended for `{role}`: {rec.get('pickLabel') or '—'}** — {rec.get('reason', '')}  ")
         extra = ""

@@ -10,6 +10,7 @@ Lanes:
   claude  ->  claude -p ... --output-format json     (usage in JSON)
   codex   ->  codex exec ... --json -o last.txt       (cumulative usage in JSONL events)
   gemini  ->  gemini -p ... -o json                   (usage in stats block)
+  grok    ->  grok --single ... --output-format streaming-json  (text only; tokens estimated)
   hermes  ->  hermes -z ...                            (text only; tokens via sessions export)
 """
 
@@ -47,14 +48,18 @@ def run_model(prompt, model_row, adapters_cfg, timeout_sec):
         return _run_ollama(prompt, model_row, adapters_cfg.get("ollama") or {}, timeout_sec)
     extra = list((adapters_cfg.get(adapter) or {}).get("extra_args", []))
     # per-model reasoning effort (matches how Paperclip's codex adapter runs spark:
-    # `-c model_reasoning_effort="high"`). Optional; only codex consumes it today.
+    # `-c model_reasoning_effort="high"`). Grok Build consumes the native
+    # `--reasoning-effort` flag directly.
     effort = model_row.get("reasoning_effort")
     if effort and adapter == "codex":
         extra += ["-c", f'model_reasoning_effort="{effort}"']
+    if effort and adapter == "grok":
+        extra += ["--reasoning-effort", effort]
     fn = {
         "claude": _run_claude,
         "codex": _run_codex,
         "gemini": _run_gemini,
+        "grok": _run_grok,
         "hermes": _run_hermes,
         "antigravity": _run_antigravity,
     }.get(adapter)
@@ -148,7 +153,9 @@ def _run_ollama(prompt, model_row, adapter_cfg, timeout_sec):
         return r
 
     r["output"] = (parsed.get("response") or "").strip()
-    r["model"] = parsed.get("model") or model_row.get("model_arg")
+    model_seen = parsed.get("model")
+    r["model"] = model_seen or model_row.get("model_arg")
+    r["modelSource"] = "api_response" if model_seen else "requested_fallback"
     r["inputTokens"] = parsed.get("prompt_eval_count")
     r["outputTokens"] = parsed.get("eval_count")
     if r["inputTokens"] is not None or r["outputTokens"] is not None:
@@ -217,7 +224,9 @@ def _run_claude(prompt, model_arg, extra, timeout_sec):
             r["totalTokens"] = (r["inputTokens"] or 0) + (outp or 0)
         r["costUsd"] = j.get("total_cost_usd")
         mu = j.get("modelUsage") or {}
-        r["model"] = j.get("model") or (next(iter(mu)) if mu else model_arg)
+        model_seen = j.get("model") or (next(iter(mu)) if mu else None)
+        r["model"] = model_seen or model_arg
+        r["modelSource"] = "provider_response" if model_seen else "requested_fallback"
         r["ok"] = bool(r["output"]) and not r["error"]
         return r
 
@@ -267,7 +276,9 @@ def _run_codex(prompt, model_arg, extra, timeout_sec):
             r["inputTokens"] = n["input"]
             r["outputTokens"] = n["output"]
             r["totalTokens"] = n["total"] or ((n["input"] or 0) + (n["output"] or 0)) or None
-        r["model"] = _codex_model(events) or model_arg
+        model_seen = _codex_model(events)
+        r["model"] = model_seen or model_arg
+        r["modelSource"] = "provider_response" if model_seen else "requested_fallback"
         if timed_out:
             r["error"] = "timeout"
         elif rc not in (0, None) and not r["output"]:
@@ -342,6 +353,7 @@ def _run_antigravity(prompt, model_arg, extra, timeout_sec):
         elif not r["output"]:
             r["error"] = "agy: empty response"
         r["model"] = model_arg
+        r["modelSource"] = "requested_fallback"
         # agy print mode emits no usage JSON -> estimate tokens (flagged)
         r["inputTokens"] = benchlib.estimate_tokens(prompt)
         r["outputTokens"] = benchlib.estimate_tokens(r["output"])
@@ -409,6 +421,7 @@ def run_antigravity_agentic(prompt, model_arg, extra, timeout_sec, cwd, skip_per
         if r["error"] and antigravity_is_quota_error((err or "") + (out or "") + log_text):
             r["quotaError"] = True
         r["model"] = model_arg
+        r["modelSource"] = "requested_fallback"
         r["inputTokens"] = benchlib.estimate_tokens(prompt)
         r["outputTokens"] = benchlib.estimate_tokens(r["output"])
         r["tokensEstimated"] = True
@@ -445,6 +458,7 @@ def _run_gemini(prompt, model_arg, extra, timeout_sec):
         r["output"] = (j.get("response") or j.get("text") or "").strip()
         model_name, inp, outp, tot = _gemini_usage(j.get("stats") or {})
         r["model"] = model_name or model_arg
+        r["modelSource"] = "provider_response" if model_name else "requested_fallback"
         r["inputTokens"] = inp
         r["outputTokens"] = outp
         r["totalTokens"] = tot
@@ -478,6 +492,72 @@ def _gemini_usage(stats):
         tot = (inp or 0) + cand + th if inp is not None else None
     outp = (tot - inp) if (tot is not None and inp is not None) else tokens.get("candidates")
     return name, inp, outp, tot
+
+
+# --------------------------------------------------------------------------
+# grok build CLI
+# --------------------------------------------------------------------------
+
+def _run_grok(prompt, model_arg, extra, timeout_sec):
+    r = benchlib.empty_result()
+    with tempfile.TemporaryDirectory(prefix="bench-grok-") as cwd:
+        cmd = ["grok", "--output-format", "streaming-json"]
+        if model_arg:
+            cmd += ["--model", model_arg]
+        cmd += list(extra)
+        cmd += ["--single", prompt]
+        r["cmd"] = ["grok", "--output-format", "streaming-json"] + (
+            ["--model", model_arg] if model_arg else []
+        )
+        rc, out, err, wall, timed_out = _exec(cmd, timeout_sec, cwd)
+        r["wallMs"] = wall
+        r["stderrTail"] = _tail(err)
+        if timed_out:
+            r["error"] = "timeout"
+            return r
+
+        parsed = _parse_grok_jsonl(out)
+        r["output"] = parsed["summary"]
+        r["model"] = model_arg
+        r["modelSource"] = "requested_fallback"
+        r["inputTokens"] = benchlib.estimate_tokens(prompt)
+        r["outputTokens"] = benchlib.estimate_tokens(r["output"])
+        r["tokensEstimated"] = True
+        r["totalTokens"] = (r["inputTokens"] or 0) + (r["outputTokens"] or 0) or None
+
+        if parsed["errorMessage"]:
+            r["error"] = f"grok: {parsed['errorMessage']}"
+        elif rc not in (0, None) and not r["output"]:
+            r["error"] = f"grok: rc={rc}"
+
+        r["ok"] = bool(r["output"]) and not r["error"]
+        if not r["ok"] and not r["error"]:
+            r["error"] = "grok: empty response"
+        return r
+
+
+def _parse_grok_jsonl(stdout):
+    summary = []
+    error_message = None
+    for raw in (stdout or "").splitlines():
+        ev = benchlib._try_json(raw.strip())
+        if not isinstance(ev, dict):
+            continue
+        typ = str(ev.get("type") or "").strip()
+        if typ == "text":
+            txt = ev.get("data")
+            if isinstance(txt, str):
+                summary.append(txt)
+        elif typ == "error":
+            msg = ev.get("message") or ev.get("error") or ev.get("detail") or ev.get("data")
+            if isinstance(msg, str) and msg.strip():
+                error_message = msg.strip()
+            else:
+                try:
+                    error_message = json.dumps(ev)
+                except Exception:
+                    error_message = "unknown error"
+    return {"summary": "".join(summary).strip(), "errorMessage": error_message}
 
 
 # --------------------------------------------------------------------------
@@ -532,6 +612,7 @@ def _run_hermes(prompt, model_arg, extra, timeout_sec):
         sess_model, inp, outp = fallback
 
     r["model"] = sess_model or model_arg
+    r["modelSource"] = "session_export" if sess_model else "requested_fallback"
     if inp is None and outp is None:
         # last resort: estimate so cross-lane efficiency still has a number (flagged)
         r["inputTokens"] = benchlib.estimate_tokens(prompt)

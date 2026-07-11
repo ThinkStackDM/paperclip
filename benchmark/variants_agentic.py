@@ -105,6 +105,8 @@ def run_cell_agentic(role, task, model_row, af_key, sk_key, af_bodies, skills_di
         raw = run_antigravity_agentic(prompt, model_row.get("model_arg"), extra, timeout, cwd)
         if raw.get("quotaError"):
             halt.set()
+        serving = benchlib.serving_truth(model_row.get("model_arg") or model_row["id"],
+                                         raw.get("model"), raw.get("modelSource"))
         scored = score_run(task, raw, _cfg, adapters_cfg, timeout)
     out_tok = raw.get("outputTokens")
     quality = scored.get("quality")
@@ -113,6 +115,12 @@ def run_cell_agentic(role, task, model_row, af_key, sk_key, af_bodies, skills_di
            "agentFile": af_key, "skills": sk_key, "quality": quality,
            "inputTokens": raw.get("inputTokens"), "outputTokens": out_tok,
            "qPer1kOut": qpk, "ok": bool(raw.get("ok")),
+           "responseModel": serving["responseModel"],
+           "responseModelSource": serving["responseModelSource"],
+           "servingConfirmed": serving["servingConfirmed"],
+           "servingMatchedRequest": serving["servingMatchedRequest"],
+           "servingValid": serving["servingValid"],
+           "servingInvalidReason": serving["servingInvalidReason"],
            "stagedSkills": len(staged), "promptChars": len(prompt),
            "wallMs": raw.get("wallMs"), "error": raw.get("error"),
            # keep a truncated output sample so derails/flakes (occasional agy 0.0s) are debuggable

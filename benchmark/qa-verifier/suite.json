@@ -1,0 +1,382 @@
+{
+  "role": "qa-verifier",
+  "description": "QA verifier packet benchmark for release signoff. Each task gives the model a candidate master packet and asks for a PASS / REJECT / REFUSE decision plus a compact 6-row A-G table. The suite is biased toward the verifier's real failure mode: a false pass on a bad packet is the worst outcome, so defect traps and invalid-packet refusal traps are scored separately.",
+  "tasks": [
+    {
+      "id": "verifier-red-gate-presented-green",
+      "title": "Reject a packet whose summary says green while the embedded gate is red",
+      "metadata": {
+        "verifierCase": {
+          "taskClass": "defect",
+          "expectedVerdict": "reject",
+          "expectedRegisterItems": [
+            "audioReviewClass=FAIL",
+            "packet summary disagrees with gate payload",
+            "do not sign off"
+          ],
+          "fixtureStatus": "synthetic_ready",
+          "sourceIssueHint": "TSKB0055 / 2026-07-09 packet copy pending"
+        }
+      },
+      "prompt": "You are the final QA verifier for a media master. Decide whether to `pass`, `reject`, or `refuse` the packet.\n\nRules:\n- `pass` only when the packet is internally consistent and no evidence shows a shipping defect.\n- `reject` when the packet is valid enough to review, but the evidence shows a concrete master defect or a red gate.\n- `refuse` when the packet itself is invalid or incomplete (for example sha mismatch or missing promotion proof), so signoff must stop before judging the master.\n\nReturn ONLY JSON with this exact shape:\n{\n  \"verdict\": \"pass|reject|refuse\",\n  \"summary\": \"one sentence\",\n  \"table\": [\n    {\"A\": \"packet integrity\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"candidate identity\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"video findings\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"audio findings\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"gate and promote checks\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"signoff\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"}\n  ]\n}\n\nCandidate packet:\n- candidateMaster.path: assets/final/flagship-cut-v18.mp4\n- candidateMaster.sha256: 67d02eeb4a4e1d3d2c6ef9d7b5f6cb27f3f7c2dc4a97f2d90d95b8f7d6f0a123\n- packetSummary.overall: GREEN\n- packetSummary.note: \"All checks green. Audio, chart, and ending are clean.\"\n- promoteRecord.id: promote-2026-07-09-flagship-v18\n- promoteRecord.sha256: 67d02eeb4a4e1d3d2c6ef9d7b5f6cb27f3f7c2dc4a97f2d90d95b8f7d6f0a123\n- gatePayload.audioReviewClass: FAIL\n- gatePayload.audioEvidence: \"Narration clip from 00:52.1-00:57.4 contains Apple Samantha system-TTS timbre.\"\n- gatePayload.chartTruth: PASS\n- gatePayload.blackFrameGapSecBeforeEndscreen: 0.0\n- gatePayload.packetColor: RED\n- gatePayload.finalInstruction: \"Do NOT promote until audio is re-rendered.\"\n\nTask: make the signoff decision from the packet above. Penalize false passes.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "verdict", "value": "reject", "weight": 6 },
+          { "type": "json_path_len_equals", "path": "table", "value": 6, "weight": 2 },
+          { "type": "json_path_exists", "path": "table.0.A", "weight": 1 },
+          { "type": "json_path_exists", "path": "table.5.G", "weight": 1 },
+          { "type": "regex", "pattern": "audioreviewclass|apple samantha|system-tts|red", "weight": 3 }
+        ],
+        "judge": {
+          "criteria": [
+            {
+              "name": "evidence_quality",
+              "weight": 3,
+              "guidance": "Cites the decisive conflicting evidence from the packet instead of generic QA language. The best answers explicitly mention the embedded FAIL gate and the contradiction with the green summary."
+            },
+            {
+              "name": "verifier_posture",
+              "weight": 3,
+              "guidance": "Chooses reject, not pass and not refuse, because the packet is reviewable but the gate evidence is red. False pass is catastrophic; refuse is wrong because the packet is internally complete."
+            },
+            {
+              "name": "a1_g6_coverage",
+              "weight": 2,
+              "guidance": "The 6-row A-G table is fully populated and internally consistent with the verdict."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "verifier-sha-mismatch-refusal",
+      "title": "Refuse when the gate packet belongs to a different render",
+      "metadata": {
+        "verifierCase": {
+          "taskClass": "refusal",
+          "expectedVerdict": "refuse",
+          "expectedRegisterItems": [
+            "candidate sha does not match reviewed packet sha",
+            "packet is invalid for signoff",
+            "request the correct packet"
+          ],
+          "fixtureStatus": "synthetic_ready",
+          "sourceIssueHint": "TSKB0055 sha-mismatch trap"
+        }
+      },
+      "prompt": "You are the final QA verifier for a media master. Decide whether to `pass`, `reject`, or `refuse` the packet.\n\nRules:\n- `pass` only when the packet is internally consistent and no evidence shows a shipping defect.\n- `reject` when the packet is valid enough to review, but the evidence shows a concrete master defect or a red gate.\n- `refuse` when the packet itself is invalid or incomplete (for example sha mismatch or missing promotion proof), so signoff must stop before judging the master.\n\nReturn ONLY JSON with this exact shape:\n{\n  \"verdict\": \"pass|reject|refuse\",\n  \"summary\": \"one sentence\",\n  \"table\": [\n    {\"A\": \"packet integrity\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"candidate identity\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"video findings\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"audio findings\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"gate and promote checks\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"signoff\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"}\n  ]\n}\n\nCandidate packet:\n- candidateMaster.path: assets/final/flagship-cut-v19.mp4\n- candidateMaster.sha256: 67d02eeb4a4e1d3d2c6ef9d7b5f6cb27f3f7c2dc4a97f2d90d95b8f7d6f0a123\n- packetSummary.overall: GREEN\n- packetSummary.note: \"Reviewed artifact looked clean.\"\n- reviewedPacket.renderSha256: 9fcb54870aa3cc7e44210572e4fe6a4c3e39c4ac44b75b058f1d23de9c3dfe17\n- reviewedPacket.reviewedPath: assets/final/flagship-cut-v17.mp4\n- promoteRecord.id: promote-2026-07-09-flagship-v19\n- promoteRecord.sha256: 67d02eeb4a4e1d3d2c6ef9d7b5f6cb27f3f7c2dc4a97f2d90d95b8f7d6f0a123\n- gatePayload.packetColor: GREEN\n- gatePayload.finalInstruction: \"Promote if the packet belongs to the candidate.\"\n\nTask: make the signoff decision from the packet above. Penalize false passes.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "verdict", "value": "refuse", "weight": 6 },
+          { "type": "json_path_len_equals", "path": "table", "value": 6, "weight": 2 },
+          { "type": "json_path_exists", "path": "table.0.A", "weight": 1 },
+          { "type": "json_path_exists", "path": "table.5.G", "weight": 1 },
+          { "type": "regex", "pattern": "sha|mismatch|different render|wrong packet", "weight": 3 }
+        ],
+        "judge": {
+          "criteria": [
+            {
+              "name": "evidence_quality",
+              "weight": 3,
+              "guidance": "Spots the exact integrity failure by comparing the candidate sha with the reviewed packet sha, and explains why that blocks signoff."
+            },
+            {
+              "name": "verifier_posture",
+              "weight": 3,
+              "guidance": "Chooses refuse, not reject and not pass. The packet is invalid for verification because the reviewed render does not match the candidate render."
+            },
+            {
+              "name": "a1_g6_coverage",
+              "weight": 2,
+              "guidance": "The 6-row A-G table is fully populated and internally consistent with the refusal."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "verifier-missing-promotion-record",
+      "title": "Refuse when the master exists but there is no promotion record",
+      "metadata": {
+        "verifierCase": {
+          "taskClass": "refusal",
+          "expectedVerdict": "refuse",
+          "expectedRegisterItems": [
+            "missing promotion record",
+            "cannot verify release path",
+            "do not sign off"
+          ],
+          "fixtureStatus": "synthetic_ready",
+          "sourceIssueHint": "TSKB0055 missing promote record trap"
+        }
+      },
+      "prompt": "You are the final QA verifier for a media master. Decide whether to `pass`, `reject`, or `refuse` the packet.\n\nRules:\n- `pass` only when the packet is internally consistent and no evidence shows a shipping defect.\n- `reject` when the packet is valid enough to review, but the evidence shows a concrete master defect or a red gate.\n- `refuse` when the packet itself is invalid or incomplete (for example sha mismatch or missing promotion proof), so signoff must stop before judging the master.\n\nReturn ONLY JSON with this exact shape:\n{\n  \"verdict\": \"pass|reject|refuse\",\n  \"summary\": \"one sentence\",\n  \"table\": [\n    {\"A\": \"packet integrity\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"candidate identity\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"video findings\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"audio findings\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"gate and promote checks\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"signoff\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"}\n  ]\n}\n\nCandidate packet:\n- candidateMaster.path: assets/final/legacy-rescue-v4.mp4\n- candidateMaster.sha256: e1335713b1fd59a875d4d935a2dca95a45d6f7d7f4042ecbfa5e01039f84d7c4\n- packetSummary.overall: GREEN\n- gatePayload.packetColor: GREEN\n- gatePayload.audioReviewClass: PASS\n- gatePayload.chartTruth: PASS\n- gatePayload.finalInstruction: \"Ready if paperwork is complete.\"\n- promoteRecord: null\n- releaseNote: \"Legacy file copied into assets/final during rescue. No promotion event found in the register.\"\n\nTask: make the signoff decision from the packet above. Penalize false passes.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "verdict", "value": "refuse", "weight": 6 },
+          { "type": "json_path_len_equals", "path": "table", "value": 6, "weight": 2 },
+          { "type": "json_path_exists", "path": "table.0.A", "weight": 1 },
+          { "type": "json_path_exists", "path": "table.5.G", "weight": 1 },
+          { "type": "regex", "pattern": "missing promotion|no promotion|promote record|promotion record", "weight": 3 }
+        ],
+        "judge": {
+          "criteria": [
+            {
+              "name": "evidence_quality",
+              "weight": 3,
+              "guidance": "Identifies the missing promotion record as the decisive blocker and distinguishes it from a defect in the master itself."
+            },
+            {
+              "name": "verifier_posture",
+              "weight": 3,
+              "guidance": "Chooses refuse, not pass and not reject, because the packet is incomplete rather than defect-confirmed."
+            },
+            {
+              "name": "a1_g6_coverage",
+              "weight": 2,
+              "guidance": "The 6-row A-G table is fully populated and internally consistent with the refusal."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "verifier-real-double-outro-stale-intro",
+      "title": "Reject the real rejected flagship bundle for double-outro and stale-intro defects",
+      "metadata": {
+        "verifierCase": {
+          "taskClass": "defect",
+          "expectedVerdict": "reject",
+          "expectedRegisterItems": [
+            "late-tail second outro detected",
+            "stale or wrong intro/body title evidence",
+            "do not sign off"
+          ],
+          "fixtureStatus": "real_bundle_exported",
+          "sourceIssueHint": "TSM-5361 / TSM-5326 / TSM-5360 cashflow flagship chain"
+        }
+      },
+      "prompt": "You are the final QA verifier for a media master. Decide whether to `pass`, `reject`, or `refuse` the packet.\n\nRules:\n- `pass` only when the packet is internally consistent and no evidence shows a shipping defect.\n- `reject` when the packet is valid enough to review, but the evidence shows a concrete master defect or a red gate.\n- `refuse` when the packet itself is invalid or incomplete (for example sha mismatch or missing promotion proof), so signoff must stop before judging the master.\n\nReturn ONLY JSON with this exact shape:\n{\n  \"verdict\": \"pass|reject|refuse\",\n  \"summary\": \"one sentence\",\n  \"table\": [\n    {\"A\": \"packet integrity\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"candidate identity\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"video findings\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"audio findings\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"gate and promote checks\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"signoff\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"}\n  ]\n}\n\nCandidate packet:\n- candidateMaster.path: assets/final/cc-fee-drag-pass10-remediated-v3-chartfix-master.mp4\n- candidateMaster.sha256: 67d02eeb1994ab3a9aa4335eb9af422e920c42aabb4253bd4ee07ebfa2769e6d\n- packetSummary.overall: GREEN\n- packetSummary.note: \"Hardening rerun looks clean now. Safe to promote.\"\n- reviewRegister.sourceIssues: TSM-5361, TSM-5326, TSM-5360\n- bundleManifest.id: double-outro-stale-intro-black-gap\n- bundleManifest.path: benchmark/qa-verifier/fixtures/real/double-outro-stale-intro-black-gap/bundle-manifest.json\n- promoteRecord.id: promote-2026-07-10-cashflow-flagship\n- promoteRecord.sha256: 67d02eeb1994ab3a9aa4335eb9af422e920c42aabb4253bd4ee07ebfa2769e6d\n- gatePayload.bookendStructure.pass: FAIL\n- gatePayload.bookendStructure.lateTailDetectedSecondOutroCopy: true\n- gatePayload.bookendStructure.lateTailDetectedSubscribe: true\n- gatePayload.bookendStructure.bodyMatchesExpectedIntroTitle: false\n- gatePayload.bookendStructure.finalEvidence: \"A second endscreen/outro cluster remains in the late tail.\"\n- gatePayload.lockedMarkFontShineVerification.pass: FAIL\n- gatePayload.lockedMarkFontShineVerification.finalEvidence: \"Intro/body title framing is inconsistent with the approved locked-mark sequence.\"\n- gatePayload.sourceBlackQa.pass: true\n- gatePayload.sourceBlackQa.note: \"The earlier black-gap defect was already cleared on this exported master; do not use black-gap as the rejection reason.\"\n- gatePayload.finalInstruction: \"Do NOT promote. Rebuild the intro/outro structure and locked-mark sequence.\"\n\nTask: make the signoff decision from the packet above. Penalize false passes and do not invent a black-gap failure the packet does not claim.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "verdict", "value": "reject", "weight": 6 },
+          { "type": "json_path_len_equals", "path": "table", "value": 6, "weight": 2 },
+          { "type": "json_path_exists", "path": "table.0.A", "weight": 1 },
+          { "type": "json_path_exists", "path": "table.5.G", "weight": 1 },
+          { "type": "regex", "pattern": "second outro|stale intro|locked-mark|subscribe", "weight": 3 }
+        ],
+        "judge": {
+          "criteria": [
+            {
+              "name": "evidence_quality",
+              "weight": 3,
+              "guidance": "Grounds the rejection in the real bundle evidence: late-tail second outro plus stale intro/body-title or locked-mark inconsistency. Strong answers avoid claiming a black-gap defect because the packet says the exported black-QA sidecar is green."
+            },
+            {
+              "name": "verifier_posture",
+              "weight": 3,
+              "guidance": "Chooses reject, not pass and not refuse. The packet is complete, but the master is still defective."
+            },
+            {
+              "name": "a1_g6_coverage",
+              "weight": 2,
+              "guidance": "The 6-row A-G table is fully populated and internally consistent with the rejection."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "verifier-real-flat-bars-chart",
+      "title": "Reject the real pre-chartfix opener bundle with the flat-bars chart render",
+      "metadata": {
+        "verifierCase": {
+          "taskClass": "defect",
+          "expectedVerdict": "reject",
+          "expectedRegisterItems": [
+            "flat-bars opener detected",
+            "chartTruth fail recorded",
+            "do not sign off"
+          ],
+          "fixtureStatus": "real_bundle_exported",
+          "sourceIssueHint": "TSM-5326 pre-chartfix v2-closeout opener bundle"
+        }
+      },
+      "prompt": "You are the final QA verifier for a media master. Decide whether to `pass`, `reject`, or `refuse` the packet.\n\nRules:\n- `pass` only when the packet is internally consistent and no evidence shows a shipping defect.\n- `reject` when the packet is valid enough to review, but the evidence shows a concrete master defect or a red gate.\n- `refuse` when the packet itself is invalid or incomplete (for example sha mismatch or missing promotion proof), so signoff must stop before judging the master.\n\nReturn ONLY JSON with this exact shape:\n{\n  \"verdict\": \"pass|reject|refuse\",\n  \"summary\": \"one sentence\",\n  \"table\": [\n    {\"A\": \"packet integrity\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"candidate identity\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"video findings\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"audio findings\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"gate and promote checks\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"signoff\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"}\n  ]\n}\n\nCandidate packet:\n- candidateMaster.path: assets/final/cc-fee-drag-pass10-remediated-v2-closeout-master.mp4\n- candidateMaster.sha256: c5d5ddd27d127dba27afba6d0a3381b82f2f16fff621d1c755f55bb9645c5c67\n- reviewedPacket.renderSha256: c5d5ddd27d127dba27afba6d0a3381b82f2f16fff621d1c755f55bb9645c5c67\n- packetSummary.overall: GREEN\n- packetSummary.note: \"Chart opener looks acceptable in motion.\"\n- bundleManifest.id: flat-bars-chart-render\n- bundleManifest.path: benchmark/qa-verifier/fixtures/real/flat-bars-chart-render/bundle-manifest.json\n- promoteRecord.id: promote-2026-07-09-cc-v2-closeout\n- promoteRecord.sha256: c5d5ddd27d127dba27afba6d0a3381b82f2f16fff621d1c755f55bb9645c5c67\n- gatePayload.chartTruth: FAIL\n- gatePayload.chartEvidence: \"slide-005-flat-bars.png from the exported bundle captures the superseded opener with flat four-block bars. The 2026-07-09 chartfix handoff archived this binary as the known-bad pre-fix master.\"\n- gatePayload.contextFrame: slide-004-context.png\n- gatePayload.sourceBlackQa.pass: true\n- gatePayload.finalInstruction: \"Do NOT promote until the chart opener is rerendered.\"\n\nTask: make the signoff decision from the packet above. Penalize false passes.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "verdict", "value": "reject", "weight": 6 },
+          { "type": "json_path_len_equals", "path": "table", "value": 6, "weight": 2 },
+          { "type": "json_path_exists", "path": "table.0.A", "weight": 1 },
+          { "type": "json_path_exists", "path": "table.5.G", "weight": 1 },
+          { "type": "regex", "pattern": "flat-bars|charttruth|slide-005|pre-fix", "weight": 3 }
+        ],
+        "judge": {
+          "criteria": [
+            {
+              "name": "evidence_quality",
+              "weight": 3,
+              "guidance": "Uses the real exported chart bundle evidence and names the flat-bars opener as the defect, not a generic 'chart issue'."
+            },
+            {
+              "name": "verifier_posture",
+              "weight": 3,
+              "guidance": "Chooses reject, not pass and not refuse. The packet is complete and the chart defect is directly evidenced."
+            },
+            {
+              "name": "a1_g6_coverage",
+              "weight": 2,
+              "guidance": "The 6-row A-G table is fully populated and internally consistent with the rejection."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "verifier-real-system-tts-audio",
+      "title": "Reject the real rejected Jessica and James pack for Apple/system-TTS audio",
+      "metadata": {
+        "verifierCase": {
+          "taskClass": "defect",
+          "expectedVerdict": "reject",
+          "expectedRegisterItems": [
+            "system-TTS placeholder voice detected",
+            "audio gate fail recorded",
+            "do not sign off"
+          ],
+          "fixtureStatus": "real_bundle_exported",
+          "sourceIssueHint": "TSM-5245 / TSM-5248 rejected Jessica and James pack"
+        }
+      },
+      "prompt": "You are the final QA verifier for a media master. Decide whether to `pass`, `reject`, or `refuse` the packet.\n\nRules:\n- `pass` only when the packet is internally consistent and no evidence shows a shipping defect.\n- `reject` when the packet is valid enough to review, but the evidence shows a concrete master defect or a red gate.\n- `refuse` when the packet itself is invalid or incomplete (for example sha mismatch or missing promotion proof), so signoff must stop before judging the master.\n\nReturn ONLY JSON with this exact shape:\n{\n  \"verdict\": \"pass|reject|refuse\",\n  \"summary\": \"one sentence\",\n  \"table\": [\n    {\"A\": \"packet integrity\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"candidate identity\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"video findings\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"audio findings\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"gate and promote checks\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"signoff\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"}\n  ]\n}\n\nCandidate packet:\n- candidateMaster.path: review-packs/tsm-5248-jj-audio-pack.zip\n- candidateMaster.sha256: 23e71cca044f48c04141fb36bebae4fd02e408171a5b1c5a9fd4fc7ebd30ff01\n- reviewedPacket.assetPath: jj-sample-vo.wav\n- reviewedPacket.assetSha256: 9cfaa3a68098ba2c1434da1e04e94cc0b1e445dc214607fc588e8bf186400b50\n- packetSummary.overall: GREEN\n- packetSummary.note: \"Voice sample sounds polished and ready.\"\n- bundleManifest.id: apple-system-tts-audio\n- bundleManifest.path: benchmark/qa-verifier/fixtures/real/apple-system-tts-audio/bundle-manifest.json\n- promoteRecord.id: promote-2026-07-07-jj-audio-pack\n- promoteRecord.sha256: 23e71cca044f48c04141fb36bebae4fd02e408171a5b1c5a9fd4fc7ebd30ff01\n- gatePayload.audioReviewClass: FAIL\n- gatePayload.audioEvidence: \"The 2026-07-07 operator rejection on TSM-5245/5248 explicitly called jj-sample-vo.wav an Apple/system robotic placeholder voice.\"\n- gatePayload.packetColor: RED\n- gatePayload.finalInstruction: \"Do NOT promote. Re-render the voice with the approved voice pipeline.\"\n\nTask: make the signoff decision from the packet above. Penalize false passes.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "verdict", "value": "reject", "weight": 6 },
+          { "type": "json_path_len_equals", "path": "table", "value": 6, "weight": 2 },
+          { "type": "json_path_exists", "path": "table.0.A", "weight": 1 },
+          { "type": "json_path_exists", "path": "table.5.G", "weight": 1 },
+          { "type": "regex", "pattern": "system-tts|robotic|apple|jj-sample-vo", "weight": 3 }
+        ],
+        "judge": {
+          "criteria": [
+            {
+              "name": "evidence_quality",
+              "weight": 3,
+              "guidance": "Names the actual rejected sample asset and treats the Apple/system-TTS note as decisive evidence, not vague 'audio quality' language."
+            },
+            {
+              "name": "verifier_posture",
+              "weight": 3,
+              "guidance": "Chooses reject, not pass and not refuse. The packet is reviewable and complete; the defect is in the audio itself."
+            },
+            {
+              "name": "a1_g6_coverage",
+              "weight": 2,
+              "guidance": "The 6-row A-G table is fully populated and internally consistent with the rejection."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "verifier-real-harsh-swoosh-transition",
+      "title": "Reject the real AV review pack whose transitions failed the human listen pass",
+      "metadata": {
+        "verifierCase": {
+          "taskClass": "defect",
+          "expectedVerdict": "reject",
+          "expectedRegisterItems": [
+            "transition swooshes too harsh",
+            "human listen pass failed",
+            "do not sign off"
+          ],
+          "fixtureStatus": "real_bundle_exported",
+          "sourceIssueHint": "TSM-5333 2026-07-08 AV review pack rejected on 2026-07-10"
+        }
+      },
+      "prompt": "You are the final QA verifier for a media master. Decide whether to `pass`, `reject`, or `refuse` the packet.\n\nRules:\n- `pass` only when the packet is internally consistent and no evidence shows a shipping defect.\n- `reject` when the packet is valid enough to review, but the evidence shows a concrete master defect or a red gate.\n- `refuse` when the packet itself is invalid or incomplete (for example sha mismatch or missing promotion proof), so signoff must stop before judging the master.\n\nReturn ONLY JSON with this exact shape:\n{\n  \"verdict\": \"pass|reject|refuse\",\n  \"summary\": \"one sentence\",\n  \"table\": [\n    {\"A\": \"packet integrity\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"candidate identity\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"video findings\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"audio findings\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"gate and promote checks\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"signoff\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"}\n  ]\n}\n\nCandidate packet:\n- candidateMaster.path: review-packs/tsm-5333-av-review-pack/\n- candidateMaster.sha256: 29b2362bfd0daa491d70c4a222f2fbd1e24417fe88cb5af24773e9caa45582d3\n- packetSummary.overall: GREEN\n- packetSummary.note: \"Mechanical gates passed. Review pack looks ready to upload.\"\n- bundleManifest.id: harsh-swoosh-transition\n- bundleManifest.path: benchmark/qa-verifier/fixtures/real/harsh-swoosh-transition/bundle-manifest.json\n- promoteRecord.id: promote-2026-07-08-av-review-pack\n- promoteRecord.sha256: 29b2362bfd0daa491d70c4a222f2fbd1e24417fe88cb5af24773e9caa45582d3\n- gatePayload.mechanicalAudioGate: PASS\n- gatePayload.transitionReview: FAIL\n- gatePayload.humanListenRequirement: REQUIRED\n- gatePayload.transitionEvidence: \"The 2026-07-10 operator listen pass rejected every transition swoosh as too harsh across CC, JJ, SL, VC-A, and VC-B.\"\n- gatePayload.reviewManifest: review-manifest-2026-07-08.md\n- gatePayload.qaEvidence: qa-evidence-2026-07-08.md\n- gatePayload.finalInstruction: \"Hold upload and replace the swooshes with softer transitions.\"\n\nTask: make the signoff decision from the packet above. Penalize false passes and do not treat a green mechanical gate as enough to ignore the human review failure.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "verdict", "value": "reject", "weight": 6 },
+          { "type": "json_path_len_equals", "path": "table", "value": 6, "weight": 2 },
+          { "type": "json_path_exists", "path": "table.0.A", "weight": 1 },
+          { "type": "json_path_exists", "path": "table.5.G", "weight": 1 },
+          { "type": "regex", "pattern": "harsh|swoosh|transition|listen", "weight": 3 }
+        ],
+        "judge": {
+          "criteria": [
+            {
+              "name": "evidence_quality",
+              "weight": 3,
+              "guidance": "Cites the human listen failure and the harsh transition evidence, rather than blindly trusting the mechanical pass."
+            },
+            {
+              "name": "verifier_posture",
+              "weight": 3,
+              "guidance": "Chooses reject, not pass and not refuse. The packet is valid, but the human review still found a shipping defect."
+            },
+            {
+              "name": "a1_g6_coverage",
+              "weight": 2,
+              "guidance": "The 6-row A-G table is fully populated and internally consistent with the rejection."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "verifier-clean-control",
+      "title": "Pass a clean control packet instead of hallucinating a refusal",
+      "metadata": {
+        "verifierCase": {
+          "taskClass": "control",
+          "expectedVerdict": "pass",
+          "expectedRegisterItems": [
+            "packet integrity holds",
+            "all gates green",
+            "signoff allowed"
+          ],
+          "fixtureStatus": "synthetic_ready",
+          "sourceIssueHint": "Clean re-render pending real control artifact"
+        }
+      },
+      "prompt": "You are the final QA verifier for a media master. Decide whether to `pass`, `reject`, or `refuse` the packet.\n\nRules:\n- `pass` only when the packet is internally consistent and no evidence shows a shipping defect.\n- `reject` when the packet is valid enough to review, but the evidence shows a concrete master defect or a red gate.\n- `refuse` when the packet itself is invalid or incomplete (for example sha mismatch or missing promotion proof), so signoff must stop before judging the master.\n\nReturn ONLY JSON with this exact shape:\n{\n  \"verdict\": \"pass|reject|refuse\",\n  \"summary\": \"one sentence\",\n  \"table\": [\n    {\"A\": \"packet integrity\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"candidate identity\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"video findings\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"audio findings\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"gate and promote checks\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"},\n    {\"A\": \"signoff\", \"B\": \"...\", \"C\": \"...\", \"D\": \"...\", \"E\": \"...\", \"F\": \"...\", \"G\": \"...\"}\n  ]\n}\n\nCandidate packet:\n- candidateMaster.path: assets/final/flagship-cut-v21.mp4\n- candidateMaster.sha256: 3e0b3f4d91c02cdab9fcd9279fa5976e24c9d4f5a1f14c8d84bb05e2d41e9f31\n- reviewedPacket.renderSha256: 3e0b3f4d91c02cdab9fcd9279fa5976e24c9d4f5a1f14c8d84bb05e2d41e9f31\n- packetSummary.overall: GREEN\n- gatePayload.packetColor: GREEN\n- gatePayload.audioReviewClass: PASS\n- gatePayload.audioEvidence: \"No system-TTS artifacts.\"\n- gatePayload.chartTruth: PASS\n- gatePayload.blackFrameGapSecBeforeEndscreen: 0.0\n- gatePayload.transitionReview: PASS\n- gatePayload.finalInstruction: \"Promote allowed.\"\n- promoteRecord.id: promote-2026-07-10-flagship-v21\n- promoteRecord.sha256: 3e0b3f4d91c02cdab9fcd9279fa5976e24c9d4f5a1f14c8d84bb05e2d41e9f31\n\nTask: make the signoff decision from the packet above. Penalize invented blockers.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_equals", "path": "verdict", "value": "pass", "weight": 6 },
+          { "type": "json_path_len_equals", "path": "table", "value": 6, "weight": 2 },
+          { "type": "json_path_exists", "path": "table.0.A", "weight": 1 },
+          { "type": "json_path_exists", "path": "table.5.G", "weight": 1 },
+          { "type": "not_regex", "pattern": "sha mismatch|missing promotion|system-tts|apple samantha", "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            {
+              "name": "evidence_quality",
+              "weight": 3,
+              "guidance": "Grounds the pass decision in the aligned sha values, green gates, and present promotion record instead of generic positivity."
+            },
+            {
+              "name": "verifier_posture",
+              "weight": 3,
+              "guidance": "Chooses pass without hallucinating refusal conditions. The clean control exists to catch false refusals."
+            },
+            {
+              "name": "a1_g6_coverage",
+              "weight": 2,
+              "guidance": "The 6-row A-G table is fully populated and internally consistent with the pass verdict."
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

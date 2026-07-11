@@ -1,5 +1,12 @@
 # Production-Task Tier Map (benchmark #18 + #17)
 
+> 2026-07-10 revalidation note (TSBC-1001): this document contains historical
+> June framing built around retired `grok-4-fast` / `grok-4.1-fast` rows.
+> Treat those mentions as historical analysis, not current live locks. For the
+> current management-role replacement evidence and the `cv-review current+all`
+> xAI fallback outcome, use
+> `benchmark/results/tsbc-1001-june-lane-revalidation-20260710.md`.
+
 Cheap-vs-strong on real workflow-start deliverables, to decide where to tier down and how much
 scaffolding each task needs. cheap = **grok-4-fast**, strong = **grok-4.3**, judge = claude-opus (blind).
 Quality = 0.5 deterministic / 0.5 judge blend. Bar for "handled" = 0.85.
@@ -137,3 +144,16 @@ Bench agents created in the isolated Agentic Bench company (e212ce50).
 
 - **CMO:** strategy judgment has best quality on claude-opus-4.8 and remains locked there.
 - **CFO:** codex-gpt-5.4 is within 0.0133 quality points of the peak, with materially better value/efficiency, so it is locked to reduce production cost.
+
+## UPDATE 5 — trusted pooled close-out (2026-06-30)
+
+The board reopened [TSBC-724](/TSBC/issues/TSBC-724) after the Mission Control auth/workspace fixes landed. The Gemini lane was re-tested, but Antigravity still returned live quota exhaustion, so the close-out used the trusted 30-day pooled ledger instead of waiting on fresh Gemini repeats.
+
+Trusted pooled decisions:
+
+| Role | Trusted peak-quality model | Trusted cost-aware lock | Why |
+|---|---|---|---|
+| cmo | claude-opus-4.8 (`0.9481`) | **claude-opus-4.8** | Codex is the cheapest near-peak trusted model, but Claude is only `1.4978x` more expensive on output tokens, just under the `1.5x` displacement trigger. |
+| cfo | grok-4.3 (`0.9842`) | **codex-gpt-5.4** | Codex gives up only `0.0054` quality versus the trusted peak while cutting output cost by `7.26x`, so the harness objective still locks CFO to Codex. |
+
+Gemini note: `gemini-3.1-pro` remained below trust threshold (`1/3` results each for `cmo` and `cfo`) and therefore could not enter the final role lock even though the single CFO run looked strong.

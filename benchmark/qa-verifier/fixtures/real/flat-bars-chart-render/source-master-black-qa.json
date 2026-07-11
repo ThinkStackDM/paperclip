@@ -1,0 +1,18 @@
+{
+  "file": "/Users/glad0s/.paperclip/instances/default/companies/d71c9e82-1a4b-497f-9bbc-5b9dd028c367/work-products/TSM-5326/cc-fee-drag-pass10-remediated-v2-closeout-master.mp4",
+  "duration": 419.3,
+  "introGuardSeconds": 20.467,
+  "outroGuardSeconds": 31.967,
+  "blackdetect": [
+    {
+      "start": 418.5,
+      "end": 419.2,
+      "duration": 0.7
+    }
+  ],
+  "lowLumaSpans": [],
+  "violations": {
+    "blackdetect": [],
+    "lowLuma": []
+  }
+}

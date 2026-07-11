@@ -1,6 +1,6 @@
 {
   "role": "cv-review",
-  "description": "Production task (Recruitment workflow-start): review a candidate CV against a target role and return structured concerns + a recommendation. CVs carry PLANTED, varyingly-subtle issues — title/seniority inflation, unexplained gaps, unsubstantiated metrics, role mismatch, a hard-to-spot date-overlap inconsistency, and PII over-share — plus one genuinely-clean CV to test calibration (don't fabricate concerns). Designed to DISCRIMINATE: a capable model catches the subtle planted issues and resists over-flagging; a weaker one misses the timeline inconsistency or invents nitpicks. Deterministic checks anchor 'did it catch the planted issue + give a sane recommendation'; the strict judge grades depth, accuracy, and the absence of fabricated concerns.",
+  "description": "Production task (Recruitment workflow-start): review candidate CV material and return structured concerns + a recommendation. The suite mixes classic intake-screening traps (title/seniority inflation, unexplained gaps, unsubstantiated metrics, role mismatch, a hard-to-spot date-overlap inconsistency, PII over-share, plus one genuinely-clean CV to test calibration) with live-delivery QA escapes from TSR's first paid CV-polish order (scope inflation, metric/tool attribution overclaim, workload framing, intake-field completeness, compression loss, copy lint) plus operator-caught pre-submission escapes on experience ordering and AI-tell plus-notation phrasing. Designed to DISCRIMINATE: a capable model catches the planted issues, preserves factual bounds when polishing drafts, and resists over-flagging; a weaker one misses timeline or attribution problems, accepts unsupported rewrite claims, or invents nitpicks. Deterministic checks anchor 'did it catch the planted issue + give a sane recommendation'; the strict judge grades depth, accuracy, and the absence of fabricated concerns.",
   "tasks": [
     {
       "id": "cv-title-inflation-gap",
@@ -98,6 +98,145 @@
         "judge": {
           "criteria": [
             { "name": "pii_discipline", "weight": 3, "guidance": "Notes that the CV over-shares protected/irrelevant PII (DOB/age, marital status, children, photo, home address) which should be excluded from assessment and not used to evaluate the candidate (bias/legal risk). The actual assessment should rest on the strong CS record (40 enterprise accounts, 95% retention) → advance or clarify. Penalize using the PII to judge, ignoring the PII problem entirely, or rejecting a strong candidate over it." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cv-team-size-inflation",
+      "title": "Cap polished claims at the max team size the source supports",
+      "prompt": "Review this customer-ready CV rewrite against the source notes for a **Head of Customer Support** application. Focus on factual integrity, not generous phrasing.\n\n--- SOURCE NOTES ---\nName: K. Mensah\nCurrent role: Support Team Lead, ArcDesk — 2022-present\nDocumented scope:\n- Managed 18 support specialists across two shifts.\n- Coached 3 team leads.\n- Partnered with QA and enablement.\nPrior role: Senior Support Specialist, ArcDesk — 2020-2022\n- Wrote KCS articles from 13 to 165.\n--- DRAFT CV EXCERPT ---\nProfessional Summary: Customer Support leader with experience managing **up to 20** agents across high-volume operations.\nExperience bullet: Led a 20-person support organization across two shifts while coaching team leads and scaling knowledge operations.\n--- end ---\n\nReturn ONLY JSON: {\"concerns\": [string], \"recommendation\": \"advance\"|\"reject\"|\"clarify\", \"fixes\": [string]}.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_in", "path": "recommendation", "values": ["clarify", "reject"], "weight": 3 },
+          { "type": "contains_any", "values": ["18", "20", "cap", "max", "unsupported", "inflate", "overclaim", "team size"], "weight": 3 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "caps_scope", "weight": 3, "guidance": "Flags that the source evidence supports at most 18 support specialists, not 'up to 20' or a '20-person support organization'. Known-good: cites the exact supported cap (18) and recommends rewriting to the supported number or removing the unsupported inflation. Known-bad: accepts 20 as harmless rounding, praises the scale without challenge, or invents extra unsupported scope details." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cv-tool-attribution-overclaim",
+      "title": "Decouple a deployed tool from team metrics it did not explicitly cause",
+      "prompt": "Review this customer-ready CV rewrite against the source notes for a **Support Operations Manager** application. Be strict about attribution.\n\n--- SOURCE NOTES ---\nName: A. Kamara\nCurrent role: Support Operations Lead, HelixCare — 2021-present\nDocumented facts:\n- Rolled out an AI co-pilot for response drafting.\n- Team CSAT improved from 82% to 97%.\n- Team backlog dropped 80% after staffing, QA, and workflow changes.\n- Source notes do NOT state that the AI co-pilot alone caused the CSAT or backlog outcomes.\n--- DRAFT CV EXCERPT ---\nAchievement: Deployed an AI co-pilot that improved CSAT by 15% and reduced backlog by 80%.\n--- end ---\n\nReturn ONLY JSON: {\"concerns\": [string], \"recommendation\": \"advance\"|\"reject\"|\"clarify\", \"fixes\": [string]}.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_in", "path": "recommendation", "values": ["clarify", "reject"], "weight": 3 },
+          { "type": "contains_any", "values": ["AI", "co-pilot", "CSAT", "backlog", "attribute", "causal", "separate", "verify", "not supported"], "weight": 3 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "separates_causality", "weight": 3, "guidance": "Flags that the draft wrongly attributes team-level CSAT and backlog outcomes directly to the AI co-pilot when the source only confirms the tool rollout plus separate team improvements. Known-good: decouples the tool deployment from the broader outcomes, asks for explicit causal proof, or rewrites so the co-pilot is listed separately from the team metrics. Known-bad: treats the tool as the proven cause of both metrics or praises the bullet without challenging the unsupported attribution." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cv-workload-metric-framing",
+      "title": "Frame workload growth as context handled, not as a personal achievement",
+      "prompt": "Review this customer-ready CV rewrite against the source notes for a **Customer Support Manager** application. Watch for misleading framing.\n\n--- SOURCE NOTES ---\nName: L. Dube\nCurrent role: Support Manager, NorthGrid — 2022-present\nDocumented facts:\n- Support volume grew 35% month over month after a product launch.\n- Maintained first-response SLA under 5 minutes while volume was rising.\n- Kept CSAT above 95% through the growth spike.\n--- DRAFT CV EXCERPT ---\nAchievement: Increased support volume by 35% MoM while leading frontline operations.\n--- end ---\n\nReturn ONLY JSON: {\"concerns\": [string], \"recommendation\": \"advance\"|\"reject\"|\"clarify\", \"fixes\": [string]}.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_in", "path": "recommendation", "values": ["clarify", "reject"], "weight": 3 },
+          { "type": "contains_any", "values": ["35%", "volume", "grew", "absorbed", "handled", "growth", "framing", "not candidate-driven"], "weight": 3 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "reframes_workload", "weight": 3, "guidance": "Flags that 'increased support volume by 35% MoM' misframes demand growth as if the candidate personally caused it. Known-good: reframes the accomplishment as handling/absorbing/sustaining service quality under 35% MoM growth, or explicitly says the source only proves the environment grew. Known-bad: celebrates the candidate for 'increasing' support volume or ignores the framing problem." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cv-intake-field-completeness",
+      "title": "Keep all provided contact fields and normalize them consistently",
+      "prompt": "Review this candidate header rewrite against the intake fields for a **Customer Success Manager** application. Check completeness and normalization.\n\n--- SOURCE INTAKE ---\nName: A. Bello\nEmail: abello@example.com\nPhone: +353 87 123 4567\nLinkedIn: linkedin.com/in/abella-bello\nLocation: Dublin, Ireland\n--- DRAFT HEADER ---\nA. Bello | Dublin, Ireland | abello@example.com | 0871234567\n--- end ---\n\nReturn ONLY JSON: {\"concerns\": [string], \"recommendation\": \"advance\"|\"reject\"|\"clarify\", \"fixes\": [string]}.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_in", "path": "recommendation", "values": ["clarify", "reject"], "weight": 3 },
+          { "type": "contains_any", "values": ["LinkedIn", "linkedin", "missing"], "weight": 2 },
+          { "type": "contains_any", "values": ["phone", "format", "normalize", "+353", "0871234567"], "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "header_complete_and_normalized", "weight": 3, "guidance": "Flags BOTH problems: the LinkedIn field was dropped even though it was provided, and the phone number formatting is inconsistent with the intake form. Known-good: says to restore LinkedIn and normalize the phone consistently (for example keep the explicit country-code form already supplied). Known-bad: notices only one of the two problems, or argues that phone/LinkedIn should be removed despite being relevant contact fields." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cv-experience-order",
+      "title": "Keep experience entries in reverse chronological order",
+      "prompt": "Review this customer-ready experience section against the source notes for a **Senior Customer Support Manager** application. Focus on final-draft QA, especially chronology and ordering.\n\n--- SOURCE NOTES ---\nName: M. Adewale\nCurrent role: Senior Customer Support Manager, SoftCo — Jan 2024 to Present\nPrevious role: Support Operations Analyst, VMware — Mar 2022 to Dec 2023\n--- DRAFT EXPERIENCE ---\nExperience\n- Support Operations Analyst, VMware — Mar 2022 to Dec 2023\n- Senior Customer Support Manager, SoftCo — Jan 2024 to Present\n--- end ---\n\nReturn ONLY JSON: {\"concerns\": [string], \"recommendation\": \"advance\"|\"reject\"|\"clarify\", \"fixes\": [string]}.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_in", "path": "recommendation", "values": ["clarify", "reject"], "weight": 3 },
+          { "type": "contains_any", "values": ["reverse chronological", "reverse-chronological", "most recent", "current role", "order", "SoftCo"], "weight": 3 },
+          { "type": "contains_any", "values": ["VMware", "2024", "2023", "reorder", "latest role first"], "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "keeps_latest_role_first", "weight": 3, "guidance": "Flags that the experience section is in the wrong order: the current SoftCo role (Jan 2024-Present) should appear above the older VMware role (Mar 2022-Dec 2023). Known-good: explicitly calls for reverse-chronological ordering or says the latest/current role must come first. Known-bad: treats the ordering as acceptable, focuses only on wording, or misses that the draft would ship with the older role above the current one." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cv-compression-metric-loss",
+      "title": "Do not silently drop the strongest quantified achievement when compressing",
+      "prompt": "Review this one-page CV compression against the source notes for a **Knowledge Management Lead** application. Focus on whether the strongest quantified proof survived the cut.\n\n--- SOURCE NOTES ---\nName: D. Akin\nCurrent role: Knowledge Lead, ArcDesk — 2021-present\nDocumented achievements:\n- Expanded the KCS article library from 13 to 165 in 12 months.\n- Cut escalations by 22%.\n- Led weekly QA calibrations.\n--- ONE-PAGE DRAFT EXCERPT ---\nSelected achievements:\n- Cut escalations by 22%.\n- Led weekly QA calibrations.\n--- end ---\n\nReturn ONLY JSON: {\"concerns\": [string], \"recommendation\": \"advance\"|\"reject\"|\"clarify\", \"fixes\": [string]}.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_in", "path": "recommendation", "values": ["clarify", "reject"], "weight": 3 },
+          { "type": "contains_any", "values": ["13", "165", "KCS", "omitted", "retain", "compression", "drop note"], "weight": 3 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "preserves_best_metric", "weight": 3, "guidance": "Flags that the strongest quantified achievement (growing the KCS library from 13 to 165) disappeared during compression. Known-good: recommends restoring that metric, or explicitly recording that it was dropped if space forces the omission. Known-bad: ignores the loss, treats the remaining bullets as equivalent proof, or invents a different metric to compensate." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cv-plus-notation-tell",
+      "title": "Avoid 7+/10+ year shorthand in candidate-voice copy",
+      "prompt": "Review this final professional summary before it is sent to a paying customer for a **Customer Success Director** application. Focus on candidate voice and whether the wording sounds natural rather than AI-generated.\n\n--- SOURCE NOTES ---\nName: P. Mensima\nExperience:\n- Customer Success Manager, Brighthive — 2019-present\n- Account Manager, LaneDesk — 2016-2019\n--- DRAFT SUMMARY ---\nCustomer success leader with 7+ years of SaaS retention experience and 10+ years in client-facing roles, known for building trusted relationships and scaling renewals.\n--- end ---\n\nReturn ONLY JSON: {\"concerns\": [string], \"recommendation\": \"advance\"|\"reject\"|\"clarify\", \"fixes\": [string]}.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_in", "path": "recommendation", "values": ["clarify", "reject"], "weight": 3 },
+          { "type": "contains_any", "values": ["7+", "10+", "plus", "candidate voice", "AI", "unnatural", "rewrite"], "weight": 3 },
+          { "type": "contains_any", "values": ["exact", "natural", "years", "phrasing", "summary"], "weight": 2 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "flags_plus_notation_tell", "weight": 3, "guidance": "Flags that '7+' / '10+' year constructions sound templated and unnatural in candidate-voice copy even if the rough tenure is supportable. Known-good: calls the plus-notation out directly, treats it as an AI/copy tell, and suggests a more natural rewrite grounded in the actual dates or plain-language tenure. Known-bad: preserves the plus signs, praises the summary as-is, or only comments on generic tone without naming the 7+/10+ phrasing." }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cv-copy-lint",
+      "title": "Catch duplicate-word copy lint before the draft ships",
+      "prompt": "Review this final CV bullet before it is sent to a paying customer. Check factual clarity, but also basic copy hygiene.\n\n--- DRAFT BULLET ---\nSpearheaded a support QA overhaul and spearheaded weekly calibration sessions that improved escalation handling.\n--- end ---\n\nReturn ONLY JSON: {\"concerns\": [string], \"recommendation\": \"advance\"|\"reject\"|\"clarify\", \"fixes\": [string]}.",
+      "rubric": {
+        "deterministic": [
+          { "type": "json_valid", "weight": 2 },
+          { "type": "json_path_in", "path": "recommendation", "values": ["clarify", "reject"], "weight": 3 },
+          { "type": "contains_any", "values": ["duplicate", "repeated", "spearheaded", "copy", "lint", "wording"], "weight": 3 }
+        ],
+        "judge": {
+          "criteria": [
+            { "name": "catches_copy_lint", "weight": 3, "guidance": "Flags the duplicated word/phrase ('spearheaded ... and spearheaded') and proposes a cleaner rewrite. Known-good: catches the repetition directly and treats it as a ship-blocking polish error. Known-bad: misses the duplication entirely, praises the line as-is, or overreacts with unrelated fabricated concerns." }
           ]
         }
       }

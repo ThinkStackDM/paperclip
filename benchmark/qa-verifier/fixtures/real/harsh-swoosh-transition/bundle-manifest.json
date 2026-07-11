@@ -1,0 +1,58 @@
+{
+  "id": "harsh-swoosh-transition",
+  "title": "Rejected TSM-5333 in-context AV review pack before the softer swoosh rebuild",
+  "exportedAt": "2026-07-10",
+  "source": {
+    "issueIdentifiers": [
+      "TSM-5333"
+    ],
+    "description": "Immutable operator-review attachments from the 2026-07-08 rebuild that was later rejected for harsh transition SFX across every channel.",
+    "sourcePaths": [
+      "http://127.0.0.1:3100/api/attachments/2e440c46-bc7a-4bfb-80eb-eb23ebd92072/content?download=1",
+      "http://127.0.0.1:3100/api/attachments/ff175775-4932-48c9-9643-874beb046a6a/content?download=1",
+      "http://127.0.0.1:3100/api/issues/TSM-5333/comments/bd49a020-9058-40e8-8dde-f718e271bd4d"
+    ],
+    "evidenceNotes": [
+      "The 2026-07-10 operator listen-pass marked every transition swoosh as too harsh and kept the next pass limited to softer replacements."
+    ]
+  },
+  "primaryArtifact": "review-manifest-2026-07-08.md",
+  "primaryArtifactSha256": "29b2362bfd0daa491d70c4a222f2fbd1e24417fe88cb5af24773e9caa45582d3",
+  "files": [
+    {
+      "path": "cc-sample.mp4",
+      "sha256": "cab41dfb58f78be766f099c035fe792e666d3087cb596112896040700ce6b58f",
+      "byteSize": 717915
+    },
+    {
+      "path": "jj-sample.mp4",
+      "sha256": "bb099be4b77bae83c14e01270f9d9593b67b5870f0ad82b81dd5ec9fbd54d516",
+      "byteSize": 574847
+    },
+    {
+      "path": "qa-evidence-2026-07-08.md",
+      "sha256": "e7b7b06b231246abf6b9c7c3d77deab8f9f64a369c9c62636437d943b41119f6",
+      "byteSize": 2470
+    },
+    {
+      "path": "review-manifest-2026-07-08.md",
+      "sha256": "29b2362bfd0daa491d70c4a222f2fbd1e24417fe88cb5af24773e9caa45582d3",
+      "byteSize": 3194
+    },
+    {
+      "path": "sl-sample.mp4",
+      "sha256": "6f1e600f5c36ab9433db32dce3176b7a242b8e0fb5572f821d66f2beb2204d07",
+      "byteSize": 641956
+    },
+    {
+      "path": "vca-sample.mp4",
+      "sha256": "ffa93919b5a5af14e91c204b3341873abaa98028b2737378870cfd34bfb91f54",
+      "byteSize": 687922
+    },
+    {
+      "path": "vcb-sample.mp4",
+      "sha256": "e86824f027acbbd589d257d5b2e83b1cbe31d879de33b40f932f3f973ccf025c",
+      "byteSize": 720284
+    }
+  ]
+}

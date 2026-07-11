@@ -17,7 +17,7 @@ Turn "which model / adapter / skill is best for which task" from guesswork into 
 
 ## Structure
 - **Drillmaster (lead)** — designs suites, orchestrates runs, synthesizes results, owns the ledger + recommendations. codex-5.4. *Stood up as the first step of workstream A* (repurpose the paused `Bench-Manager`, grok→codex).
-- **Proving ground (subjects)** — the `Bench-<model>` agents, one per model/adapter (claude-opus / opus-4.7, codex-gpt-5.4, gpt-5.5, gemini-pro, grok-4.3 / 4.1-fast / 4-fast / 4.20). They run identical suites so comparisons are fair. Kept as-is.
+- **Proving ground (subjects)** — the `Bench-<model>` agents, one per model/adapter (claude-opus / opus-4.7, codex-gpt-5.4, gpt-5.5, gemini-pro, grok-4.3 / 4.20 / 4.20-non-reasoning / grok-build). They run identical suites so comparisons are fair. The retired `grok-4-fast` / `grok-4.1-fast` subjects were repointed on 2026-07-10 after serving-truth showed they no longer existed as distinct models.
 - **Tooling** — `bench.py` (multi-model eval), `variants.py` (AF×skill grid), `cascade.py`, `costreport.py`, `per_task_compare.py`, `adapter_swap.py`, `make_fleet_agent.py`; registry in `config.json`; results in `ledger/`.
 
 ## Operating model

@@ -12,6 +12,7 @@ so downstream tooling (agent-scorecard, tiering #9) speaks the same dialect.
 import json
 import os
 import re
+from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -66,6 +67,7 @@ def empty_result():
         "ok": False,
         "output": "",
         "model": None,          # actual model string reported by the CLI, if any
+        "modelSource": None,    # where `model` came from: provider/session vs requested fallback
         "inputTokens": None,
         "outputTokens": None,
         "totalTokens": None,
@@ -76,6 +78,80 @@ def empty_result():
         "error": None,
         "cmd": None,
         "stderrTail": None,
+    }
+
+
+_CONFIRMED_MODEL_SOURCES = {
+    "api_response",
+    "provider_response",
+    "session_export",
+}
+
+
+def normalize_model_name(value):
+    if value is None:
+        return None
+    return re.sub(r"[^a-z0-9]+", "", str(value).lower())
+
+
+def model_names_match(requested, response):
+    want = normalize_model_name(requested)
+    got = normalize_model_name(response)
+    if not want or not got:
+        return None
+    return want == got or want.startswith(got) or got.startswith(want)
+
+
+def serving_truth(requested_model, response_model, response_model_source):
+    confirmed = bool(response_model) and response_model_source in _CONFIRMED_MODEL_SOURCES
+    matched = model_names_match(requested_model, response_model)
+    valid = bool(confirmed and matched)
+    if valid:
+        reason = None
+    elif not confirmed:
+        reason = "missing_serving_confirmation"
+    elif matched is False:
+        reason = "served_model_mismatch"
+    else:
+        reason = "unknown_serving_state"
+    return {
+        "requestedModel": requested_model,
+        "responseModel": response_model,
+        "responseModelSource": response_model_source,
+        "servingConfirmed": confirmed,
+        "servingMatchedRequest": matched,
+        "servingValid": valid,
+        "servingInvalidReason": reason,
+    }
+
+
+def serving_truth_rollup(records, *, ok_only=True):
+    rows = []
+    for record in records:
+        if ok_only and not record.get("ok", True):
+            continue
+        rows.append(record)
+    response_models = [r.get("responseModel") for r in rows if r.get("responseModel")]
+    response_counts = Counter(response_models)
+    invalid_reasons = Counter(
+        r.get("servingInvalidReason") for r in rows if r.get("servingInvalidReason")
+    )
+    valid_runs = sum(1 for r in rows if r.get("servingValid") is True)
+    confirmed_runs = sum(1 for r in rows if r.get("servingConfirmed") is True)
+    total_runs = len(rows)
+    validity = "valid" if total_runs > 0 and valid_runs == total_runs else "invalid"
+    single_response_model = None
+    if len(response_counts) == 1:
+        single_response_model = next(iter(response_counts))
+    return {
+        "servingTotalRuns": total_runs,
+        "servingConfirmedRuns": confirmed_runs,
+        "servingValidRuns": valid_runs,
+        "servingInvalidRuns": total_runs - valid_runs,
+        "responseModel": single_response_model,
+        "responseModels": dict(sorted(response_counts.items())),
+        "validity": validity,
+        "invalidReasons": dict(sorted(invalid_reasons.items())),
     }
 
 

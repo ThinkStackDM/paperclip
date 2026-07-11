@@ -849,6 +849,638 @@
           }
         }
       }
+    },
+    {
+      "id": "marketplace-pin-packaging-qa",
+      "skill": "candidate-skills/marketplace-packaging-qa.md",
+      "task": {
+        "id": "marketplace-pin-packaging-qa-bare",
+        "prompt": "Audit these two Pinterest draft pins for The Aroid Atlas and decide whether each draft is ready for BOARD APPROVAL. Use only three decisions: pass, warn, or block.\n\nReturn ONLY JSON with this exact shape:\n{\"draftA\":{\"decision\":\"pass|warn|block\",\"reasons\":[string]},\"draftB\":{\"decision\":\"pass|warn|block\",\"reasons\":[string]},\"shipNow\":\"draftA|draftB|neither\"}\n\nDRAFT A\n- Image text: \"AROID TRIO — SET OF 3 / Botanical Print Set / Instant Printable Wall Art\"\n- Board: \"Gallery Wall Ideas | Botanical Print Sets\"\n- Title: \"Aroid Trio Print Set | Botanical Gallery Wall Art\"\n- Description: \"Set of 3 coordinated aroid botanical prints for a gallery wall. Instant printable download in matching sizes. #gallerywall #botanicalset #printablewallart\"\n- Destination link: Etsy listing 4523365752 (Aroid Trio Set of 3)\n- Note: the pin is a clean cream typographic design, not a styled-room mockup.\n\nDRAFT B\n- Image text: \"AROID TRIO — SET OF 3 / Botanical Print Set / Instant Printable Wall Art\"\n- Board: \"Variegated Plant Art | Thai Constellation Pink Princess\"\n- Title: \"Aroid Trio Print Set | Botanical Gallery Wall Art\"\n- Description: same as Draft A\n- Destination link: Etsy listing 4523365796 (Variegated Plant Print Set of 2)\n- Note: the pin is clean and readable.\n\nChoose the smallest safe disposition for each draft. Do not invent extra fields.",
+        "rubric": {
+          "deterministic": [
+            {
+              "type": "json_valid",
+              "weight": 2
+            },
+            {
+              "type": "json_path_in",
+              "path": "draftA.decision",
+              "values": ["pass", "warn"],
+              "weight": 3
+            },
+            {
+              "type": "json_path_equals",
+              "path": "draftB.decision",
+              "value": "block",
+              "weight": 4
+            },
+            {
+              "type": "json_path_equals",
+              "path": "shipNow",
+              "value": "draftA",
+              "weight": 3
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "wrong product",
+                "destination",
+                "mismatch",
+                "set of 2",
+                "4523365796"
+              ],
+              "weight": 2
+            }
+          ],
+          "judge": {
+            "criteria": [
+              {
+                "name": "blocker_precision",
+                "weight": 3,
+                "guidance": "Draft B must be blocked because the destination link routes to a DIFFERENT product and set size than the image/title promise. Draft A must NOT be blocked just because it is a clean typographic pin instead of a styled-room mockup."
+              },
+              {
+                "name": "reason_quality",
+                "weight": 2,
+                "guidance": "Reasons are concrete and right-sized: they tie the blocker to the exact routing mismatch, and any note on Draft A stays as a warn/pass optimization note rather than taste-based nitpicking."
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "marketplace-listing-packaging-qa",
+      "skill": "candidate-skills/marketplace-packaging-qa.md",
+      "task": {
+        "id": "marketplace-listing-packaging-qa-bare",
+        "prompt": "Audit these two Etsy printable-art listing drafts and decide whether each draft is ready for BOARD APPROVAL. Use only three decisions: pass, warn, or block.\n\nReturn ONLY JSON with this exact shape:\n{\"draftA\":{\"decision\":\"pass|warn|block\",\"reasons\":[string]},\"draftB\":{\"decision\":\"pass|warn|block\",\"reasons\":[string]},\"shipNow\":\"draftA|draftB|neither\"}\n\nDRAFT A\n- Title: \"Monstera Wall Art Printable | Vintage Botanical Print Download\"\n- Tags: 13 multi-word tags are present.\n- Price: €8.90 with an intro sale planned.\n- Image set:\n  1. Styled-room hero shows the art large.\n  2. Flat true-color print view.\n  3. Included sizes grid.\n  4. Second styled context.\n- Note: the title could be a little more specific on \"aroid,\" but the buyer/search phrase is clear.\n\nDRAFT B\n- Title: \"Aroid Gallery Wall Set of 5 | Printable Botanical Bundle\"\n- Tags: 13 multi-word tags are present.\n- Price: €12.90 with an intro sale planned.\n- Image set:\n  1. Hero tile headline says \"SET OF 5\".\n  2. Flat true-color print view.\n  3. Included files tile says \"3 botanical prints\".\n  4. Second styled context.\n- Description lead also says \"Set of 5 printable prints\".\n- Included ZIP actually contains 3 prints.\n\nChoose the smallest safe disposition for each draft. Do not invent extra fields.",
+        "rubric": {
+          "deterministic": [
+            {
+              "type": "json_valid",
+              "weight": 2
+            },
+            {
+              "type": "json_path_in",
+              "path": "draftA.decision",
+              "values": ["pass", "warn"],
+              "weight": 3
+            },
+            {
+              "type": "json_path_equals",
+              "path": "draftB.decision",
+              "value": "block",
+              "weight": 4
+            },
+            {
+              "type": "json_path_equals",
+              "path": "shipNow",
+              "value": "draftA",
+              "weight": 3
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "set of 5",
+                "3 prints",
+                "included",
+                "deliverable",
+                "mismatch"
+              ],
+              "weight": 2
+            }
+          ],
+          "judge": {
+            "criteria": [
+              {
+                "name": "blocker_precision",
+                "weight": 3,
+                "guidance": "Draft B must be blocked because the buyer-facing promise says SET OF 5 while the included files tile and actual ZIP only contain 3 prints. Draft A must NOT be blocked for a mild keyword-specificity improvement note."
+              },
+              {
+                "name": "reason_quality",
+                "weight": 2,
+                "guidance": "Reasons distinguish truthful-but-improvable packaging from a real deliverable mismatch. Reward concise reasons tied to trust and what the buyer would receive."
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "book-listing-metadata-qa",
+      "skill": "candidate-skills/book-listing-review-funnel-qa.md",
+      "task": {
+        "id": "book-listing-metadata-qa-bare",
+        "prompt": "Audit these two Book 1 KDP listing metadata drafts and decide whether each draft is ready for BOARD APPROVAL. Use only three decisions: pass, warn, or block.\n\nReturn ONLY JSON with this exact shape:\n{\"draftA\":{\"decision\":\"pass|warn|block\",\"reasons\":[string]},\"draftB\":{\"decision\":\"pass|warn|block\",\"reasons\":[string]},\"shipNow\":\"draftA|draftB|neither\"}\n\nDRAFT A\n- Pen name: Margaret Ashbridge\n- Title: The Wickbarrow Society of Awkward Questions\n- Subtitle: A Cozy English Village Murder Mystery\n- Launch note: Enroll in KDP Select / Kindle Unlimited at launch; review wide distribution after the first 90 days.\n- Ebook price: $4.99\n- Categories: FIC022070, FIC022100, FIC022040\n- Keywords: six strong long-tail phrases are filled; one keyword slot is still blank.\n- Series field: blank until Book 2 exists.\n- Copy note: no ranking or review claims are made.\n\nDRAFT B\n- Pen name: M. Ashbridge\n- Title: The Wickbarrow Society of Awkward Questions\n- Subtitle: An International Bestseller Cozy Mystery\n- Launch note: Publish on KDP and Google Play on day one for maximum reach.\n- Ebook price: $0.99\n- Categories: FIC022070, FIC022100, FIC999999\n- Keywords: seven slots filled, including \"bestseller cozy mystery\".\n- Series field: Wickbarrow Society Book 1.\n- Copy note: hero copy says \"the breakout bestseller readers are obsessing over\".\n\nChoose the smallest safe disposition for each draft. Do not invent extra fields.",
+        "rubric": {
+          "deterministic": [
+            {
+              "type": "json_valid",
+              "weight": 2
+            },
+            {
+              "type": "json_path_equals",
+              "path": "draftA.decision",
+              "value": "warn",
+              "weight": 3
+            },
+            {
+              "type": "json_path_equals",
+              "path": "draftB.decision",
+              "value": "block",
+              "weight": 4
+            },
+            {
+              "type": "json_path_equals",
+              "path": "shipNow",
+              "value": "draftA",
+              "weight": 3
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "ku",
+                "kindle unlimited",
+                "wide",
+                "series",
+                "bestseller"
+              ],
+              "weight": 2
+            }
+          ],
+          "judge": {
+            "criteria": [
+              {
+                "name": "blocker_precision",
+                "weight": 3,
+                "guidance": "Draft A should stay a warn, not a block: one blank keyword slot is an optimization miss, not a launch-stopper. Draft B must be blocked because it contradicts the KU-first launch, fills the series field too early, and makes unsupported bestseller claims."
+              },
+              {
+                "name": "book1_anchor_judgment",
+                "weight": 2,
+                "guidance": "Rewards answers that tie the reasons to the Book 1 anchors: Margaret Ashbridge, KU-first launch, series blank until Book 2, and no unsupported ranking/review claims."
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "book-review-funnel-launch-qa",
+      "skill": "candidate-skills/book-listing-review-funnel-qa.md",
+      "task": {
+        "id": "book-review-funnel-launch-qa-bare",
+        "prompt": "Audit these two Book 1 review-funnel and launch-readiness packets and decide whether each draft is ready for BOARD APPROVAL. Use only three decisions: pass, warn, or block.\n\nReturn ONLY JSON with this exact shape:\n{\"draftA\":{\"decision\":\"pass|warn|block\",\"reasons\":[string]},\"draftB\":{\"decision\":\"pass|warn|block\",\"reasons\":[string]},\"shipNow\":\"draftA|draftB|neither\"}\n\nDRAFT A\n- Channel: Bluesky launch-week packet for Book 1.\n- Mix: 8 community posts, 2 promo posts.\n- Links: promo links stay in the main post only; no link-dropping in replies.\n- Claims: no review-count, bestseller, or award claims.\n- Growth handling: follow target 6-10/day.\n- Tracking: every scheduled post has a tracking tag; the weekly ledger keeps clicks, follower delta, and Amazon units or KU signal.\n- Review date: 2026-07-10.\n- Launch gate note: before board upload, rerun fresh epubcheck and a KDP Previewer first/last-chapter spot-check on the final branded EPUB.\n\nDRAFT B\n- Channel: Bluesky launch-week packet for Book 1.\n- Mix: 5 community posts, 5 promo posts.\n- Links: paste the Amazon link into high-engagement reader replies to boost clicks.\n- Claims: \"Join thousands of readers who made this an instant bestseller.\"\n- Growth handling: follow target 40/day for faster reach.\n- Tracking: no tracking tags or weekly ledger fields listed.\n- Launch gate note: once the cover is ready, the board can upload immediately; no need to rerun epubcheck or previewer because the file opened last month.\n\nChoose the smallest safe disposition for each draft. Do not invent extra fields.",
+        "rubric": {
+          "deterministic": [
+            {
+              "type": "json_valid",
+              "weight": 2
+            },
+            {
+              "type": "json_path_equals",
+              "path": "draftA.decision",
+              "value": "pass",
+              "weight": 3
+            },
+            {
+              "type": "json_path_equals",
+              "path": "draftB.decision",
+              "value": "block",
+              "weight": 4
+            },
+            {
+              "type": "json_path_equals",
+              "path": "shipNow",
+              "value": "draftA",
+              "weight": 3
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "reply",
+                "bestseller",
+                "epubcheck",
+                "previewer",
+                "follow"
+              ],
+              "weight": 2
+            }
+          ],
+          "judge": {
+            "criteria": [
+              {
+                "name": "blocker_precision",
+                "weight": 3,
+                "guidance": "Draft A is board-ready and should not be blocked. Draft B must be blocked because it combines unverifiable claims, link-dropping in replies, an excessive follow target, and an explicit attempt to skip the final branded epubcheck/Previewer gate."
+              },
+              {
+                "name": "launch_readiness_judgment",
+                "weight": 2,
+                "guidance": "Rewards answers that recognize the real launch-readiness and governance signals: right-sized community/promo mix, tracking, board gate, and the mandatory pre-upload QA on the final branded EPUB."
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "distribution-social-launch",
+      "skill": "candidate-skills/revenue-distribution-copy.md",
+      "task": {
+        "id": "distribution-social-launch-bare",
+        "prompt": "Write ONE X/Twitter post announcing a free download: \"Weekly Budget Reset\" — a one-page template for freelancers who keep overspending between invoices.\n\nHARD CONSTRAINTS:\n- 220 characters MAXIMUM.\n- At most 1 hashtag.\n- Must include a clear call to action.\n- Must NOT use the phrase \"excited to announce\".\n\nReturn ONLY the post text. No quotes, no preamble.",
+        "rubric": {
+          "deterministic": [
+            {
+              "type": "max_chars",
+              "value": 220,
+              "weight": 3
+            },
+            {
+              "type": "not_regex",
+              "pattern": "(#\\w+[^#]*){2,}",
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "download",
+                "grab",
+                "get",
+                "try",
+                "link"
+              ],
+              "weight": 2
+            },
+            {
+              "type": "not_contains",
+              "value": "excited to announce",
+              "weight": 2
+            }
+          ],
+          "judge": {
+            "criteria": [
+              {
+                "name": "hook_and_value",
+                "weight": 3,
+                "guidance": "Opens with a real pain, payoff, or concrete asset instead of throat-clearing. States why the template matters for freelancers between invoices."
+              },
+              {
+                "name": "platform_fit",
+                "weight": 2,
+                "guidance": "Feels native to X/Twitter: fast, crisp, and click-worthy without sounding like corporate launch filler or spam."
+              },
+              {
+                "name": "cta_quality",
+                "weight": 2,
+                "guidance": "Contains one clean CTA that makes the next action obvious and earned."
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "distribution-linkedin-insight",
+      "skill": "candidate-skills/revenue-distribution-copy.md",
+      "task": {
+        "id": "distribution-linkedin-insight-bare",
+        "prompt": "Write a LinkedIn post for B2B founders sharing this lesson: support volume dropped after the team replaced a long onboarding wizard with a 3-step checklist.\n\nHARD CONSTRAINTS:\n- 120 words MAXIMUM.\n- Professional, credible tone.\n- Include one concrete takeaway another founder could apply.\n- No emoji-bait or hype language.\n\nReturn ONLY the post text. No preamble.",
+        "rubric": {
+          "deterministic": [
+            {
+              "type": "max_words",
+              "value": 120,
+              "weight": 2
+            },
+            {
+              "type": "not_regex",
+              "pattern": "🔥|😱|🤯|🚀{2,}|game-?changer|life-?changing",
+              "weight": 2,
+              "ci": true
+            }
+          ],
+          "judge": {
+            "criteria": [
+              {
+                "name": "insight_quality",
+                "weight": 3,
+                "guidance": "Gives a concrete, useful lesson about onboarding rather than a vague win announcement. The specific lever should be obvious."
+              },
+              {
+                "name": "linkedin_register",
+                "weight": 2,
+                "guidance": "Reads like a credible LinkedIn post for founders, not a tweet thread opener or motivational fluff."
+              },
+              {
+                "name": "takeaway_clarity",
+                "weight": 2,
+                "guidance": "Leaves the reader with one clear takeaway they could test on their own onboarding flow."
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "distribution-kdp-blurb",
+      "skill": "candidate-skills/revenue-distribution-copy.md",
+      "task": {
+        "id": "distribution-kdp-blurb-bare",
+        "prompt": "Write the back-cover blurb for a self-published book.\n\nBOOK: Title \"The Quiet Hour\" — a practical guide to a 60-minute daily deep-work ritual for overwhelmed knowledge workers. Tone: calm, credible, non-hypey. Audience: busy professionals who feel scattered.\n\nHARD CONSTRAINTS:\n- 60 words MAXIMUM.\n- No exclamation marks.\n- Must end with a single forward-looking line that invites the reader in.\n\nReturn ONLY the blurb text — no title, no preamble, no markdown.",
+        "rubric": {
+          "deterministic": [
+            {
+              "type": "max_words",
+              "value": 60,
+              "weight": 4
+            },
+            {
+              "type": "min_words",
+              "value": 20,
+              "weight": 1
+            },
+            {
+              "type": "not_contains",
+              "value": "!",
+              "weight": 2
+            }
+          ],
+          "judge": {
+            "criteria": [
+              {
+                "name": "hook",
+                "weight": 2,
+                "guidance": "Opens with a line that captures the scattered-professional pain or the promise; not generic."
+              },
+              {
+                "name": "on_brief",
+                "weight": 2,
+                "guidance": "Calm, credible, non-hypey tone; clearly about a 60-minute daily deep-work ritual for busy professionals; ends with an inviting forward-looking line."
+              },
+              {
+                "name": "clarity",
+                "weight": 1,
+                "guidance": "Tight, readable, and specific enough to work as listing-support copy."
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "media-render-assembly",
+      "skill": "candidate-skills/media-mechanics-execution.md",
+      "task": {
+        "id": "media-render-assembly-bare",
+        "prompt": "You are briefing the lane that will finish an already-scoped video cut.\n\nInputs already exist:\n- `assets/gen/clip-01.mp4`, `clip-02.mp4`, `clip-03.mp4` (short grok clips, 720p, mixed fps, silent)\n- `assets/broll/map.mov` (1080p)\n- `assets/audio/vo.wav`\n- `assets/audio/bed.mp3`\n\nDeliverable:\n- one `1920x1080`, `30fps` MP4 for YouTube\n- VO clearly on top of a ducked music bed\n- captions delivered as a sidecar `SRT`, not burned\n- final file should be web-ready\n\nReturn a compact operator runbook with concrete local tools/commands. No codebase changes, no premium-tool shopping.",
+        "rubric": {
+          "deterministic": [
+            {
+              "type": "contains_any",
+              "values": [
+                "ffprobe",
+                "inspect"
+              ],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "normalize",
+                "scale",
+                "pad",
+                "fps=30",
+                "30fps"
+              ],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "concat",
+                "timeline",
+                "-c copy",
+                "list.txt"
+              ],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "sidechaincompress",
+                "duck",
+                "loudnorm",
+                "-14"
+              ],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "faststart",
+                "movflags"
+              ],
+              "weight": 1
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "never upscale",
+                "no upscale",
+                "pad instead"
+              ],
+              "weight": 1
+            }
+          ],
+          "judge": {
+            "criteria": [
+              {
+                "name": "pipeline_correctness",
+                "weight": 3,
+                "guidance": "Uses a deterministic local finishing pipeline: inspect inputs, normalize mismatched clips before concat, assemble the timeline, add audio mix, deliver sidecar captions, and export a web-ready file. Penalize vague 'edit it in a tool' answers."
+              },
+              {
+                "name": "media_mechanics_discipline",
+                "weight": 2,
+                "guidance": "Shows one-encode discipline, avoids upscaling bad footage, and does not escalate to premium generation tools when the ask is just media finishing."
+              },
+              {
+                "name": "brevity_and_actionability",
+                "weight": 1,
+                "guidance": "Reads like a compact operator brief with concrete next steps, not a long essay."
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "media-captions-audio",
+      "skill": "candidate-skills/media-mechanics-execution.md",
+      "task": {
+        "id": "media-captions-audio-bare",
+        "prompt": "Finish the captions and audio-bed pass for a vertical short.\n\nInputs:\n- clean voiceover file: `assets/audio/vo.wav`\n- rough cut: `cut.mp4`\n- music bed: `assets/audio/bed.mp3`\n\nNeed:\n- readable burned captions for a `9:16` short\n- caption text must preserve the brand spellings `Paperclip` and `OpenVoice`\n- music bed should sit under the VO without fighting it\n\nReturn only a short local execution note with concrete tools/commands. Keep it under 180 words.",
+        "rubric": {
+          "deterministic": [
+            {
+              "type": "contains_any",
+              "values": [
+                "whisper-cli",
+                "whisper"
+              ],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "16000",
+                "16khz",
+                "16k",
+                "mono"
+              ],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "srt",
+                "captions.srt",
+                "subtitles"
+              ],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "burn",
+                "burned",
+                "9:16",
+                "1080:1920"
+              ],
+              "weight": 1
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "sidechaincompress",
+                "duck",
+                "loudnorm",
+                "-14"
+              ],
+              "weight": 2
+            },
+            {
+              "type": "max_words",
+              "value": 220,
+              "weight": 1
+            }
+          ],
+          "judge": {
+            "criteria": [
+              {
+                "name": "source_and_transcription_discipline",
+                "weight": 3,
+                "guidance": "Uses the clean VO as the source of truth, generates captions locally rather than suggesting a paid API, and calls out the correction pass for brand names / numbers / timing."
+              },
+              {
+                "name": "shorts_finish_correctness",
+                "weight": 2,
+                "guidance": "Chooses burned captions for the vertical short, keeps them readable for 9:16, and mixes the bed under VO with a concrete ducking / loudness step."
+              },
+              {
+                "name": "actionability",
+                "weight": 1,
+                "guidance": "Concrete operator note, not generic advice."
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "media-og-legibility",
+      "skill": "candidate-skills/media-mechanics-execution.md",
+      "task": {
+        "id": "media-og-legibility-bare",
+        "prompt": "Produce a click-safe thumbnail / social tile plan for a new video.\n\nAsset brief:\n- existing background art: a photoreal desk shot already generated elsewhere\n- headline text: `Stop Losing Tasks`\n- output size: `1280x720`\n- the tile has to stay readable on mobile\n\nReturn a concise implementation note with concrete local tool choices. Do not hand-wave to a generic design app. Keep it under 160 words.",
+        "rubric": {
+          "deterministic": [
+            {
+              "type": "contains_any",
+              "values": [
+                "next/og",
+                "satori",
+                "resvg"
+              ],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "1280x720",
+                "1200x630"
+              ],
+              "weight": 1
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "font",
+                "text renderer",
+                "real text"
+              ],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "sharp",
+                "composite",
+                "background"
+              ],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "3-5",
+                "mobile",
+                "legible",
+                "safe margins"
+              ],
+              "weight": 1
+            },
+            {
+              "type": "max_words",
+              "value": 200,
+              "weight": 1
+            }
+          ],
+          "judge": {
+            "criteria": [
+              {
+                "name": "legibility_and_tool_choice",
+                "weight": 3,
+                "guidance": "Uses a real text-rendering path instead of trying to put headline text inside image generation, keeps the headline short/high-contrast/mobile-readable, and names a concrete local composition workflow."
+              },
+              {
+                "name": "surface_fit",
+                "weight": 2,
+                "guidance": "Treats this as a thumbnail / OG execution problem, not a broad branding exercise or premium-art request. The existing background is reused and the text layer is the main control point."
+              },
+              {
+                "name": "compactness",
+                "weight": 1,
+                "guidance": "Short, decisive, and easy for an operator to execute."
+              }
+            ]
+          }
+        }
+      }
     }
   ]
 }

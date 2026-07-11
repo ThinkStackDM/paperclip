@@ -80,9 +80,13 @@ def run_cell(pair, model_row, adapters_cfg, timeout, rep):
 
     # baseline: generate from bare prompt, score against bare task
     base_raw = run_model(bare_task["prompt"], model_row, adapters_cfg, timeout)
+    base_serving = benchlib.serving_truth(model_row.get("model_arg") or model_row["id"],
+                                          base_raw.get("model"), base_raw.get("modelSource"))
     base_scored = score_run(bare_task, base_raw, _cfg, adapters_cfg, timeout)
     # treatment: generate WITH skill, but SCORE against the bare task (judge sees bare objective)
     treat_raw = run_model(injected_prompt, model_row, adapters_cfg, timeout)
+    treat_serving = benchlib.serving_truth(model_row.get("model_arg") or model_row["id"],
+                                           treat_raw.get("model"), treat_raw.get("modelSource"))
     treat_scored = score_run(bare_task, treat_raw, _cfg, adapters_cfg, timeout)
 
     bq, tq = base_scored.get("quality"), treat_scored.get("quality")
@@ -101,6 +105,18 @@ def run_cell(pair, model_row, adapters_cfg, timeout, rep):
         "baselineInputTokens": base_raw.get("inputTokens"), "treatmentInputTokens": treat_raw.get("inputTokens"),
         "baselineTokens": base_raw.get("totalTokens"), "treatmentTokens": treat_raw.get("totalTokens"),
         "skillExtraTokens": extra_tokens,
+        "baselineResponseModel": base_serving["responseModel"],
+        "baselineResponseModelSource": base_serving["responseModelSource"],
+        "baselineServingConfirmed": base_serving["servingConfirmed"],
+        "baselineServingMatchedRequest": base_serving["servingMatchedRequest"],
+        "baselineServingValid": base_serving["servingValid"],
+        "baselineServingInvalidReason": base_serving["servingInvalidReason"],
+        "treatmentResponseModel": treat_serving["responseModel"],
+        "treatmentResponseModelSource": treat_serving["responseModelSource"],
+        "treatmentServingConfirmed": treat_serving["servingConfirmed"],
+        "treatmentServingMatchedRequest": treat_serving["servingMatchedRequest"],
+        "treatmentServingValid": treat_serving["servingValid"],
+        "treatmentServingInvalidReason": treat_serving["servingInvalidReason"],
         "baselineOutput": (base_raw.get("output") or "")[:1500],
         "treatmentOutput": (treat_raw.get("output") or "")[:1500],
         "baselineOk": base_raw.get("ok"), "treatmentOk": treat_raw.get("ok"),
@@ -125,15 +141,43 @@ def aggregate(records, keep_threshold):
     pair_rollup = {}
     dropped = 0
     for (pair, model), rs in sorted(by.items()):
-        valid = [r for r in rs if r.get("lift") is not None]   # skip infra-failed cells
+        valid = [
+            r for r in rs
+            if r.get("lift") is not None
+            and r.get("baselineServingValid") is True
+            and r.get("treatmentServingValid") is True
+        ]   # skip infra-failed / serving-invalid cells
         dropped += len(rs) - len(valid)
         lifts = [r["lift"] for r in valid]
+        serving_rows = []
+        for r in valid:
+            serving_rows.append({
+                "ok": r.get("baselineOk"),
+                "responseModel": r.get("baselineResponseModel"),
+                "servingConfirmed": r.get("baselineServingConfirmed"),
+                "servingValid": r.get("baselineServingValid"),
+                "servingInvalidReason": r.get("baselineServingInvalidReason"),
+            })
+            serving_rows.append({
+                "ok": r.get("treatmentOk"),
+                "responseModel": r.get("treatmentResponseModel"),
+                "servingConfirmed": r.get("treatmentServingConfirmed"),
+                "servingValid": r.get("treatmentServingValid"),
+                "servingInvalidReason": r.get("treatmentServingInvalidReason"),
+            })
+        serving = benchlib.serving_truth_rollup(serving_rows)
         summary[f"{pair}::{model}"] = {
             "pair": pair, "model": model, "n": len(valid), "skipped": len(rs) - len(valid),
             "meanBaseline": _mean([r["baselineQuality"] for r in valid]),
             "meanTreatment": _mean([r["treatmentQuality"] for r in valid]),
             "meanLift": _mean(lifts),
             "meanExtraTokens": _mean([r.get("skillExtraTokens") for r in valid]),
+            "responseModel": serving["responseModel"],
+            "responseModels": serving["responseModels"],
+            "servingConfirmedRuns": serving["servingConfirmedRuns"],
+            "servingValidRuns": serving["servingValidRuns"],
+            "validity": serving["validity"],
+            "invalidReasons": serving["invalidReasons"],
         }
         pair_rollup.setdefault(pair, []).extend(lifts)
     verdicts = {}

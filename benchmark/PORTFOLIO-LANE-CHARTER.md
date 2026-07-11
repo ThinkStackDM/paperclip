@@ -1,5 +1,11 @@
 # Portfolio Drafter-Lane Charter — LOCKED 2026-06-23
 
+> 2026-07-10 revalidation note (TSBC-1001): TSBC-1000 invalidated all retired
+> `grok-4-fast` / `grok-4.1-fast` evidence written after 2026-05-15. In this
+> document, any row that still names a retired Grok-fast slug is historical
+> unless a later issue-specific artifact explicitly restates it with serving-valid
+> evidence. See `benchmark/results/tsbc-1001-june-lane-revalidation-20260710.md`.
+
 The decision-grade model→task assignments for drafter / single-lane work across all OpCos,
 from the TSBC benchmark matrix (base + with-skills, 5+ samples/cell; cv-review via the agentic
 skill-eval). Quality weighted against **output-token / quota cost**. This is the standard — apply it.
@@ -8,7 +14,7 @@ skill-eval). Quality weighted against **output-token / quota cost**. This is the
 | Task | Model | Skills | Notes |
 |---|---|---|---|
 | content | **gpt-5.4-mini** | +skills | flash was 3rd — do NOT use flash for content |
-| book-chapter | **gemini-flash-low** | bare | grok-4-fast (0.950) is the fallback |
+| book-chapter | **gemini-flash-low** | bare | grok-4.3 is the serving-valid xAI fallback |
 | video-hook | **grok-4.1-fast** | bare | |
 | social-post | **grok-4-fast** | bare | |
 | designer | **grok-4.1-fast** | bare | |
@@ -17,12 +23,21 @@ skill-eval). Quality weighted against **output-token / quota cost**. This is the
 | intake | **grok-4.1-fast** | bare | cheapest; all lanes ace it |
 | cv-review | **gemini-flash** | bare | **AGENTIC frame only** (skills staged as files; single-shot derails) |
 
-## Locked management-role models (new — 2026-06-26)
+## Locked management-role models (new — 2026-06-26, reconfirmed 2026-06-30)
+
+TSBC-1001 revalidated the retired-slug blast radius on 2026-07-10:
+
+- `grok-4.20` reasoning is now the live xAI raw-quality challenger on `cfo`,
+  but it does not displace the cost-aware `codex-gpt-5.4` lock.
+- the replacement `cmo` xAI rows were not serving-stable enough to enter the
+  trusted set, so the live `claude-opus-4.8` CMO lock stands.
 
 | Role | Model | Notes |
 |---|---|---|
-| cmo | **claude-opus-4.8** | Marketing-strategy judgment winner in the fresh 12-task `cmo` suite. |
-| cfo | **codex-gpt-5.4** | `cfo` suite locked to codex-gpt-5.4 for near-ceiling quality with materially lower output cost. |
+| cmo | **claude-opus-4.8** | Reconfirmed on the pooled 30-day trusted ledger: peak `cmo` quality still belongs to Claude, and Codex misses the 1.5x cheaper trigger by a hair (`1.4978x`). |
+| cfo | **codex-gpt-5.4** | Reconfirmed on the pooled 30-day trusted ledger: Grok has the raw quality peak, but Codex is only `0.0054` lower quality at `7.26x` lower output cost. |
+
+Gemini note: `gemini-3.1-pro` still had only `1/3` trust-window results for both roles on 2026-06-30, so it was excluded from the final management-role lock despite a promising single CFO run.
 
 ## Rules
 1. **gpt-5.4-mini only earns its lane WITH skills** (book-chapter +0.105, ops +0.086, cv-review +0.075). Never lane it bare on structured tasks.

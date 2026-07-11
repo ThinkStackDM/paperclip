@@ -1,5 +1,11 @@
 # Sister-Lane Redesign — benchmark-driven failover (proposal, 2026-06-23)
 
+> 2026-07-10 revalidation note (TSBC-1001): the Grok-fast sisters in this
+> proposal predate the retired-slug invalidation from TSBC-1000. Treat any
+> `grok-4-fast` / `grok-4.1-fast` sister below as historical until a later
+> serving-valid rerun explicitly relocks it. See
+> `benchmark/results/tsbc-1001-june-lane-revalidation-20260710.md`.
+
 Reframes fallback "sisters" from a **blanket** `claude→codex→hermes(grok)` chain to a
 **benchmark-driven** one: the agent you fail over TO should be the next-best *model for that
 lane's work*, not a fixed tier. Grounded in `PRODUCTION-TIER-MAP.md` + `LANE-HARDENING-READOUT.md`

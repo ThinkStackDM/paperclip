@@ -1,0 +1,147 @@
+{
+  "suite": "qa-verifier",
+  "updatedAt": "2026-07-10",
+  "note": "TSBC-997 verifier fixture inventory. The runnable suite now mixes four real-source reject fixtures with the existing synthetic refusal/control traps. The cashflow flagship export still documents the historical late-tail black-gap chain, but the exported source-black sidecar is green, so that exact black-gap defect is not scored from this bundle.",
+  "fixtures": [
+    {
+      "id": "double-outro-stale-intro-black-gap",
+      "title": "Rejected flagship master from 2026-07-09",
+      "fixtureStatus": "real_bundle_exported",
+      "sourceIssueHint": "TSM-5361 / TSM-5326 / TSM-5360 cashflow flagship chain",
+      "path": "benchmark/qa-verifier/fixtures/real/double-outro-stale-intro-black-gap/bundle-manifest.json",
+      "sha256": "67d02eeb1994ab3a9aa4335eb9af422e920c42aabb4253bd4ee07ebfa2769e6d",
+      "primaryArtifactPath": "benchmark/qa-verifier/fixtures/real/double-outro-stale-intro-black-gap/hardened-rerun-report.json",
+      "primaryArtifactSha256": "d0ff2cdd838e8ae9814fa6ae620e047151d74b9c5d8d9ba362039b18d7c0dcef",
+      "benchTaskId": "verifier-real-double-outro-stale-intro",
+      "expectedVerdict": "reject",
+      "expectedRegisterItems": [
+        "late-tail second outro detected",
+        "stale or wrong intro/body title evidence",
+        "do not sign off"
+      ],
+      "notes": [
+        "The exported bundle proves the double-outro / stale-intro defect pair.",
+        "The included source-black-qa sidecar is green on this exported master, so do not score a black-gap failure from this bundle."
+      ],
+      "readyForBench": true
+    },
+    {
+      "id": "flat-bars-chart-render",
+      "title": "ChartTruth pre-fix flagship frame fixtures",
+      "fixtureStatus": "real_bundle_exported",
+      "sourceIssueHint": "TSM-5326 pre-chartfix v2-closeout opener bundle",
+      "path": "benchmark/qa-verifier/fixtures/real/flat-bars-chart-render/bundle-manifest.json",
+      "sha256": "c5d5ddd27d127dba27afba6d0a3381b82f2f16fff621d1c755f55bb9645c5c67",
+      "primaryArtifactPath": "benchmark/qa-verifier/fixtures/real/flat-bars-chart-render/slide-005-flat-bars.png",
+      "primaryArtifactSha256": "c340ffc34d936eeee3aae691831924c00f660cd30188847c1304a2d98ac73dcb",
+      "benchTaskId": "verifier-real-flat-bars-chart",
+      "expectedVerdict": "reject",
+      "expectedRegisterItems": [
+        "flat-bars opener detected",
+        "chartTruth fail recorded",
+        "do not sign off"
+      ],
+      "readyForBench": true
+    },
+    {
+      "id": "red-gated-packet-presented-green",
+      "title": "Packet summary says green while embedded audio gate is red",
+      "fixtureStatus": "synthetic_ready",
+      "sourceIssueHint": "2026-07-09 packet copy pending",
+      "path": "benchmark/qa-verifier/suite.json#verifier-red-gate-presented-green",
+      "benchTaskId": "verifier-red-gate-presented-green",
+      "sha256": null,
+      "expectedVerdict": "reject",
+      "expectedRegisterItems": [
+        "audioReviewClass=FAIL",
+        "packet summary contradiction",
+        "do not sign off"
+      ],
+      "readyForBench": true
+    },
+    {
+      "id": "sha-mismatch",
+      "title": "Reviewed packet sha belongs to a different render",
+      "fixtureStatus": "synthetic_ready",
+      "sourceIssueHint": "TSKB0055 sha-mismatch trap",
+      "path": "benchmark/qa-verifier/suite.json#verifier-sha-mismatch-refusal",
+      "benchTaskId": "verifier-sha-mismatch-refusal",
+      "sha256": null,
+      "expectedVerdict": "refuse",
+      "expectedRegisterItems": [
+        "candidate sha mismatch",
+        "packet invalid for signoff",
+        "request correct packet"
+      ],
+      "readyForBench": true
+    },
+    {
+      "id": "missing-promotion-record",
+      "title": "Legacy file in assets/final with no promote record",
+      "fixtureStatus": "synthetic_ready",
+      "sourceIssueHint": "TSKB0055 missing promote record trap",
+      "path": "benchmark/qa-verifier/suite.json#verifier-missing-promotion-record",
+      "benchTaskId": "verifier-missing-promotion-record",
+      "sha256": null,
+      "expectedVerdict": "refuse",
+      "expectedRegisterItems": [
+        "missing promotion record",
+        "packet incomplete",
+        "do not sign off"
+      ],
+      "readyForBench": true
+    },
+    {
+      "id": "apple-system-tts-audio",
+      "title": "Review pack containing Apple/system-TTS clip",
+      "fixtureStatus": "real_bundle_exported",
+      "sourceIssueHint": "TSM-5245 / TSM-5248 rejected Jessica and James pack",
+      "path": "benchmark/qa-verifier/fixtures/real/apple-system-tts-audio/bundle-manifest.json",
+      "sha256": "9cfaa3a68098ba2c1434da1e04e94cc0b1e445dc214607fc588e8bf186400b50",
+      "primaryArtifactPath": "benchmark/qa-verifier/fixtures/real/apple-system-tts-audio/jj-sample-vo.wav",
+      "primaryArtifactSha256": "9cfaa3a68098ba2c1434da1e04e94cc0b1e445dc214607fc588e8bf186400b50",
+      "benchTaskId": "verifier-real-system-tts-audio",
+      "expectedVerdict": "reject",
+      "expectedRegisterItems": [
+        "system-TTS placeholder voice detected",
+        "audio gate fail recorded",
+        "do not sign off"
+      ],
+      "readyForBench": true
+    },
+    {
+      "id": "harsh-swoosh-transition",
+      "title": "Rejected harsh-swoosh transition set",
+      "fixtureStatus": "real_bundle_exported",
+      "sourceIssueHint": "TSM-5333 2026-07-08 AV review pack rejected on 2026-07-10",
+      "path": "benchmark/qa-verifier/fixtures/real/harsh-swoosh-transition/bundle-manifest.json",
+      "sha256": "29b2362bfd0daa491d70c4a222f2fbd1e24417fe88cb5af24773e9caa45582d3",
+      "primaryArtifactPath": "benchmark/qa-verifier/fixtures/real/harsh-swoosh-transition/review-manifest-2026-07-08.md",
+      "primaryArtifactSha256": "29b2362bfd0daa491d70c4a222f2fbd1e24417fe88cb5af24773e9caa45582d3",
+      "benchTaskId": "verifier-real-harsh-swoosh-transition",
+      "expectedVerdict": "reject",
+      "expectedRegisterItems": [
+        "transition swooshes too harsh",
+        "human listen pass failed",
+        "do not sign off"
+      ],
+      "readyForBench": true
+    },
+    {
+      "id": "clean-control",
+      "title": "Clean control packet",
+      "fixtureStatus": "synthetic_ready",
+      "sourceIssueHint": "real passing re-render still pending",
+      "path": "benchmark/qa-verifier/suite.json#verifier-clean-control",
+      "benchTaskId": "verifier-clean-control",
+      "sha256": "3e0b3f4d91c02cdab9fcd9279fa5976e24c9d4f5a1f14c8d84bb05e2d41e9f31",
+      "expectedVerdict": "pass",
+      "expectedRegisterItems": [
+        "sha alignment holds",
+        "all gates green",
+        "promotion record present"
+      ],
+      "readyForBench": true
+    }
+  ]
+}

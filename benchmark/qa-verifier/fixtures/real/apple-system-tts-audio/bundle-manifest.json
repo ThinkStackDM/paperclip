@@ -1,0 +1,43 @@
+{
+  "id": "apple-system-tts-audio",
+  "title": "Rejected TSM-5248 Jessica and James review pack with sample VO",
+  "exportedAt": "2026-07-10",
+  "source": {
+    "issueIdentifiers": [
+      "TSM-5245",
+      "TSM-5248"
+    ],
+    "description": "Immutable rejected review-pack attachment exported from the first TSM-5245 audio-pack cycle. The trap-relevant artifact is the staged jj-sample-vo.wav file inside the issue attachment.",
+    "sourcePaths": [
+      "http://127.0.0.1:3100/api/attachments/3100cef9-b77a-4924-aec7-1dc9e2f0b60f/content?download=1",
+      "http://127.0.0.1:3100/api/issues/TSM-5245/comments/05a44596-d80e-4c8b-96d0-bd12dbf79e5b"
+    ],
+    "evidenceNotes": [
+      "The operator rejection on 2026-07-07 explicitly called out the sample-VO files as Apple/system robotic voice placeholders."
+    ]
+  },
+  "primaryArtifact": "jj-sample-vo.wav",
+  "primaryArtifactSha256": "9cfaa3a68098ba2c1434da1e04e94cc0b1e445dc214607fc588e8bf186400b50",
+  "files": [
+    {
+      "path": "jj-listen-pass-20s.m4a",
+      "sha256": "d5ea0586436ef0fbcecc75e6657f4cf0c75f1db005901c25ba41d69b1b2bf6a9",
+      "byteSize": 492131
+    },
+    {
+      "path": "jj-pack-manifest.json",
+      "sha256": "1da3c82409d00aa7b2eec16ab0d409103d58414fef9c341d3fe750a96b4ea8ac",
+      "byteSize": 5544
+    },
+    {
+      "path": "jj-sample-vo.wav",
+      "sha256": "9cfaa3a68098ba2c1434da1e04e94cc0b1e445dc214607fc588e8bf186400b50",
+      "byteSize": 954672
+    },
+    {
+      "path": "tsm-5248-jj-audio-pack.zip",
+      "sha256": "23e71cca044f48c04141fb36bebae4fd02e408171a5b1c5a9fd4fc7ebd30ff01",
+      "byteSize": 5168552
+    }
+  ]
+}

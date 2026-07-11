@@ -1,8 +1,16 @@
 {
-  "_doc": "TSBC power-mode rules. The controller (tsbc-power.py, hourly launchd) computes mode and writes .tsbc-power.json; bench.py reads it to cap concurrency + gate heavy tasks. LOW during any heavy-hitter's LIVE sprint window or any ad-hoc sprint; NORMAL otherwise.",
+  "_doc": "TSBC power-mode rules. The controller (tsbc-power.py, hourly launchd) computes mode and writes .tsbc-power.json; bench.py reads it to cap concurrency + gate heavy tasks. Sprint regime v2 uses six 10h shared-Mac OpCo windows: LOW when 3 overlap or any ad-hoc sprint is active; NORMAL when only 2 overlap.",
   "tz": "Europe/Dublin",
-  "heavyHitters": ["ThinkStack Capital", "ThinkStack Media", "ThinkStack Books"],
-  "heavyHitterBasis": "token consumption + process-time over 7d (NOT run count): Capital 332.8Mtok (quant, ~267K/run), Media 200.3Mtok (render+output), Books 183.9Mtok (most gen output). Excluded: TSMC (always-on baseline), KISS 114M / Recruitment 92M / DP 91M (lighter). Windows read LIVE from DB so ad-hoc extensions are caught automatically.",
+  "windowCompanies": [
+    "Dastardly Print",
+    "ThinkStack Books",
+    "ThinkStack KISS",
+    "ThinkStack Media",
+    "ThinkStack Capital",
+    "ThinkStack Recruitment"
+  ],
+  "windowCompanyBasis": "Sprint regime v2 (2026-07-07): all six shared-Mac OpCos run 10h staggered windows, so the machine sees alternating 2-active valleys and 3-active overlap blocks all day. LOW now tracks overlap pressure, not the old heavy-hitter subset. Windows still read LIVE from DB so ad-hoc extensions are caught automatically.",
+  "lowWhenActiveCompaniesAtLeast": 3,
   "modes": {
     "normal": { "maxWorkers": 2, "runsPerSample": 5, "oneModelPerAdapter": true, "heavyTasksAllowed": true },
     "low":    { "maxWorkers": 1, "runsPerSample": 5, "oneModelPerAdapter": true, "heavyTasksAllowed": false }
@@ -15,9 +23,9 @@
     "note": "each suite is re-tested ~monthly; due-day = stable-hash(suite) % staggerOverDays, so suites refresh on different days and never all re-enter testing at once."
   },
   "sleepDream": {
-    "dreamDailyHour": 5,
+    "dreamDailyHour": 6,
     "dreamDurationHours": 1,
     "sleepWeekly": { "weekday": 6, "startHour": 4, "endHour": 8 },
-    "note": "TSBC is 24/7, not sprint-bound, so it needs a rhythm. DREAM (daily, just after the 04:00 ramp) = self-improvement instead of raw testing: analyse the ledger, refine suites, re-tag skills, fold in real fleet data. SLEEP (weekly, Sun 04-08) = full idle + deep dream. Execution lands with the Drillmaster operator; the controller emits the flags now."
+    "note": "TSBC is 24/7, not sprint-bound, so it needs a rhythm. DREAM (daily, 06:00-07:00 Dublin, just after the new 05:00 TSK ramp) = self-improvement instead of raw testing: analyse the ledger, refine suites, re-tag skills, fold in real fleet data. SLEEP (weekly, Sun 04-08) intentionally idles through the Sunday 03:30-04:10 backup window and the first 05-07 triple-overlap block. Execution lands with the Drillmaster operator; the controller emits the flags now."
   }
 }

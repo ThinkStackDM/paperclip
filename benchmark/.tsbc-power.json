@@ -4,9 +4,19 @@
   "oneModelPerAdapter": true,
   "heavyTasksAllowed": false,
   "mode": "low",
+  "activeCompanyCount": 3,
+  "activeCompanies": [
+    "ThinkStack KISS 05-15",
+    "ThinkStack Media 09-19",
+    "ThinkStack Capital 13-23"
+  ],
+  "lowWhenActiveCompaniesAtLeast": 3,
+  "overlapTriggersLow": true,
+  "adhocLowTriggers": [],
   "dream": false,
   "sleep": false,
   "paused": false,
-  "reason": "ThinkStack Media sprint 16-20",
-  "updatedAt": "2026-06-25T18:01:05+01:00"
+  "reason": "3 active OpCos: ThinkStack KISS 05-15, ThinkStack Media 09-19, ThinkStack Capital 13-23",
+  "updatedAt": "2026-07-07T13:51:15+01:00",
+  "timezone": "Europe/Dublin"
 }

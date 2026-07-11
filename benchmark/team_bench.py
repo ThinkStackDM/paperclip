@@ -119,20 +119,24 @@ def _assemble(task, sections, drafts, assembler_row, adapters_cfg, timeout):
 def run_single(task, model_row, adapters_cfg, timeout):
     t0 = time.time()
     raw = run_model(task["prompt"], model_row, adapters_cfg, timeout)
+    serving = benchlib.serving_truth(model_row.get("model_arg") or model_row["id"],
+                                     raw.get("model"), raw.get("modelSource"))
     return {"output": raw.get("output") or "", "ok": bool(raw.get("ok")),
             "inputTokens": raw.get("inputTokens"), "outputTokens": raw.get("outputTokens"),
             "totalTokens": raw.get("totalTokens"),
-            "wallMs": int((time.time() - t0) * 1000), "calls": 1}
+            "wallMs": int((time.time() - t0) * 1000), "calls": 1, **serving}
 
 
 def run_team(task, planner_row, worker_rows, assembler_row, n, adapters_cfg, timeout, workers):
     t0 = time.time()
     sections, prun = _planner_decompose(task, planner_row, n, adapters_cfg, timeout)
     if len(sections) < 2:
+        planner_serving = benchlib.serving_truth(planner_row.get("model_arg") or planner_row["id"],
+                                                 prun.get("model"), prun.get("modelSource"))
         return {"output": "", "ok": False, "error": f"planner produced {len(sections)} section(s)",
                 "outputTokens": prun.get("outputTokens"), "inputTokens": prun.get("inputTokens"),
                 "totalTokens": prun.get("totalTokens"), "wallMs": int((time.time() - t0) * 1000),
-                "calls": 1, "sections": len(sections)}
+                "calls": 1, "sections": len(sections), **planner_serving}
     headings = [s["heading"] or f"Section {i+1}" for i, s in enumerate(sections)]
     drafts_runs = [None] * len(sections)
 
@@ -162,10 +166,24 @@ def run_team(task, planner_row, worker_rows, assembler_row, n, adapters_cfg, tim
                     for i in range(len(sections))],
         "assembler": arun.get("outputTokens"),
     }
+    serving_rows = [benchlib.serving_truth(planner_row.get("model_arg") or planner_row["id"],
+                                           prun.get("model"), prun.get("modelSource"))]
+    for i, draft_run in enumerate(drafts_runs):
+        worker_row = worker_rows[i % len(worker_rows)]
+        serving_rows.append(
+            benchlib.serving_truth(worker_row.get("model_arg") or worker_row["id"],
+                                   draft_run.get("model"), draft_run.get("modelSource"))
+        )
+    serving_rows.append(
+        benchlib.serving_truth(assembler_row.get("model_arg") or assembler_row["id"],
+                               arun.get("model"), arun.get("modelSource"))
+    )
+    serving = benchlib.serving_truth_rollup(serving_rows, ok_only=False)
     return {"output": arun.get("output") or "", "ok": ok,
             "inputTokens": _sum("inputTokens"), "outputTokens": _sum("outputTokens"),
             "totalTokens": _sum("totalTokens"), "wallMs": team_wall,
-            "calls": 2 + len(sections), "sections": len(sections), "breakdown": breakdown}
+            "calls": 2 + len(sections), "sections": len(sections), "breakdown": breakdown,
+            **serving}
 
 
 def score_and_pack(task, prod, cfg, adapters_cfg, timeout):
@@ -266,6 +284,16 @@ def main():
                    "wallMs": prod.get("wallMs"), "calls": prod.get("calls"),
                    "sections": prod.get("sections"), "ok": bool(prod.get("ok")),
                    "error": prod.get("error"), "breakdown": prod.get("breakdown"),
+                   "responseModel": prod.get("responseModel"),
+                   "responseModels": prod.get("responseModels"),
+                   "servingConfirmed": prod.get("servingConfirmed"),
+                   "servingMatchedRequest": prod.get("servingMatchedRequest"),
+                   "servingValid": prod.get("servingValid"),
+                   "servingInvalidReason": prod.get("servingInvalidReason"),
+                   "servingConfirmedRuns": prod.get("servingConfirmedRuns"),
+                   "servingValidRuns": prod.get("servingValidRuns"),
+                   "validity": prod.get("validity"),
+                   "invalidReasons": prod.get("invalidReasons"),
                    "draftFile": str(draft_path) if prod.get("output") else None,
                    "outputSample": (prod.get("output") or "")[:600]}
             records.append(rec)
@@ -289,13 +317,20 @@ def main():
         cells.setdefault(r["test_class"], []).append(r)
     cells_agg = {}
     for tc, rs in cells.items():
-        ok = [r for r in rs if r.get("ok") and r.get("quality") is not None]
+        ok = [r for r in rs if r.get("ok") and r.get("quality") is not None and r.get("servingValid") is True]
+        serving = benchlib.serving_truth_rollup(rs)
         cells_agg[tc] = {
             "n": len(ok),
             "quality": (sum(r["quality"] for r in ok) / len(ok)) if ok else None,
             "qPer1kOut": (sum(r["qPer1kOut"] for r in ok if r["qPer1kOut"]) / len(ok)) if ok else None,
             "meanOutputTokens": (sum(r["outputTokens"] for r in ok if r["outputTokens"]) / len(ok)) if ok else None,
             "meanWallMs": (sum(r["wallMs"] for r in ok if r["wallMs"]) / len(ok)) if ok else None,
+            "responseModel": serving["responseModel"],
+            "responseModels": serving["responseModels"],
+            "servingConfirmedRuns": serving["servingConfirmedRuns"],
+            "servingValidRuns": serving["servingValidRuns"],
+            "validity": serving["validity"],
+            "invalidReasons": serving["invalidReasons"],
         }
     json.dump(cells_agg, open(out_dir / "cells.json", "w"), indent=2)
 
