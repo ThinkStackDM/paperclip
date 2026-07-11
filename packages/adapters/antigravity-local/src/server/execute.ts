@@ -35,7 +35,11 @@ import {
   resolvePaperclipDesiredSkillNames,
   stringifyPaperclipWakePayload,
 } from "@paperclipai/adapter-utils/server-utils";
-import { parseAntigravityOutput, isAntigravityUnknownSessionError } from "./parse.js";
+import {
+  parseAntigravityOutput,
+  isAntigravityUnknownSessionError,
+  detectAntigravityQuotaExhausted,
+} from "./parse.js";
 
 const __moduleDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -379,6 +383,9 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       clearSessionOnMissingSession = false,
       isRetry = false,
     ): AdapterExecutionResult => {
+      const quotaMeta = detectAntigravityQuotaExhausted({
+        stderr: attempt.proc.stderr,
+      });
       if (attempt.proc.timedOut) {
         return {
           exitCode: attempt.proc.exitCode,
@@ -414,6 +421,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         signal: attempt.proc.signal,
         timedOut: false,
         errorMessage: failed ? fallbackErrorMessage : null,
+        errorCode: failed && quotaMeta.exhausted ? "antigravity_quota_exhausted" : null,
         usage: {
           inputTokens: 0,
           outputTokens: 0,
@@ -427,7 +435,21 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         model: "antigravity",
         billingType: "subscription",
         costUsd: null,
-        resultJson: failed ? { stderr: attempt.proc.stderr } : {},
+        resultJson: failed
+          ? {
+            stderr: attempt.proc.stderr,
+            ...(quotaMeta.exhausted
+              ? {
+                quotaFailure: {
+                  provider: "antigravity",
+                  matchedLine: quotaMeta.matchedLine,
+                  resetAt: quotaMeta.resetAt?.toISOString() ?? null,
+                },
+                ...(quotaMeta.resetAt ? { resetAt: quotaMeta.resetAt.toISOString() } : {}),
+              }
+              : {}),
+          }
+          : {},
         summary: attempt.parsed.summary,
         clearSession: Boolean(clearSessionOnMissingSession && !resolvedSessionId),
       };

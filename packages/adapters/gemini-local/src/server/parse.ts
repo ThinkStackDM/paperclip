@@ -265,7 +265,26 @@ export function describeGeminiFailure(parsed: Record<string, unknown>): string |
 
 const GEMINI_AUTH_REQUIRED_RE = /(?:not\s+authenticated|please\s+authenticate|api[_ ]?key\s+(?:required|missing|invalid)|authentication\s+required|manual\s+authorization\s+is\s+required|unauthorized|invalid\s+credentials|not\s+logged\s+in|login\s+required|run\s+`?gemini\s+auth(?:\s+login)?`?\s+first)/i;
 const GEMINI_QUOTA_EXHAUSTED_RE =
-  /(?:resource_exhausted|quota|rate[-\s]?limit|too many requests|\b429\b|billing details)/i;
+  /(?:resource[ _-]?exhausted|resource has been exhausted|quota (?:exceeded|exhausted|reached)|individual quota reached|exceeded your[^.\n]{0,40}quota|ineligible[ _-]?tier|upgrade your subscription to increase your limits)/i;
+const GEMINI_RESET_IN_RE =
+  /resets?\s+in\s+(?:(\d+)d)?\s*(?:(\d+)h)?\s*(?:(\d+)m)?\s*(?:(\d+)s)?/i;
+
+function parseResetAtFromQuotaLine(line: string, now: Date): Date | null {
+  const match = GEMINI_RESET_IN_RE.exec(line);
+  if (!match) return null;
+
+  const days = Number(match[1] ?? 0);
+  const hours = Number(match[2] ?? 0);
+  const minutes = Number(match[3] ?? 0);
+  const seconds = Number(match[4] ?? 0);
+  const totalMs =
+    (days * 24 * 60 * 60 * 1000) +
+    (hours * 60 * 60 * 1000) +
+    (minutes * 60 * 1000) +
+    (seconds * 1000);
+  if (totalMs <= 0) return null;
+  return new Date(now.getTime() + totalMs);
+}
 
 export function detectGeminiAuthRequired(input: {
   parsed: Record<string, unknown> | null;
@@ -285,18 +304,23 @@ export function detectGeminiAuthRequired(input: {
 
 export function detectGeminiQuotaExhausted(input: {
   parsed: Record<string, unknown> | null;
-  stdout: string;
   stderr: string;
-}): { exhausted: boolean } {
+  now?: Date;
+}): { exhausted: boolean; matchedLine: string | null; resetAt: Date | null } {
   const errors = extractGeminiErrorMessages(input.parsed ?? {});
-  const messages = [...errors, input.stdout, input.stderr]
+  const messages = [...errors, input.stderr]
     .join("\n")
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
 
-  const exhausted = messages.some((line) => GEMINI_QUOTA_EXHAUSTED_RE.test(line));
-  return { exhausted };
+  const matchedLine = messages.find((line) => GEMINI_QUOTA_EXHAUSTED_RE.test(line)) ?? null;
+  const now = input.now ?? new Date();
+  return {
+    exhausted: Boolean(matchedLine),
+    matchedLine,
+    resetAt: matchedLine ? parseResetAtFromQuotaLine(matchedLine, now) : null,
+  };
 }
 
 export function isGeminiTurnLimitResult(

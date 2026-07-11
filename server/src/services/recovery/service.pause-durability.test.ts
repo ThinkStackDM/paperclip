@@ -35,4 +35,12 @@ describe("pause durability: continuation retry classification", () => {
     expect(classifyContinuationFailure(run(null)).kind).toBe("default");
     expect(classifyContinuationFailure(run("some_adapter_error")).kind).toBe("default");
   });
+
+  it("gemini_quota_exhausted is non-retryable (stops wake chain)", () => {
+    expect(classifyContinuationFailure(run("gemini_quota_exhausted")).kind).toBe("non_retryable");
+  });
+
+  it("antigravity_quota_exhausted is non-retryable (stops wake chain)", () => {
+    expect(classifyContinuationFailure(run("antigravity_quota_exhausted")).kind).toBe("non_retryable");
+  });
 });

@@ -4932,3 +4932,5 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
     readRecoveryTimerIntervalMs,
   };
 }
+  "gemini_quota_exhausted",
+  "antigravity_quota_exhausted",

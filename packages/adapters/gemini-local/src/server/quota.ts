@@ -270,8 +270,7 @@ function sampleLooksExhausted(sample: GeminiQuotaRunSample): boolean {
   if (!sample.failed) return false;
   return detectGeminiQuotaExhausted({
     parsed: sample.parsed ?? null,
-    stdout: sample.stdout ?? sample.error ?? "",
-    stderr: sample.stderr ?? "",
+    stderr: sample.stderr ?? sample.error ?? "",
   }).exhausted;
 }
 

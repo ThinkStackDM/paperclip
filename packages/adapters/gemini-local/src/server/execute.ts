@@ -51,6 +51,7 @@ import { DEFAULT_GEMINI_LOCAL_MODEL, SANDBOX_INSTALL_COMMAND } from "../index.js
 import {
   describeGeminiFailure,
   detectGeminiAuthRequired,
+  detectGeminiQuotaExhausted,
   isGeminiTransientNetworkError,
   isGeminiTurnLimitResult,
   isGeminiSessionUnrecoverableError,
@@ -620,6 +621,10 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       stdout: attempt.proc.stdout,
       stderr: attempt.proc.stderr,
     });
+    const quotaMeta = detectGeminiQuotaExhausted({
+      parsed: attempt.parsed.resultEvent,
+      stderr: attempt.proc.stderr,
+    });
     const networkUnavailable = isGeminiTransientNetworkError(attempt.proc.stdout, attempt.proc.stderr);
 
     if (attempt.proc.timedOut) {
@@ -677,6 +682,16 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         stderr: attempt.proc.stderr,
       }),
       ...(failed && clearSessionForTurnLimit ? { stopReason: "max_turns_exhausted" } : {}),
+      ...(failed && quotaMeta.exhausted
+        ? {
+          quotaFailure: {
+            provider: "gemini",
+            matchedLine: quotaMeta.matchedLine,
+            resetAt: quotaMeta.resetAt?.toISOString() ?? null,
+          },
+          ...(quotaMeta.resetAt ? { resetAt: quotaMeta.resetAt.toISOString() } : {}),
+        }
+        : {}),
     };
 
     return {
@@ -686,6 +701,8 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       errorMessage: failed ? fallbackErrorMessage : null,
       errorCode: failed && authMeta.requiresAuth
         ? "gemini_auth_required"
+        : failed && quotaMeta.exhausted
+        ? "gemini_quota_exhausted"
         : failed && clearSessionForTurnLimit
         ? "max_turns_exhausted"
         : failed && networkUnavailable

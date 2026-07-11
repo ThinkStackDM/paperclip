@@ -4451,9 +4451,16 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
       .where(and(eq(issues.companyId, companyId), eq(issues.originKind, "stranded_issue_recovery"), eq(issues.originId, issueId)));
     expect(nestedRecoveries).toHaveLength(0);
 
-    const runs = await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.agentId, agentId));
-    expect(runs).toHaveLength(1);
-    expect(runs[0]?.id).toBe(runId);
+    const continuationRetryRuns = await db
+      .select()
+      .from(heartbeatRuns)
+      .where(eq(heartbeatRuns.agentId, agentId));
+    expect(
+      continuationRetryRuns.filter((row) => (
+        (row.contextSnapshot as Record<string, unknown> | null)?.retryReason === "issue_continuation_needed" &&
+        row.id !== runId
+      )),
+    ).toHaveLength(0);
 
     const comments = await db.select().from(issueComments).where(eq(issueComments.issueId, issueId));
     expect(comments).toHaveLength(1);
@@ -4711,6 +4718,47 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     expect(comments[0]?.body).toContain("still has no live execution path");
     expect(comments[0]?.body).toContain(`Recovery action: \`${recoveryAction.id}\``);
     expect(comments[0]?.body).toContain("Recovery owner: [CodexCoder]");
+  });
+
+  it.each([
+    "gemini_quota_exhausted",
+    "antigravity_quota_exhausted",
+  ] as const)("does not schedule another continuation after %s", async (runErrorCode) => {
+    const { companyId, agentId, issueId, runId } = await seedStrandedIssueFixture({
+      status: "in_progress",
+      runStatus: "failed",
+      retryReason: "issue_continuation_needed",
+      runErrorCode,
+      runError: "Individual quota reached. Please upgrade your subscription to increase your limits.",
+    });
+    const heartbeat = heartbeatService(db);
+
+    const result = await heartbeat.reconcileStrandedAssignedIssues();
+    expect(result.continuationRequeued).toBe(0);
+    expect(result.escalated).toBe(1);
+    expect(result.issueIds).toEqual([issueId]);
+
+    const issue = await db.select().from(issues).where(eq(issues.id, issueId)).then((rows) => rows[0] ?? null);
+    expect(issue?.status).toBe("blocked");
+
+    const runs = await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.agentId, agentId));
+    expect(
+      runs.filter((row) => (
+        (row.contextSnapshot as Record<string, unknown> | null)?.retryReason === "issue_continuation_needed" &&
+        row.id !== runId
+      )),
+    ).toHaveLength(0);
+
+    const liveWakeups = await db
+      .select()
+      .from(agentWakeupRequests)
+      .where(and(eq(agentWakeupRequests.companyId, companyId), inArray(agentWakeupRequests.status, ["queued", "deferred_issue_execution"])));
+    expect(liveWakeups).toHaveLength(0);
+
+    const comments = await db.select().from(issueComments).where(eq(issueComments.issueId, issueId));
+    expect(comments).toHaveLength(1);
+    expect(comments[0]?.body).toContain(`\`${runErrorCode}\``);
+    expect(comments[0]?.body).toContain("Skipping automatic retries");
   });
 
   it("allows one productive-terminal recovery after regular continuation recovery made progress", async () => {

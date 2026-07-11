@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   detectGeminiAuthRequired,
+  detectGeminiQuotaExhausted,
   isGeminiTransientNetworkError,
   isGeminiSessionUnrecoverableError,
   parseGeminiJsonl,
@@ -211,5 +212,33 @@ describe("isGeminiTransientNetworkError", () => {
     expect(
       isGeminiTransientNetworkError("", "Error: unknown session 'abc-123'"),
     ).toBe(false);
+  });
+});
+
+describe("detectGeminiQuotaExhausted", () => {
+  it("requires a strong quota signature and parses the reset countdown", () => {
+    const now = new Date("2026-07-11T10:00:00.000Z");
+    const result = detectGeminiQuotaExhausted({
+      parsed: null,
+      stderr: "Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 5h 30m 10s.",
+      now,
+    });
+
+    expect(result.exhausted).toBe(true);
+    expect(result.matchedLine).toContain("Individual quota reached");
+    expect(result.resetAt?.toISOString()).toBe("2026-07-11T15:30:10.000Z");
+  });
+
+  it("does not treat a bare 429 as quota exhaustion", () => {
+    const result = detectGeminiQuotaExhausted({
+      parsed: null,
+      stderr: "ApiError: got status: 429 Too Many Requests.",
+    });
+
+    expect(result).toEqual({
+      exhausted: false,
+      matchedLine: null,
+      resetAt: null,
+    });
   });
 });

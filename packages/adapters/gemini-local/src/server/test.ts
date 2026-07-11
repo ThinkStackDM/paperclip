@@ -209,7 +209,6 @@ export async function testEnvironment(
       });
       const quotaMeta = detectGeminiQuotaExhausted({
         parsed: parsed.resultEvent,
-        stdout: probe.stdout,
         stderr: probe.stderr,
       });
 

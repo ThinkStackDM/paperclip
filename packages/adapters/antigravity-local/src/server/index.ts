@@ -1,7 +1,11 @@
 export { execute, buildAntigravityArgs } from "./execute.js";
 export { listAntigravitySkills, syncAntigravitySkills } from "./skills.js";
 export { testEnvironment } from "./test.js";
-export { parseAntigravityOutput, isAntigravityUnknownSessionError } from "./parse.js";
+export {
+  parseAntigravityOutput,
+  isAntigravityUnknownSessionError,
+  detectAntigravityQuotaExhausted,
+} from "./parse.js";
 import type { AdapterSessionCodec } from "@paperclipai/adapter-utils";
 
 function readNonEmptyString(value: unknown): string | null {
