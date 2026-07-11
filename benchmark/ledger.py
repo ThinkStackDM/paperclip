@@ -46,7 +46,7 @@ def _now_iso():
 
 
 def _company():
-    return os.environ.get("PAPERCLIP_COMPANY", "TSMC")
+    return os.environ.get("PAPERCLIP_COMPANY", "TSBC")
 
 
 def _model_class(model_id):

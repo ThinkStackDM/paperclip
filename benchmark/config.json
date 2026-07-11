@@ -79,7 +79,7 @@
       "lane": "claude"
     }
   ],
-  "_models_catalog_comment": "Validated within-family variants (confirmed callable via their CLI 2026-06-14). NOT in the default sweep \u2014 `bench.py all` runs `models` above. Opt in per run: `bench.py all --models claude-haiku,gpt-5.4-mini,gemini-flash,grok-4-fast`. These are the 'lower model' candidates for the cheap-model-+-skill gap-closing strategy. gpt-5.3-codex-spark IS a valid model (same as Paperclip's spark lane, invoked --model gpt-5.3-codex-spark with reasoning_effort=high) but is DAILY RATE-LIMITED \u2014 sweeps including it fail with a usage-limit error while exhausted (resets ~mid-afternoon). Genuinely NOT supported on this ChatGPT account (400 invalid_request, never works): plain gpt-5.3, gpt-5.3-codex, gpt-5-codex.",
+  "_models_catalog_comment": "Validated within-family variants (confirmed callable via their CLI 2026-06-14 unless noted below). NOT in the default sweep \u2014 `bench.py all` runs `models` above. Opt in per run: `bench.py all --models claude-haiku,gpt-5.4-mini,gemini-flash,grok-4-fast`. These are the 'lower model' candidates for the cheap-model-+-skill gap-closing strategy. GPT-5.6 family availability was re-confirmed on 2026-07-11 from the EU via Codex OAuth after upgrading codex-cli to 0.144.1. gpt-5.3-codex-spark IS a valid model (same as Paperclip's spark lane, invoked --model gpt-5.3-codex-spark with reasoning_effort=high) but is DAILY RATE-LIMITED \u2014 sweeps including it fail with a usage-limit error while exhausted (resets ~mid-afternoon). Genuinely NOT supported on this ChatGPT account (400 invalid_request, never works): plain gpt-5.3, gpt-5.3-codex, gpt-5-codex.",
   "models_catalog": [
     {
       "id": "claude-sonnet",
@@ -122,6 +122,30 @@
       "model_arg": "gpt-5.5",
       "label": "Codex GPT-5.5",
       "lane": "codex"
+    },
+    {
+      "id": "gpt-5.6-sol",
+      "adapter": "codex",
+      "model_arg": "gpt-5.6-sol",
+      "label": "Codex GPT-5.6 Sol",
+      "lane": "codex",
+      "note": "Flagship/premium GPT-5.6 lane; serving-confirmed on Codex OAuth from the EU on 2026-07-11"
+    },
+    {
+      "id": "gpt-5.6-terra",
+      "adapter": "codex",
+      "model_arg": "gpt-5.6-terra",
+      "label": "Codex GPT-5.6 Terra",
+      "lane": "codex",
+      "note": "Default/everyday GPT-5.6 lane; serving-confirmed on Codex OAuth from the EU on 2026-07-11"
+    },
+    {
+      "id": "gpt-5.6-luna",
+      "adapter": "codex",
+      "model_arg": "gpt-5.6-luna",
+      "label": "Codex GPT-5.6 Luna",
+      "lane": "codex",
+      "note": "Cheap/high-volume GPT-5.6 lane; serving-confirmed on Codex OAuth from the EU on 2026-07-11"
     },
     {
       "id": "gpt-5.4-mini",
@@ -244,6 +268,9 @@
       "codex-gpt-5.4": "5bcc7a94-6715-43eb-ad53-da7bd300ef79",
       "gemini-pro": "4b103786-19d0-4ce9-bf27-8b5fae22c959",
       "gpt-5.5": "045f72f8-08ce-4f29-8f28-8d4ea4864e48",
+      "gpt-5.6-sol": "9cde1342-a63e-48e5-ae32-769778cd5408",
+      "gpt-5.6-terra": "9dc76a01-420e-440f-a76e-2c0d097acf7d",
+      "gpt-5.6-luna": "aaecdcd0-dc5b-41d1-a6fd-0ff7a56776a0",
       "claude-opus-4.7": "53a4e9d3-81b1-4d86-8f87-e19447412f0e"
     },
     "_isolation_comment": "Bench runs in a DEDICATED ISOLATED company (Agentic Bench, e212ce50) with NO CEO/routines/active agents, so nothing in the company acts on bench fixtures mid-run (TSMC's GLaD0S + cleanup machinery was the interference that quiet-TSMC couldn't stop). reportsTo for the 4 agents = paused Bench-Manager b610338d."
@@ -335,6 +362,18 @@
       "out": null
     },
     "gpt-5.5": {
+      "in": null,
+      "out": null
+    },
+    "gpt-5.6-sol": {
+      "in": null,
+      "out": null
+    },
+    "gpt-5.6-terra": {
+      "in": null,
+      "out": null
+    },
+    "gpt-5.6-luna": {
       "in": null,
       "out": null
     },

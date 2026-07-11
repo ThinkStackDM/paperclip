@@ -16,7 +16,7 @@ export PATH="/Users/glad0s/.local/bin:/opt/homebrew/bin:/usr/local/bin:/Users/gl
 cd /Users/glad0s/paperclip/benchmark || exit 1
 PY=/Library/Frameworks/Python.framework/Versions/3.14/bin/python3
 LOG=/Users/glad0s/paperclip/.devlogs/tsbc-drill.log
-CHEAP="grok-4.1-fast,grok-4-fast,gpt-5.4-mini"
+CHEAP="grok-4.1-fast,grok-4-fast,gpt-5.4-mini,gpt-5.6-luna"
 TASKS=(content book-chapter video-hook social-post designer summarize-extract cv-review intake ops)
 # with-skills (#17) layer: roles that are BOTH a drill task AND a configured variants.json role
 # (have minimal+current agent-files + skillsDir). Once the bare base matrix is full, the drill
@@ -34,7 +34,7 @@ VTASKS=(content book-chapter designer cv-review intake ops)
 #     the headless permission gate (killed at the adapter's timeout). No CLI single-shot/no-tools mode
 #     exists. For gemini skill-lift, eval AGENTICALLY in a separate quota-bounded path — not in this 24/7
 #     single-shot drill. The base matrix above is restricted to the approved Grok/ChatGPT lanes.
-VCHEAP="grok-4.1-fast,grok-4-fast,gpt-5.4-mini"
+VCHEAP="grok-4.1-fast,grok-4-fast,gpt-5.4-mini,gpt-5.6-luna"
 TARGET=10
 ts(){ date '+%F %T'; }
 

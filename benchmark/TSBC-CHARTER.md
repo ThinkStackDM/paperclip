@@ -35,3 +35,9 @@ Turn "which model / adapter / skill is best for which task" from guesswork into 
 
 ## Governance
 TSBC is the source of truth for model/skill decisions and re-runs on every new model. Its company is isolated so its 700+ benchmark issues never touch live OpCo boards; all fleet exclusions key off the company **id**, so the rename is safe.
+
+## Charter addendum — 2026-07-11 (operator session)
+- **Sensing function added.** Daily **model-watch** routine (board routine `94bec39d`, Bench-Manager, 07:30 Europe/Dublin): CLI-version + probe checks, adapter-catalog diffs, provider docs online; Ollama/local catalog leg Mondays (catalog-only, never pull — 32GB shared Studio); removals/pricing = same severity as launches; EU availability is always part of the verdict; Sunday liveness line to the operator digest (a silent detector is indistinguishable from a dead one). Findings tagged `content-source` — raw feed for future model-report PDFs / newsletter / agency collateral (publication stays board-gated). State: `benchmark/model-watch/state.json`.
+- **In-house media lane.** **Bench-Designer-Media** (`69c62fef`, hermes_local grok-4.3, `image_gen,video_gen`, reports to Bench-Manager) — benchmark media generation runs in-company; production Designer-Media lanes are no longer borrowed for bench work (operator decision, supersedes the 07-10 retarget disposition on TSBC-986).
+- **Structure note:** the proving-ground list above predates 07-10/11 — grok "fast" rows retired (they were grok with NO effort settings), Bench-gemini-pro + claude-opus lanes paused (fleet Gemini pause / Claude scarcity), GPT-5.6 family added via codex CLI ≥0.144.
+- **Rollout gate (operator, 07-11):** the DEPLOYMENT MILESTONE lane rollout executes AFTER TSBC-1006 (GPT-5.6 Sol/Terra/Luna bench) closes identified gaps — priority: a non-Google cv-review primary (Gemini is a single point of failure there) and the judge-agreement study (move routine judging off Claude if agreement is high).
