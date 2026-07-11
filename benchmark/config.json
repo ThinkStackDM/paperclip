@@ -89,6 +89,20 @@
       "lane": "claude"
     },
     {
+      "id": "claude-sonnet-5",
+      "adapter": "claude",
+      "model_arg": "claude-sonnet-5",
+      "label": "Claude Sonnet 5",
+      "lane": "claude"
+    },
+    {
+      "id": "claude-fable-5",
+      "adapter": "claude",
+      "model_arg": "claude-fable-5",
+      "label": "Claude Fable 5",
+      "lane": "claude"
+    },
+    {
       "id": "claude-haiku",
       "adapter": "claude",
       "model_arg": "haiku",

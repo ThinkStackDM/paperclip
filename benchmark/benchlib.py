@@ -13,10 +13,12 @@ import json
 import os
 import re
 from pathlib import Path
+from datetime import datetime, timezone
 
 ROOT = Path(__file__).resolve().parent
 RESULTS_DIR = ROOT / "results"
 CONFIG_PATH = ROOT / "config.json"
+MODEL_HOLDS_PATH = ROOT / ".tsbc-model-holds.json"
 
 
 # --------------------------------------------------------------------------
@@ -29,6 +31,101 @@ def load_config(path=None):
         cfg = json.load(f)
     # strip _comment keys recursively for cleanliness (they're docs, not data)
     return cfg
+
+
+def _parse_datetime(value):
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def active_model_holds(now=None):
+    """Return active TSBC model holds from .tsbc-model-holds.json.
+
+    Holds are operational guardrails, not benchmark data. They let TSBC park a
+    model family temporarily without deleting the normal benchmark config.
+    """
+    now = now or datetime.now(timezone.utc)
+    try:
+        data = json.load(open(MODEL_HOLDS_PATH))
+    except FileNotFoundError:
+        return []
+    except Exception:
+        return []
+    holds = data.get("holds", data if isinstance(data, list) else [])
+    active = []
+    for hold in holds:
+        if not isinstance(hold, dict):
+            continue
+        until = _parse_datetime(hold.get("until"))
+        if until is not None and now >= until:
+            continue
+        active.append(hold)
+    return active
+
+
+def _model_matches_hold(model_row, hold):
+    mid = str(model_row.get("id") or model_row.get("model_id") or "").lower()
+    adapter = str(model_row.get("adapter") or "").lower()
+    lane = str(model_row.get("lane") or "").lower()
+    model_arg = str(model_row.get("model_arg") or "").lower()
+    family = str(hold.get("family") or "").lower()
+    if family == "claude" and (
+        adapter == "claude" or lane == "claude" or mid.startswith("claude-") or model_arg.startswith("claude")
+    ):
+        return True
+    if hold.get("adapter") and adapter == str(hold["adapter"]).lower():
+        return True
+    if hold.get("lane") and lane == str(hold["lane"]).lower():
+        return True
+    prefix = str(hold.get("prefix") or "").lower()
+    if prefix and (mid.startswith(prefix) or model_arg.startswith(prefix)):
+        return True
+    models = [str(m).lower() for m in hold.get("models", [])]
+    return bool(models and (mid in models or model_arg in models))
+
+
+def first_active_model_hold(model_row):
+    for hold in active_model_holds():
+        if _model_matches_hold(model_row, hold):
+            return hold
+    return None
+
+
+def filter_models_for_active_holds(models):
+    kept = []
+    skipped = []
+    for model in models:
+        hold = first_active_model_hold(model)
+        if hold:
+            skipped.append((model, hold))
+        else:
+            kept.append(model)
+    return kept, skipped
+
+
+def format_model_hold_skip(skipped):
+    if not skipped:
+        return ""
+    by_hold = {}
+    for model, hold in skipped:
+        key = (hold.get("id") or hold.get("reason") or "model-hold", hold.get("until"), hold.get("reason"))
+        by_hold.setdefault(key, []).append(model.get("id") or model.get("model_id") or "?")
+    lines = []
+    for (hold_id, until, reason), model_ids in by_hold.items():
+        bits = [f"TSBC model hold {hold_id}: skipped {', '.join(model_ids)}"]
+        if until:
+            bits.append(f"until {until}")
+        if reason:
+            bits.append(str(reason))
+        lines.append(" - ".join(bits))
+    return "\n".join(lines)
 
 
 def load_suite(role):

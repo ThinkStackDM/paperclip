@@ -205,6 +205,12 @@ def main():
     if args.models:
         roster = {m["id"]: m for m in (_cfg.get("models", []) + _cfg.get("models_catalog", []))}
         models = [roster[w.strip()] for w in args.models.split(",") if w.strip() in roster]
+    models, held_models = benchlib.filter_models_for_active_holds(models)
+    if held_models:
+        print(benchlib.format_model_hold_skip(held_models))
+    if not models:
+        print("No variant-matrix models remain after active TSBC model holds; nothing to run.")
+        return
 
     # build the task list per role + resolve variant bodies
     plan = []

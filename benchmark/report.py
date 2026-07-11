@@ -327,4 +327,36 @@ def to_markdown(report, run_id, meta):
         L.append("- _(4.20 is the reasoning variant — it spends more output/thoughts tokens, so a "
                  "quality win only justifies tiering onto it if it beats 4.3's efficiency cost.)_\n")
 
+    compared_models = ", ".join(f"`{m['id']}`" for m in report["models"]) or \
+        "`not_preserved:no compared model ids were recorded`"
+    records_paths = f"`benchmark/results/{run_id}/report.md`, `benchmark/results/{run_id}/runs.json`"
+    environment = (
+        f"`Paperclip benchmark harness; neutralized temp CWD; finished {meta.get('finished_at', 'unknown')}`"
+    )
+
+    L.append("## TSBC closeout gate\n")
+    L.append("> If this run will feed a TSBC issue, report, catalog row, or rollout decision, "
+             "do not stop at the recommendation tables above.\n")
+    L.append(f"- Run ID: `{run_id}`")
+    L.append("- Fairness verdict: `pass` / `pass_with_caveat` / `fail`")
+    L.append("- Evidence depth: `directional` / `candidate` / `decision_grade` / `production_locked`")
+    L.append("- Repetitions per compared cell: record the compared sample counts that support the recommendation")
+    L.append("- Low-tail / min-score note: name the weak cell or confirm why the low-tail is acceptable")
+    L.append("- Token / cost / runtime note or caveat: summarize the efficiency trade, or say what is missing")
+    L.append(f"- Scorer lane: `{report['judge']}`")
+    L.append("- Scorer calibration status: `pass` / `pass_with_caveat` / `needs_calibration` / `failed`")
+    L.append("- Calibration set: record the known-good / known-bad / borderline anchors, or `not_preserved:<why missing>`")
+    L.append("- Tie-break owner: name the human or agent adjudicator, or `not_preserved:<why missing>`")
+    L.append("- Scorer caveat: record scorer separation/calibration status and any dependency on human review")
+    L.append("- Fingerprint: use `<opco-or-portfolio>:<task-surface>:<lane>:<suite-or-run-id>:<date>`, or `not_preserved:<why missing>`")
+    L.append(f"- Model version(s): {compared_models}")
+    L.append("- Scorer/rubric version: record the exact rubric + judge version, or `not_preserved:<why missing>`")
+    L.append(f"- Environment: {environment}")
+    L.append(f"- Records path: {records_paths}")
+    L.append("- Suite hash: record the suite/run packet hash, or `not_preserved:<why missing>`")
+    L.append("- Prompt/system hash: record the prompt/agent/system hash, or `none` / `not_preserved:<why missing>`")
+    L.append("- Failure-library IDs: list linked failures, or `none` with why that absence is meaningful")
+    L.append("- Any `not_preserved:*` field must explain why the artifact is missing; blank fields are not acceptable")
+    L.append("- Next gate: `catalog_only` / `create_candidate_pack` / `run_opco_live_proof` / `adopt` / `reject` / `rerun` / `supersede`\n")
+
     return "\n".join(L) + "\n"

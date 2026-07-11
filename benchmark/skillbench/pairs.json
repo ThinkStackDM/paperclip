@@ -2,6 +2,159 @@
   "_comment": "Each pair tests whether a candidate skill lifts performance on a deliberately UNDER-SPECIFIED task \u2014 one whose bare prompt does NOT spell out the methodology the skill teaches (enumerate ALL compounding defects, hold the three liveness invariants, frame as a product rule, no code). The rubric rewards exactly that methodology, so a skill that actually conveys it should raise quality vs the bare baseline. Same scoring engine + blind judge as #15.",
   "pairs": [
     {
+      "id": "edge-candidate-eval",
+      "skill": "candidate-skills/edge-research-ops.md",
+      "task": {
+        "id": "edge-candidate-eval-bare",
+        "prompt": "Evaluate this proposed strategy candidate for ThinkStack Capital and recommend the next step.\n\nCandidate: \"Kraken BTC/EUR post-news fade\". Hypothesis: after large macro headlines, BTC overshoots on the first 1-3 minute candle and mean-reverts over the next 10-20 minutes. Evidence so far: a weekend backtest on 84 windows suggests +0.42% gross edge before fees; no paper run; no live run. Kraken zero-volume fees are 0.25% maker / 0.40% taker. Likely tax bucket is ordinary CGT if traded personally. The proposer wants to skip paper and run a small live test because the backtest 'already looks strong'.\n\nWrite a concise evaluation and next-step recommendation.",
+        "rubric": {
+          "deterministic": [
+            {
+              "type": "contains_any",
+              "values": ["registry", "TSKB0050", "row"],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": ["net", "EV_net", "after tax", "after-tax", "in-pocket"],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": ["paper", "live", "backtest", "estimator"],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": ["pre-register", "checkpoint", "kill criterion", "kill criteria"],
+              "weight": 2
+            }
+          ],
+          "judge": {
+            "criteria": [
+              {
+                "name": "fund_discipline",
+                "weight": 3,
+                "guidance": "Rejects the jump from backtest to live, insists on a defined registry row, converts the gross claim into a net-of-fees/tax assessment, and puts realistic paper ahead of any live decision."
+              },
+              {
+                "name": "honest_estimator_logic",
+                "weight": 2,
+                "guidance": "Recognizes that a weekend backtest on 84 windows is weak evidence and that live/paper disagreement would invalidate trust in the model. Vague 'needs more testing' without estimator reasoning scores low."
+              },
+              {
+                "name": "actionable_next_step",
+                "weight": 1,
+                "guidance": "Gives a concrete next step: define the row, pre-register a paper test, and name what must be measured."
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "edge-weekly-pack",
+      "skill": "candidate-skills/edge-research-ops.md",
+      "task": {
+        "id": "edge-weekly-pack-bare",
+        "prompt": "Write the weekly research-pack section for this edge trial.\n\nTrial: Polymarket ETH 5m NO, cheap-side maker entries only. This week: 61 paper windows, 3 wins, gross P&L +$18, fee-adjusted paper P&L +$6, expected breakeven win rate 4.0%, observed win rate 4.9%, longest losing streak 21 windows, no live capital. Notes: the fill model still looks optimistic versus Rocky live by about 1.6x on similar microstructure. The pre-registered checkpoint is at 100 windows. Some teammates are excited because the gross line is green again after two red days.\n\nWrite a short pack section with the right decision and tone.",
+        "rubric": {
+          "deterministic": [
+            {
+              "type": "contains_any",
+              "values": ["checkpoint", "100 windows", "pre-registered"],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": ["gross", "net", "fee-adjusted", "in-pocket"],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": ["1.6x", "optimistic", "fill model", "paper"],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": ["noise", "variance", "red days", "streak"],
+              "weight": 2
+            }
+          ],
+          "judge": {
+            "criteria": [
+              {
+                "name": "decision_quality",
+                "weight": 3,
+                "guidance": "Treats the result as incomplete and estimator-limited, not a promotion signal; notes the checkpoint has not been reached and the 1.6x optimism blocks trust."
+              },
+              {
+                "name": "noise_discipline",
+                "weight": 2,
+                "guidance": "Explicitly treats the red days / streak texture as noise inside the test rather than a reason to celebrate or panic."
+              },
+              {
+                "name": "pack_tone",
+                "weight": 1,
+                "guidance": "Reads like a factual weekly pack section, not a hype memo."
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "edge-registry-row",
+      "skill": "candidate-skills/edge-research-ops.md",
+      "task": {
+        "id": "edge-registry-row-bare",
+        "prompt": "Propose a registry-ready row for this idea.\n\nIdea: Kalshi weather market around monthly US temperature surprises. Working theory: retail participants overreact to headline temperature anomalies and misprice resolution odds immediately after the NOAA release. Access is unverified for Irish residents. Fees are not yet gathered. No sample size, kill criterion, or funding plan has been written. The proposer only says, 'If we can trade it, we should start with €2k because weather markets look soft.'\n\nReturn a compact row proposal plus what is still missing before the idea is actually defined.",
+        "rubric": {
+          "deterministic": [
+            {
+              "type": "contains_any",
+              "values": ["mechanism", "mispriced", "market", "cell"],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": ["fee", "tax", "self-funding", "funding plan"],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": ["sample size", "checkpoint", "kill criterion", "pre-register"],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": ["jurisdiction", "KYC", "access", "Irish"],
+              "weight": 2
+            }
+          ],
+          "judge": {
+            "criteria": [
+              {
+                "name": "definition_bar",
+                "weight": 3,
+                "guidance": "Turns the vague idea into a real registry row shape and clearly says it is not yet defined because fee, tax, access, sample-size, and kill-criterion fields are missing."
+              },
+              {
+                "name": "capital_discipline",
+                "weight": 2,
+                "guidance": "Rejects the arbitrary €2k starting size and replaces it with the self-funding / board-gated ladder."
+              },
+              {
+                "name": "completeness",
+                "weight": 1,
+                "guidance": "Names the missing fields explicitly instead of hand-waving 'more research needed.'"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
       "id": "ops-restart-race",
       "skill": "candidate-skills/ops-liveness-forensics.md",
       "task": {

@@ -96,6 +96,12 @@
       "currentAgentFile": "/Users/glad0s/paperclip/benchmark/variants/agentfiles/book-chapter.md",
       "minimalAgentFile": "variants/minimal/book-chapter.md",
       "skillsDir": "/Users/glad0s/paperclip/benchmark/variants/skills/book-chapter"
+    },
+    "reasoning": {
+      "representativeAgent": "(synthetic config \u2014 TSBC terse reasoning uplift)",
+      "currentAgentFile": "/Users/glad0s/paperclip/benchmark/variants/agentfiles/reasoning.md",
+      "minimalAgentFile": "variants/minimal/reasoning.md",
+      "skillsDir": "/Users/glad0s/paperclip/benchmark/variants/skills/reasoning"
     }
   }
 }

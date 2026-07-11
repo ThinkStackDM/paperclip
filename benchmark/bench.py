@@ -239,6 +239,12 @@ def finalize(runs, cfg, run_dir, run_id, started):
 def cmd_all(args, cfg):
     roles = select_roles(cfg, args.roles)
     models = select_models(cfg, args.models)
+    models, held_models = benchlib.filter_models_for_active_holds(models)
+    if held_models:
+        log(benchlib.format_model_hold_skip(held_models))
+    if not models:
+        log("No benchmark models remain after active TSBC model holds; nothing to run.")
+        return
     suites = benchlib.load_all_suites(roles)
     cells = build_cells(suites, roles, models, args.max_tasks_per_role)
 

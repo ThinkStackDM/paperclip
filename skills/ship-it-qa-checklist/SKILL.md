@@ -22,7 +22,7 @@ description: >
 
 ## Domain gates (run the right one)
 - **Book** → epubcheck clean (0/0/0) + KDP Previewer first/last-chapter spot-check (kdp-publishing-pipeline).
-- **Etsy** → visual-truth gate (dims/ratio/sRGB/mobile), every ZIP/tile/tag present, dry-run N/N ready (etsy-listing-ops).
+- **Etsy** → visual-truth gate (dims/ratio/sRGB/mobile), every ZIP/tile/tag present, dry-run N/N ready (etsy-listing-ops). For PDF planners/trackers, also require all-page A4/US Letter render evidence, page-fill/usability sign-off, Dastardly brand check, buyer ZIP manifest, and listing images that match the exact delivered PDFs.
 - **Utility site** → smoke checks pass + view-source the deployed URL for title/meta/JSON-LD + Playwright screenshot + a green `npx lighthouse <url>` (CWV = ranking/AdSense) (utility-site-shipping, web-design-polish).
 - **Video** → ffprobe matches spec, audio/caption/first-last-frame checks, per-asset licence note (video-gen-ops / video-editing).
 - **CV** → PASS QA per delivery SOP, .docx + .pdf both open clean, ATS-safe (recruitment-pipeline-ops).

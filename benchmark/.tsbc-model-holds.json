@@ -1,0 +1,10 @@
+{
+  "holds": [
+    {
+      "id": "claude-benchmark-hold-20260702",
+      "family": "claude",
+      "until": "2026-07-07T00:00:00+01:00",
+      "reason": "Operator requested no TSBC Claude-model benchmarking before 2026-07-07."
+    }
+  ]
+}

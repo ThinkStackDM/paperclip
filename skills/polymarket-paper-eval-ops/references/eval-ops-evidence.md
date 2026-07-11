@@ -1,13 +1,13 @@
-# Capital eval-ops evidence (ThinkStack Capital, company 211e0f96)
+# Capital evaluation-ops evidence (ThinkStack Capital, company 211e0f96)
 
 Identifiers are THIA-*.
 
 ## Recurring issue volumes (mined 2026-06-11)
-- "Polymarket live paper eval pass (THIA-31)" — ~250 instances since 2026-05-26 (hourly routine). Done when run; cancelled in bulk during the 2026-06-05..06-09 session-limit window (eval passes don't backfill — cancelling missed windows is correct).
+- "Polymarket live paper evaluation pass (THIA-31)" — ~250 instances since 2026-05-26 (hourly routine). Done when run; cancelled in bulk during the 2026-06-05..06-09 session-limit window (evaluation passes don't backfill — cancelling missed windows is correct).
 - "Daily Polymarket --resolve: calibration dataset update" — daily; "Polymarket weekly P&L report (THIA-31)" + "Polymarket weekly wallet scanner (THIA-56)" — weekly.
 - "THIA-15 daily paper-trade health check" / "THIA-17 daily paper-trade health check" — daily.
 
-## Eval-pass routine description of record (verbatim contract)
+## Evaluation-pass routine description of record (verbatim contract)
 Run from `/Users/glad0s/.paperclip/instances/default/projects/211e0f96-.../1421cac9-989b-4eb7-8e02-9da5af943faa/_default`:
 1. `uv run python scripts/poly_paper_eval.py`
 2. capture stdout/stderr + exit code
@@ -15,7 +15,7 @@ Run from `/Users/glad0s/.paperclip/instances/default/projects/211e0f96-.../1421c
 "IMPORTANT: The re-anchor in step 5 prevents recovery scanner loops — do not remove it."
 
 ## Canonical good close (real example)
-"Eval pass complete (exit 0). Settled this pass: 0 / Entered: 0 / Open positions: 5 / Equity: $151.00 | Cash: $113.50 / Kill switch: not fired / CLOB enrichment: 83 active longshot candidates scanned. THIA-31 re-anchor skipped — in_review with board/user; script deferred correctly."
+"Evaluation pass complete (exit 0). Settled this pass: 0 / Entered: 0 / Open positions: 5 / Equity: $151.00 | Cash: $113.50 / Kill switch: not fired / CLOB enrichment: 83 active longshot candidates scanned. THIA-31 re-anchor skipped — in_review with board/user; script deferred correctly."
 
 ## Daily resolve evidence
 - THIA-185 (2026-05-30): exit 1, 0 resolved, N≥30 not reached, 88 markets, 5 expired+pending; output posted to THIA-30.

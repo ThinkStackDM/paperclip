@@ -1,0 +1,69 @@
+{
+  "packet": "TSM-5372 Fee-drag cold-open replacement pack",
+  "governing_rules": ["TSKB0055 F6", "TSKB0064"],
+  "palette": "dark-premium Cashflow (deep green / near-black)",
+  "resolution": "720p",
+  "duration_sec": 8,
+  "audio": "native ON",
+  "model": "grok-imagine-video-1.5",
+  "candidates": [
+    {
+      "id": "grok-001",
+      "concept": "coin-drop water ripple",
+      "prompt": "Dark premium Cashflow theme cold open, deep green and near-black palette. A single gold coin drops from above into a perfectly still black reflective surface, creating expanding concentric water ripples that glow in deep green. Cinematic lighting, slow motion, subtle water splash and ripple sounds, 8 seconds, 720p, native audio ON.",
+      "params": {"aspect_ratio": "16:9", "duration": 8, "resolution": "720p", "audio": true, "model": "grok-imagine-video"},
+      "public_url": "https://files-cdn.x.ai/DyvzqK8kRY-IMO9wuO0XvQ/file_942d4397-8886-4252-8cf5-fc2d8425a314.mp4",
+      "filename": "hermes-xai-video-20260710-120147-5cc5a20c.mp4"
+    },
+    {
+      "id": "grok-002",
+      "concept": "green line-graph skyline",
+      "prompt": "Dark premium Cashflow theme cold open, deep green and near-black palette. Abstract green glowing line graphs and financial skyline rising from a near-black void, forming a cityscape of data visualizations. Cinematic, slow build, subtle electronic hum and rising tone audio, 8 seconds, 720p, native audio ON.",
+      "params": {"aspect_ratio": "16:9", "duration": 8, "resolution": "720p", "audio": true, "model": "grok-imagine-video"},
+      "public_url": "https://files-cdn.x.ai/RJylNxu-Sg6rGhLbIv-EhQ/file_bd6b0e7e-16b1-4225-ad1d-99081f8185b8.mp4",
+      "filename": "hermes-xai-video-20260710-120419-54acfb09.mp4"
+    },
+    {
+      "id": "grok-003",
+      "concept": "dollar-to-embers-to-arrow",
+      "prompt": "Dark premium Cashflow theme cold open, deep green and near-black palette. A dollar bill transforms into glowing embers that rise and reform into a sharp upward-pointing green arrow. Dramatic lighting, cinematic, subtle crackling ember and whoosh sounds, 8 seconds, 720p, native audio ON.",
+      "params": {"aspect_ratio": "16:9", "duration": 8, "resolution": "720p", "audio": true, "model": "grok-imagine-video"},
+      "public_url": "https://files-cdn.x.ai/_XCNxhMJRoOi20JXvpl-vA/file_86baf104-03db-4d92-81ae-641d613e53d4.mp4",
+      "filename": "hermes-xai-video-20260710-120601-9bedcaa1.mp4"
+    },
+    {
+      "id": "grok-004",
+      "concept": "toppling credit-card dominoes to glowing compass",
+      "prompt": "Dark premium Cashflow theme cold open, deep green and near-black palette. A row of credit cards topples like dominoes, the final card transforming into a glowing green compass that points upward. Cinematic lighting, dramatic slow motion, subtle card clack and resonant compass tone audio, 8 seconds, 720p, native audio ON.",
+      "params": {"aspect_ratio": "16:9", "duration": 8, "resolution": "720p", "audio": true, "model": "grok-imagine-video"},
+      "public_url": "https://files-cdn.x.ai/xEUU2wOHTHaDiXz77y-n0A/file_b6843ad6-62fb-424b-969e-ec3859de5d68.mp4",
+      "filename": "hermes-xai-video-20260710-120754-03e2f152.mp4"
+    },
+    {
+      "id": "grok-005",
+      "concept": "coin hourglass",
+      "prompt": "Dark premium Cashflow theme cold open, deep green and near-black palette. An hourglass filled with coins instead of sand, coins flowing and accumulating in the bottom chamber while a green glow builds. Cinematic, slow motion, subtle coin clinks and sand-like flow audio, 8 seconds, 720p, native audio ON.",
+      "params": {"aspect_ratio": "16:9", "duration": 8, "resolution": "720p", "audio": true, "model": "grok-imagine-video"},
+      "public_url": "https://files-cdn.x.ai/vtl1nGxvTDK1eX7mzWxWzw/file_dbf6c340-31c0-44d2-991b-fe98f96729c5.mp4",
+      "filename": "hermes-xai-video-20260710-120931-6bb86c53.mp4"
+    },
+    {
+      "id": "grok-006",
+      "concept": "compass needle snapping to a green-lit upward path",
+      "prompt": "Dark premium Cashflow theme cold open, deep green and near-black palette. A compass needle spins wildly then snaps decisively to a glowing green upward path on the dial. Cinematic lighting, sharp motion, subtle metallic click and rising tone audio, 8 seconds, 720p, native audio ON.",
+      "params": {"aspect_ratio": "16:9", "duration": 8, "resolution": "720p", "audio": true, "model": "grok-imagine-video"},
+      "public_url": "https://files-cdn.x.ai/bEXYuGm5SkOQ5q3s0M-q7w/file_65e73f1c-b91d-49b9-9036-1e25d60548a1.mp4",
+      "filename": "hermes-xai-video-20260710-121109-b2a99131.mp4"
+    }
+  ],
+  "veo_ingested": [
+    {
+      "id": "veo-operator-001",
+      "source": "VEO-operator-coin-drop-20260710-INGESTED.mp4",
+      "note": "Operator-supplied Veo sample, already verified ingested per TSKB0064. Included for like-for-like comparison in pick sheet.",
+      "ingest_sidecar": "VEO-operator-coin-drop-20260710-INGESTED.ingest (source/output hashes retained)"
+    }
+  ],
+  "no_cyclone": true,
+  "created": "2026-07-10"
+}

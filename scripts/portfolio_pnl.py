@@ -333,6 +333,35 @@ def main() -> int:
 
     runs_rows = (runs_payload or {}).get("rows", [])
     fin_rows = (fin_payload or {}).get("rows", [])
+
+    # Bounded provenance fix for TSC phantom-wins (TSMC-15659 / TSMC-15657):
+    # Add explicit runId/row dedup guard in reporting path. Fallback-monitor.py
+    # already has idempotent-read retry, but provenance not propagated into
+    # P&L aggregation. Source-of-truth identifiers:
+    # - Runs: heartbeat_runs.id (DISTINCT in listRunsRollup) + (company_id, agent_id) pair
+    # - Finance events: finance_events.id (event_id)
+    # Prevents duplicate/false-positive fallback paths surfacing as phantom wins
+    # in TSC weekly P&L / daily-summary output. No TSC-specific filter added
+    # (would require upstream provenance column); this dedup is the minimal safe
+    # change at the aggregation surface.
+    seen_run_keys = set()
+    dedup_runs = []
+    for r in runs_rows:
+        key = (r.get("company_id"), r.get("agent_id"))
+        if key not in seen_run_keys:
+            seen_run_keys.add(key)
+            dedup_runs.append(r)
+    runs_rows = dedup_runs
+
+    seen_fin_keys = set()
+    dedup_fin = []
+    for r in fin_rows:
+        key = r.get("event_id")
+        if key and key not in seen_fin_keys:
+            seen_fin_keys.add(key)
+            dedup_fin.append(r)
+    fin_rows = dedup_fin
+
     names = company_names(client, company_ids)
 
     title, report = build_report(window, names, runs_rows, fin_rows)

@@ -1,13 +1,13 @@
 ---
-name: polymarket-paper-eval-ops
-description: 'ThinkStack Capital routine operation of the Polymarket live paper-trading harness and crypto paper loops. Use for "Polymarket live paper eval pass (THIA-31)", "Daily Polymarket --resolve calibration dataset update", "Polymarket weekly P&L report", "THIA-15/THIA-17 daily paper-trade health check", or any paper-loop crash/stall recovery. Encodes the eval-script exit-code contract, the THIA-31 re-anchor guard, calibration thresholds, the sample-size gate on P&L claims, and the known supervisor/CancelledError crash modes.'
+name: polymarket-paper-evaluation-ops
+description: 'ThinkStack Capital routine operation of the Polymarket live paper-trading harness and crypto paper loops. Use for "Polymarket live paper evaluation pass (THIA-31)", "Daily Polymarket --resolve calibration dataset update", "Polymarket weekly P&L report", "THIA-15/THIA-17 daily paper-trade health check", or any paper-loop crash/stall recovery. Encodes the evaluation-script exit-code contract, the THIA-31 re-anchor guard, calibration thresholds, the sample-size gate on P&L claims, and the known supervisor/CancelledError crash modes.'
 ---
 
-# Polymarket Paper-Eval Ops
+# Polymarket Paper-Evaluation Ops
 
 ThinkStack Capital's revenue path is evidence: paper-trading evals that prove (or kill) strategies before any live USDC. The recurring work is highly scripted — the value an agent adds is running the contract exactly, reporting the right numbers, and recognizing the known failure modes fast. Domain principles (look-ahead bias, sample size, liquidity asymmetry) are in PolymarketEngineer's AGENTS.md; this skill is the operational layer.
 
-## Hourly eval pass — "Polymarket live paper eval pass (THIA-31)"
+## Hourly evaluation pass — "Polymarket live paper evaluation pass (THIA-31)"
 
 From the project root, run `uv run python scripts/poly_paper_eval.py` and capture stdout/stderr + exit code. State DB: `data/polymarket/live_paper_state.db`; logs in `data/polymarket/`.
 
@@ -46,9 +46,9 @@ THIA-17 (30-day observation) repeatedly tripped `long_active_duration`. Resoluti
 
 ## References
 
-- `references/eval-ops-evidence.md` — canonical comment shapes, the THIA-17 crash-fix history, and the routine issue descriptions of record.
+- The bundled evidence reference file — canonical comment shapes, the THIA-17 crash-fix history, and the routine issue descriptions of record.
 
 
 <!-- TOOLS-2026-06 -->
 ## Local tools
-- Crunch price/market history fast with `duckdb` (SQL over CSV/JSON/parquet). Crypto/exchange data via `ccxt` (`uv run --with ccxt`). See [[crypto-trading-ops]].
+- Crunch price/market history fast with `duckdb` (SQL over CSV/JSON/parquet). Crypto/exchange data via `ccxt` from a workspace dependency or pre-provisioned local environment. See [[crypto-trading-ops]].

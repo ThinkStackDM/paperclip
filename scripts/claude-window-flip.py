@@ -5,7 +5,7 @@ PERMANENTLY on its codex/gpt-5.4 sister — gpt-5.4 ties opus on CEO judgment, s
 no quality; parking it saves the thin Claude sub. opus DOES win CTO, so the claude CTO still gets
 the windowed sprint overlay.) Codex sister stays the 24/7 always-on ops lane (routines live there).
 
-Per company: claude CTO window = [startHour-2, endHour+2] (mod 24).
+Per company: claude CTO window = [startHour, endHour] (window-only; flanks trimmed 2026-07-07).
   CEO: pause claude permanently -> codex sister (gpt-5.4) is primary (claude = resumable fallback).
   CTO: in window -> resume claude (opus);  out window -> pause (codex covers).
   agent with no codex sister -> left on Claude (logged).
@@ -76,8 +76,11 @@ def load_sprints():
     return out
 
 def in_claude_window(h, start, end):
-    cs = (start - 2) % 24
-    ce = (end + 2) % 24
+    # 2026-07-07 operator decision (regime v2): flanks trimmed to ±0 — the CTO
+    # Claude sprint now equals the 10h company window exactly (was ±2h; with 10h
+    # windows the flanked exposure would have been 14h/day/OpCo on the thin sub).
+    cs = start % 24
+    ce = end % 24
     if cs == ce:
         return True
     return (cs <= h < ce) if cs < ce else (h >= cs or h < ce)

@@ -110,6 +110,36 @@ Adding a task = appending one object to a suite's `tasks[]`. Task schema:
 `recommendations.json → roles.<role>.recommendation.pick` is the model to tier
 that role onto; `roles.<role>.grokHeadToHead` carries the 4.3-vs-4.20 result.
 
+## TSBC closeout gate
+
+If a run will feed a TSBC issue, report, catalog row, or rollout decision, the
+benchmark is not complete at `report.md` or `recommendations.json`.
+
+Close it with the TSBC fairness block:
+
+- fairness verdict;
+- evidence depth;
+- run IDs;
+- repetitions per compared cell;
+- low-tail / min-score note;
+- token / cost / runtime note or explicit caveat;
+- scorer lane;
+- scorer calibration status;
+- calibration set;
+- tie-break owner;
+- scorer caveat;
+- reproducibility fingerprint;
+- model/scorer version;
+- environment;
+- records path;
+- suite hash and prompt/system hash (or explicit `not_preserved:<reason>` / `none`);
+- failure-library IDs;
+- next gate.
+
+The TSBC KB keeps the pasteable template, and TSBC-specific probe reports should
+carry this closeout at the end so evaluators do not stop at mean score plus a
+recommendation.
+
 ## Consolidated token usage (`usage.py`)
 
 One command, every lane's token usage in one place — input/output/total per model:

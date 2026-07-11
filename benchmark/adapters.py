@@ -40,6 +40,15 @@ _AGY_SEM = threading.BoundedSemaphore(2)
 
 def run_model(prompt, model_row, adapters_cfg, timeout_sec):
     """Dispatch to the right adapter by model_row['adapter']."""
+    hold = benchlib.first_active_model_hold(model_row)
+    if hold:
+        r = benchlib.empty_result()
+        r["model"] = model_row.get("id") or model_row.get("model_arg")
+        r["error"] = (
+            f"model held by TSBC guard {hold.get('id', 'model-hold')}"
+            + (f" until {hold.get('until')}" if hold.get("until") else "")
+        )
+        return r
     adapter = model_row["adapter"]
     extra = list((adapters_cfg.get(adapter) or {}).get("extra_args", []))
     # per-model reasoning effort (matches how Paperclip's codex adapter runs spark:
