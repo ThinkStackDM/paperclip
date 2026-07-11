@@ -137,6 +137,127 @@ function readStringFromRecord(record: unknown, key: string) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
+const ISSUE_SIMILARITY_MAX_CANDIDATES = 5;
+const ISSUE_SIMILARITY_MIN_TITLE_LENGTH = 8;
+const ISSUE_SIMILARITY_MIN_SCORE = 55;
+const ISSUE_SIMILARITY_MIN_TITLE_SIMILARITY = 0.34;
+const ISSUE_SIMILARITY_MIN_SHARED_TOKENS = 2;
+const ISSUE_SIMILARITY_STOP_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "at",
+  "for",
+  "from",
+  "in",
+  "into",
+  "of",
+  "on",
+  "or",
+  "the",
+  "to",
+  "with",
+]);
+
+function tokenizeIssueSimilarityTitle(title: string): string[] {
+  return Array.from(
+    new Set(
+      title
+        .toLowerCase()
+        .split(/[^a-z0-9]+/g)
+        .map((token) => token.trim())
+        .filter((token) => token.length >= 3 && !ISSUE_SIMILARITY_STOP_WORDS.has(token)),
+    ),
+  );
+}
+
+async function findSimilarActiveIssues(
+  dbOrTx: Db,
+  input: {
+    companyId: string;
+    title: string;
+    excludeIssueId?: string | null;
+    limit?: number;
+  },
+): Promise<SimilarIssueCandidate[]> {
+  const normalizedTitle = input.title.trim().toLowerCase();
+  if (normalizedTitle.length < ISSUE_SIMILARITY_MIN_TITLE_LENGTH) return [];
+
+  const titleTokens = tokenizeIssueSimilarityTitle(normalizedTitle);
+  if (titleTokens.length === 0) return [];
+
+  const tokenArray = sql.raw(
+    `ARRAY[${titleTokens.map((token) => `'${token.replace(/'/g, "''")}'`).join(", ")}]::text[]`,
+  );
+  const sharedTokenCount = sql<number>`
+    (
+      SELECT count(*)::int
+      FROM unnest(${tokenArray}) AS search_token(value)
+      WHERE lower(${issues.title}) LIKE '%' || search_token.value || '%' ESCAPE '\\'
+    )
+  `;
+  const titleSimilarity = sql<number>`similarity(lower(${issues.title}), ${normalizedTitle})`;
+  const exactTitleMatch = sql<boolean>`lower(${issues.title}) = ${normalizedTitle}`;
+  const score = sql<number>`
+    (
+      CASE WHEN ${exactTitleMatch} THEN 140 ELSE 0 END
+      + (${titleSimilarity} * 100)
+      + (${sharedTokenCount} * 14)
+      + CASE WHEN ${issues.status} IN ('todo', 'in_progress', 'in_review', 'blocked', 'backlog') THEN 8 ELSE 0 END
+    )::double precision
+  `;
+
+  const similarityConditions = [
+    eq(issues.companyId, input.companyId),
+    notInArray(issues.status, ["done", "cancelled"]),
+    isNull(issues.hiddenAt),
+    or(
+      exactTitleMatch,
+      sql<boolean>`${titleSimilarity} >= ${ISSUE_SIMILARITY_MIN_TITLE_SIMILARITY}`,
+      sql<boolean>`${sharedTokenCount} >= ${ISSUE_SIMILARITY_MIN_SHARED_TOKENS}`,
+    ),
+  ];
+  if (input.excludeIssueId) similarityConditions.push(ne(issues.id, input.excludeIssueId));
+
+  const rows = await dbOrTx
+    .select({
+      id: issues.id,
+      identifier: issues.identifier,
+      title: issues.title,
+      status: issues.status,
+      priority: issues.priority,
+      updatedAt: issues.updatedAt,
+      titleSimilarity,
+      sharedTokenCount,
+      exactTitleMatch,
+      score,
+    })
+    .from(issues)
+    .where(and(...similarityConditions))
+    .orderBy(desc(score), desc(issues.updatedAt), asc(issues.id))
+    .limit(Math.max(1, Math.min(input.limit ?? ISSUE_SIMILARITY_MAX_CANDIDATES, ISSUE_SIMILARITY_MAX_CANDIDATES)));
+
+  return rows
+    .filter((row) => (row.score ?? 0) >= ISSUE_SIMILARITY_MIN_SCORE)
+    .map((row) => {
+      const candidateTokens = tokenizeIssueSimilarityTitle(row.title);
+      const sharedTokens = titleTokens.filter((token) => candidateTokens.includes(token));
+      return {
+        id: row.id,
+        identifier: row.identifier,
+        title: row.title,
+        status: row.status,
+        priority: row.priority,
+        updatedAt: row.updatedAt,
+        titleSimilarity: Number(row.titleSimilarity ?? 0),
+        sharedTokenCount: Number(row.sharedTokenCount ?? sharedTokens.length),
+        sharedTokens,
+        exactTitleMatch: Boolean(row.exactTitleMatch),
+        score: Number(row.score ?? 0),
+      };
+    });
+}
+
 function buildReusedExecutionWorkspaceConfigPatchFromIssueSettings(
   settings: ReturnType<typeof parseIssueExecutionWorkspaceSettings>,
 ) {
@@ -383,6 +504,7 @@ type DbReader = Pick<Db, "select">;
 type IssueCreateInput = Omit<typeof issues.$inferInsert, "companyId"> & {
   labelIds?: string[];
   blockedByIssueIds?: string[];
+  acknowledgedSimilarIssueIds?: string[];
   inheritExecutionWorkspaceFromIssueId?: string | null;
   watchdog?: { agentId: string; instructions?: string | null } | null;
   watchdogActorRunId?: string | null;
@@ -416,6 +538,19 @@ export type IssueDependencyReadiness = {
   pendingFinalizeBlockerIssueIds: string[];
   allBlockersDone: boolean;
   isDependencyReady: boolean;
+};
+export type SimilarIssueCandidate = {
+  id: string;
+  identifier: string | null;
+  title: string;
+  status: string;
+  priority: string;
+  updatedAt: Date;
+  titleSimilarity: number;
+  sharedTokenCount: number;
+  sharedTokens: string[];
+  exactTitleMatch: boolean;
+  score: number;
 };
 export type ChildIssueCompletionSummary = {
   id: string;
@@ -5316,6 +5451,15 @@ export function issueService(db: Db) {
       });
     },
 
+    findSimilarActive: async (
+      companyId: string,
+      input: {
+        title: string;
+        excludeIssueId?: string | null;
+        limit?: number;
+      },
+    ) => findSimilarActiveIssues(db, { companyId, ...input }),
+
     create: async (
       companyId: string,
       data: IssueCreateInput,
@@ -5323,6 +5467,7 @@ export function issueService(db: Db) {
       const {
         labelIds: inputLabelIds,
         blockedByIssueIds,
+        acknowledgedSimilarIssueIds: _acknowledgedSimilarIssueIds,
         inheritExecutionWorkspaceFromIssueId,
         watchdog,
         watchdogActorRunId,

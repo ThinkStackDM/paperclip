@@ -43,6 +43,8 @@ This starts:
 
 `pnpm dev` and `pnpm dev:once` are now idempotent for the current repo and instance: if the matching Paperclip dev runner is already alive, Paperclip reports the existing process instead of starting a duplicate.
 
+For paused-primary recovery smokes that exercise `POST /api/issues/:id/fallback-reassign`, enable the route before starting the local server by setting `FEATURE_FALLBACK_REASSIGN=on` in `server/.env` (or exporting it in the shell that launches `pnpm dev` / `pnpm dev:once`).
+
 Issue execution may also use project execution workspace policies and workspace runtime services for per-project worktrees, preview servers, and managed dev commands. Configure those through the project workspace/runtime surfaces rather than starting long-running unmanaged processes when a task needs a reusable service.
 
 ## Storybook

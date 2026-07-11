@@ -436,6 +436,7 @@ export function NewIssueDialog() {
   const [dialogCompanyId, setDialogCompanyId] = useState<string | null>(null);
   const [stagedFiles, setStagedFiles] = useState<StagedIssueFile[]>([]);
   const [isFileDragOver, setIsFileDragOver] = useState(false);
+  const [similarCandidatesAcknowledged, setSimilarCandidatesAcknowledged] = useState(false);
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const executionWorkspaceDefaultProjectId = useRef<string | null>(null);
   const initializationKeyRef = useRef<string | null>(null);
@@ -469,6 +470,13 @@ export function NewIssueDialog() {
     queryKey: queryKeys.projects.list(effectiveCompanyId!),
     queryFn: () => projectsApi.list(effectiveCompanyId!),
     enabled: !!effectiveCompanyId && newIssueOpen,
+  });
+  const { data: similarIssuesData } = useQuery({
+    queryKey: effectiveCompanyId && newIssueOpen
+      ? ["issues", effectiveCompanyId, "similar", title.trim()]
+      : ["issues", "none", "similar", ""],
+    queryFn: () => issuesApi.listSimilar(effectiveCompanyId!, { title: title.trim(), limit: 5 }),
+    enabled: Boolean(effectiveCompanyId) && newIssueOpen && title.trim().length >= 8,
   });
   const {
     data: reusableExecutionWorkspaces,
@@ -693,6 +701,7 @@ export function NewIssueDialog() {
     const nextDraftHasText = nextTitleHasText || descriptionRef.current.trim().length > 0;
     setTitleHasText((current) => current === nextTitleHasText ? current : nextTitleHasText);
     setDraftHasText((current) => current === nextDraftHasText ? current : nextDraftHasText);
+    setSimilarCandidatesAcknowledged(false);
     queueDraftSave({ title: nextTitle });
   }, [queueDraftSave]);
 
@@ -933,6 +942,7 @@ export function NewIssueDialog() {
     setDialogCompanyId(null);
     setStagedFiles([]);
     setIsFileDragOver(false);
+    setSimilarCandidatesAcknowledged(false);
     setCompanyOpen(false);
     executionWorkspaceDefaultProjectId.current = null;
     initializationKeyRef.current = null;
@@ -959,6 +969,7 @@ export function NewIssueDialog() {
     setExecutionWorkspaceMode("shared_workspace");
     setSelectedExecutionWorkspaceId("");
     setWorkMode("standard");
+    setSimilarCandidatesAcknowledged(false);
   }
 
   function discardDraft() {
@@ -971,6 +982,10 @@ export function NewIssueDialog() {
     const currentTitle = titleRef.current.trim();
     const currentDescription = descriptionRef.current.trim();
     if (!effectiveCompanyId || !currentTitle || createIssue.isPending) return;
+    if (hasSimilarCandidateGate && !similarCandidatesAcknowledged) {
+      setSimilarCandidatesAcknowledged(true);
+      return;
+    }
     const effectiveLane = assigneeSupportsCheapLane
       ? assigneeModelLane
       : assigneeModelLane === "cheap"
@@ -1023,6 +1038,9 @@ export function NewIssueDialog() {
         : {}),
       ...(executionWorkspaceSettings ? { executionWorkspaceSettings } : {}),
       ...(executionPolicy ? { executionPolicy } : {}),
+      ...(hasSimilarCandidateGate
+        ? { acknowledgedSimilarIssueIds: similarCandidates.map((candidate) => candidate.id) }
+        : {}),
       ...(taskWatchdogsEnabled && watchdogAgentId
         ? { watchdog: { agentId: watchdogAgentId, instructions: watchdogInstructions.trim() || null } }
         : {}),
@@ -1112,6 +1130,8 @@ export function NewIssueDialog() {
     : null;
   const currentAssigneeLowTrust = getTrustPreset(currentAssignee?.permissions) === "low_trust_review";
   const currentProject = orderedProjects.find((project) => project.id === projectId);
+  const similarCandidates = similarIssuesData?.similarCandidates ?? [];
+  const hasSimilarCandidateGate = similarCandidates.length > 0;
   const currentProjectExecutionWorkspacePolicy =
     experimentalSettings?.enableIsolatedWorkspaces === true
       ? currentProject?.executionWorkspacePolicy ?? null
@@ -1377,6 +1397,37 @@ export function NewIssueDialog() {
               onChange={handleTitleChange}
             />
           </div>
+
+          {hasSimilarCandidateGate ? (
+            <div
+              className={cn(
+                "mx-4 mb-2 rounded-md border px-3 py-2 text-xs",
+                similarCandidatesAcknowledged
+                  ? "border-amber-300/70 bg-amber-50/90 text-amber-950 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100"
+                  : "border-orange-300/70 bg-orange-50/90 text-orange-950 dark:border-orange-500/40 dark:bg-orange-500/10 dark:text-orange-100",
+              )}
+            >
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <div className="min-w-0 space-y-1">
+                  <div className="font-medium">
+                    {similarCandidatesAcknowledged
+                      ? "Creating anyway will be logged against these active matches."
+                      : "Similar active tasks exist. Review them before creating a new one."}
+                  </div>
+                  <div className="space-y-1 text-[11px] leading-snug">
+                    {similarCandidates.map((candidate) => (
+                      <div key={candidate.id} className="flex items-center gap-2">
+                        <span className="font-medium">{candidate.identifier ?? candidate.id.slice(0, 8)}</span>
+                        <span className="truncate">{candidate.title}</span>
+                        <span className="shrink-0 opacity-75">{Math.round(candidate.titleSimilarity * 100)}% title</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           <div className="px-4 pb-2">
             <div className="overflow-x-auto overscroll-x-contain">
@@ -2233,7 +2284,15 @@ export function NewIssueDialog() {
             >
               <span className="inline-flex items-center justify-center gap-1.5">
                 {createIssue.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                <span>{createIssue.isPending ? "Creating..." : isSubIssueMode ? "Create Sub-Task" : "Create Task"}</span>
+                <span>
+                  {createIssue.isPending
+                    ? "Creating..."
+                    : hasSimilarCandidateGate && similarCandidatesAcknowledged
+                      ? "Create Anyway"
+                      : isSubIssueMode
+                        ? "Create Sub-Task"
+                        : "Create Task"}
+                </span>
               </span>
             </Button>
           </div>

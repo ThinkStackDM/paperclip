@@ -7,6 +7,7 @@
  *   3. per-company pause (companies.run_pause_state)
  *   4. company activity window / "sprint" (companies.activity_window)
  *   5. per-adapter-type concurrency cap (instance_settings.run_controls.adapterConcurrency)
+ *   6. per-agent hourly run cap (agent.runtimeConfig.heartbeat.maxRunsPerHour)
  *
  * A non-null block means the run must be DEFERRED: left queued, never failed
  * or cancelled. The periodic heartbeat scheduler retries deferred runs, so
@@ -43,7 +44,8 @@ export type RunGateBlockKind =
   | "adapter_family_paused"
   | "company_paused"
   | "outside_activity_window"
-  | "adapter_concurrency_limit";
+  | "adapter_concurrency_limit"
+  | "agent_hourly_limit";
 
 export interface RunGateBlock {
   kind: RunGateBlockKind;
@@ -58,6 +60,8 @@ export interface RunGateAgentContext {
   /** Optional pre-fetched agent fields to avoid a redundant query. */
   adapterType?: string | null;
   agentRuntimeConfig?: Record<string, unknown> | null;
+  /** Optional queued run id being evaluated; excluded from hourly self-counting. */
+  excludeRunId?: string | null;
   /**
    * True when this run was started by a manual operator override (the
    * /heartbeat/invoke or /wakeup endpoints, which stamp triggerDetail "manual").
@@ -108,6 +112,17 @@ function readActiveEmergencyStop(raw: unknown): { mode: string; reason: string |
     mode: candidate.mode,
     reason: typeof candidate.reason === "string" && candidate.reason.length > 0 ? candidate.reason : null,
   };
+}
+
+function readHeartbeatMaxRunsPerHour(runtimeConfig: Record<string, unknown> | null): number | null {
+  const heartbeat = runtimeConfig?.heartbeat;
+  if (!heartbeat || typeof heartbeat !== "object" || Array.isArray(heartbeat)) return null;
+  const value = (heartbeat as Record<string, unknown>).maxRunsPerHour;
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = typeof value === "number" ? value : Number(String(value).trim());
+  if (!Number.isFinite(parsed)) return null;
+  const normalized = Math.floor(parsed);
+  return normalized >= 1 ? normalized : null;
 }
 
 export function normalizeInstanceRunControls(raw: unknown): InstanceRunControls {
@@ -252,6 +267,39 @@ export function runGateService(db: Db) {
     return Number(row?.count ?? 0);
   }
 
+  async function getAgentHourlyRunUsage(
+    agentId: string,
+    now: Date,
+    excludeRunId?: string | null,
+  ): Promise<{ count: number; nextChangeAt: Date | null }> {
+    const cutoff = new Date(now.getTime() - (60 * 60 * 1000));
+    const cutoffIso = cutoff.toISOString();
+    const conditions = [
+      eq(heartbeatRuns.agentId, agentId),
+      sql`${heartbeatRuns.createdAt} >= ${cutoffIso}::timestamptz`,
+    ];
+    if (excludeRunId) {
+      conditions.push(sql`${heartbeatRuns.id} <> ${excludeRunId}`);
+    }
+    const [row] = await db
+      .select({
+        count: sql<number>`count(*)::int`,
+        oldestCreatedAt: sql<Date | null>`min(${heartbeatRuns.createdAt})`,
+      })
+      .from(heartbeatRuns)
+      .where(and(...conditions));
+    const oldestCreatedAt =
+      row?.oldestCreatedAt instanceof Date
+        ? row.oldestCreatedAt
+        : row?.oldestCreatedAt
+          ? new Date(row.oldestCreatedAt)
+          : null;
+    return {
+      count: Number(row?.count ?? 0),
+      nextChangeAt: oldestCreatedAt ? new Date(oldestCreatedAt.getTime() + (60 * 60 * 1000)) : null,
+    };
+  }
+
   async function getRunGateBlock(input: RunGateAgentContext): Promise<RunGateBlock | null> {
     const now = input.now ?? new Date();
 
@@ -330,6 +378,20 @@ export function runGateService(db: Db) {
     }
 
     if (adapterType) {
+      const maxRunsPerHour = readHeartbeatMaxRunsPerHour(runtimeConfig);
+      if (maxRunsPerHour !== null) {
+        const usage = await getAgentHourlyRunUsage(input.agentId, now, input.excludeRunId);
+        if (usage.count >= maxRunsPerHour) {
+          return {
+            kind: "agent_hourly_limit",
+            reason:
+              `Agent has reached its hourly run limit (${usage.count}/${maxRunsPerHour} runs created in the last hour); ` +
+              "run is deferred until the rolling window clears.",
+            nextChangeAt: usage.nextChangeAt,
+          };
+        }
+      }
+
       const cap = resolveAdapterConcurrencyCap(controls, adapterType);
       if (cap !== null) {
         const running = await countRunningRunsForAdapterType(adapterType);

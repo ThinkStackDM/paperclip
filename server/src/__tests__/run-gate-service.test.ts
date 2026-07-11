@@ -18,7 +18,8 @@ import {
  * getRunGateBlock (with adapterType pre-supplied):
  *   1. instance_settings row   -> [{ runControls }]
  *   2. companies gate row      -> [{ id, name, activityWindow, runPauseState, emergencyStopState }]
- *   3. running-run count       -> [{ count }] (only when a concurrency cap applies)
+ *   3. hourly-run usage        -> [{ count, oldestCreatedAt }] (only when maxRunsPerHour applies)
+ *   4. running-run count       -> [{ count }] (only when a concurrency cap applies)
  */
 function createDbStub(results: unknown[][]) {
   const pending = [...results];
@@ -42,6 +43,9 @@ const companyRow = (overrides: Record<string, unknown> = {}) => [
   },
 ];
 const countRow = (count: number) => [{ count }];
+const hourlyUsageRow = (count: number, oldestCreatedAt = new Date("2026-06-11T08:45:00.000Z")) => [
+  { count, oldestCreatedAt },
+];
 
 const DUBLIN_BOOKS_WINDOW = { timezone: "Europe/Dublin", startHour: 0, endHour: 4 };
 // June 2026: Dublin is on IST (UTC+1).
@@ -206,6 +210,22 @@ describe("runGateService.getRunGateBlock", () => {
     });
     expect(block?.kind).toBe("adapter_concurrency_limit");
     expect(block?.reason).toContain("3/3");
+  });
+
+  it("defers runs when runtimeConfig.heartbeat.maxRunsPerHour is reached", async () => {
+    const { db } = createDbStub([
+      instanceRow(),
+      companyRow(),
+      hourlyUsageRow(4, new Date("2026-06-11T08:10:00.000Z")),
+    ]);
+    const block = await runGateService(db).getRunGateBlock({
+      ...baseAgent,
+      agentRuntimeConfig: { heartbeat: { maxRunsPerHour: 4 } },
+      now: new Date("2026-06-11T09:00:00.000Z"),
+    });
+    expect(block?.kind).toBe("agent_hourly_limit");
+    expect(block?.reason).toContain("4/4");
+    expect(block?.nextChangeAt?.toISOString()).toBe("2026-06-11T09:10:00.000Z");
   });
 
   it("defers runs at the default claude_local cap of 3 and respects explicit overrides", async () => {

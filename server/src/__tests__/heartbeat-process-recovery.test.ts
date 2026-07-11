@@ -1997,6 +1997,72 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     expect(activity.some((event) => event.action === "issue.successful_run_handoff_required")).toBe(true);
   });
 
+  it("auto-closes a successful run when a terminal disposition token survives but the final PATCH does not", async () => {
+    const previousEnforce = process.env.PAPERCLIP_DISPOSITION_ENFORCE;
+    delete process.env.PAPERCLIP_DISPOSITION_ENFORCE;
+    try {
+      const { companyId, agentId, runId, issueId } = await seedQueuedIssueRunFixture();
+      mockAdapterExecute.mockImplementationOnce(async (ctx: { runId: string }) => {
+        await db.insert(issueComments).values({
+          companyId,
+          issueId,
+          authorAgentId: agentId,
+          createdByRunId: ctx.runId,
+          body: "Implemented the backend detector and emitted a done disposition, but the final close PATCH timed out.",
+        });
+        return {
+          exitCode: 0,
+          signal: null,
+          timedOut: false,
+          errorMessage: null,
+          summary: "Implemented the backend detector and emitted a done disposition, but the final close PATCH timed out.",
+          resultJson: {
+            disposition: {
+              status: "done",
+              hasBlocker: false,
+            },
+          },
+          provider: "test",
+          model: "test-model",
+        };
+      });
+      const heartbeat = heartbeatService(db);
+
+      await heartbeat.resumeQueuedRuns();
+      await waitForRunToSettle(heartbeat, runId, 5_000);
+      await waitForHeartbeatIdle(db, 5_000);
+
+      const issue = await waitForValue(async () =>
+        db.select().from(issues).where(eq(issues.id, issueId)).then((rows) => {
+          const row = rows[0] ?? null;
+          return row?.status === "done" ? row : null;
+        }), 5_000);
+      expect(issue?.status).toBe("done");
+
+      const handoffWakeups = await db
+        .select()
+        .from(agentWakeupRequests)
+        .where(eq(agentWakeupRequests.agentId, agentId));
+      expect(handoffWakeups.filter((wakeup) => wakeup.reason === "finish_successful_run_handoff")).toHaveLength(0);
+
+      const comments = await db.select().from(issueComments).where(eq(issueComments.issueId, issueId));
+      expect(comments.some((comment) => comment.body === SUCCESSFUL_RUN_HANDOFF_REQUIRED_NOTICE_BODY)).toBe(false);
+
+      const activity = await db
+        .select()
+        .from(activityLog)
+        .where(eq(activityLog.entityId, issueId));
+      const dispositionApplied = activity.find((event) => event.action === "issue.disposition_applied");
+      expect(dispositionApplied?.details).toMatchObject({
+        appliedStatus: "done",
+        sourceRunId: runId,
+      });
+    } finally {
+      if (previousEnforce === undefined) delete process.env.PAPERCLIP_DISPOSITION_ENFORCE;
+      else process.env.PAPERCLIP_DISPOSITION_ENFORCE = previousEnforce;
+    }
+  });
+
   it("requeues a missing-disposition handoff when the previous corrective wake was cancelled", async () => {
     const { companyId, agentId, runId, issueId } = await seedQueuedIssueRunFixture();
     const idempotencyKey = `finish_successful_run_handoff:${issueId}:${runId}:1`;

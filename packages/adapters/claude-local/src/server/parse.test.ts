@@ -3,10 +3,58 @@ import {
   extractClaudeRetryNotBefore,
   isClaudeTransientUpstreamError,
   isClaudePoisonedPreviousMessageIdError,
+  parseClaudeStreamJson,
   isClaudeRefusalResult,
   isClaudeUnknownSessionError,
   isClaudeImageProcessingError,
 } from "./parse.js";
+
+describe("parseClaudeStreamJson", () => {
+  it("extracts usage and cost from the current Claude result payload", () => {
+    const stdout = [
+      JSON.stringify({
+        type: "system",
+        subtype: "init",
+        session_id: "9c65fb02-2db1-4d44-a5c9-49dea7404008",
+        model: "claude-sonnet-4-6",
+      }),
+      JSON.stringify({
+        type: "result",
+        subtype: "success",
+        session_id: "9c65fb02-2db1-4d44-a5c9-49dea7404008",
+        total_cost_usd: 1.3865031,
+        result: "done",
+        usage: {
+          speed: "standard",
+          input_tokens: 13,
+          output_tokens: 6767,
+          cache_read_input_tokens: 1489557,
+          cache_creation_input_tokens: 139682,
+          iterations: [
+            {
+              type: "message",
+              input_tokens: 1,
+              output_tokens: 291,
+              cache_read_input_tokens: 155328,
+            },
+          ],
+        },
+      }),
+    ].join("\n");
+
+    const parsed = parseClaudeStreamJson(stdout);
+
+    expect(parsed.sessionId).toBe("9c65fb02-2db1-4d44-a5c9-49dea7404008");
+    expect(parsed.model).toBe("claude-sonnet-4-6");
+    expect(parsed.costUsd).toBe(1.3865031);
+    expect(parsed.summary).toBe("done");
+    expect(parsed.usage).toEqual({
+      inputTokens: 13,
+      cachedInputTokens: 1489557,
+      outputTokens: 6767,
+    });
+  });
+});
 
 describe("isClaudeTransientUpstreamError", () => {
   it("classifies the 'out of extra usage' subscription window failure as transient", () => {

@@ -96,6 +96,26 @@ async function skippedRequest(db: ReturnType<typeof createDb>, agentId: string, 
     .then((rows) => rows[0] ?? null);
 }
 
+async function seedRecentRun(
+  db: ReturnType<typeof createDb>,
+  companyId: string,
+  agentId: string,
+  createdAt = new Date(),
+) {
+  await db.insert(heartbeatRuns).values({
+    id: randomUUID(),
+    companyId,
+    agentId,
+    invocationSource: "automation",
+    triggerDetail: "system",
+    status: "succeeded",
+    createdAt,
+    startedAt: createdAt,
+    finishedAt: createdAt,
+    updatedAt: createdAt,
+  });
+}
+
 describe("enqueueWakeup dormancy guard", () => {
   let db!: ReturnType<typeof createDb>;
   let tempDb: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>> | null = null;
@@ -256,5 +276,29 @@ describe("enqueueWakeup dormancy guard", () => {
     expect(run).not.toBeNull();
     expect(await countRuns(db, agentId)).toHaveLength(1);
     expect(await skippedRequest(db, agentId, "outside_activity_window")).toBeNull();
+  });
+
+  it("SKIPS a wake when runtimeConfig.heartbeat.maxRunsPerHour is already exhausted", async () => {
+    const heartbeat = heartbeatService(db);
+    const companyId = await seedCompany(db, null);
+    const agentId = await seedAgent(db, companyId, {
+      runtimeConfig: { heartbeat: { maxRunsPerHour: 1 } },
+    });
+    await seedRecentRun(db, companyId, agentId);
+
+    const run = await heartbeat.wakeup(agentId, {
+      source: "automation",
+      triggerDetail: "system",
+      reason: "issue_assigned",
+      requestedByActorType: "system",
+      requestedByActorId: "heartbeat",
+    });
+
+    expect(run).toBeNull();
+    expect(await countRuns(db, agentId)).toHaveLength(1);
+    const skip = await skippedRequest(db, agentId, "max_runs_per_hour");
+    expect(skip).not.toBeNull();
+    expect((skip?.payload as { heartbeatSkip?: { maxRunsPerHour?: number; runsLastHour?: number } } | null)?.heartbeatSkip)
+      .toMatchObject({ maxRunsPerHour: 1, runsLastHour: 1 });
   });
 });

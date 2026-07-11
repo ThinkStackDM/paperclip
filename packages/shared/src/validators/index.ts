@@ -324,6 +324,7 @@ export {
   requestConfirmationIssueDocumentTargetSchema,
   requestConfirmationCustomTargetSchema,
   requestConfirmationTargetSchema,
+  requestConfirmationAutoDefaultPolicySchema,
   requestConfirmationPayloadSchema,
   requestConfirmationResultSchema,
   requiredAskSummarySchema,

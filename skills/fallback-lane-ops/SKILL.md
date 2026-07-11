@@ -11,6 +11,7 @@ Primary agents run on one adapter (usually `claude_local`). When that adapter is
 
 - **Usage limits** in run logs: `You've hit your (session|weekly|daily|5-hour|usage) limit`, with a reset time parsed from "Your limit will reset at <ISO>" or "try again at <clock time>". When no reset time is parseable, assume: session/usage → 6 h, weekly → 7 days.
 - **Adapter auth/model errors**: e.g. Codex CLI under ChatGPT auth rejecting `*-codex` model variants and plain `gpt-5.3` with `400 invalid_request_error: "<model> model is not supported when using Codex with a ChatGPT account"` — a config problem, not a quota problem (see Model repair below).
+- **Adapter-failure storm**: repeated `adapter_failed` on the same sister lane in one review window means the fallback target itself is unhealthy. Treat this as containment work, not as a reason to keep draining more issues into that lane.
 - **Sister in error state**: paused, disabled, archived, suspended, error, or ramp-blocked. Fallback tooling skips these as targets by default.
 
 ## Registry and state schemas
@@ -39,6 +40,15 @@ Manual operator path (`scripts/session-limit-watch.py`) is the fallback only whe
 
 Context handoff: run `fallback-brief.py <issue>` for a low-token restart packet (identity, parent chain, scope snapshot, latest comments, suggested next action); paste key bullets plus one explicit next atomic action for the receiving sister. `--issue-comment --post-comment` posts it directly.
 
+### Storm containment for repeated `adapter_failed`
+
+If the target sister starts failing with `adapter_failed` repeatedly, stop broad fallback movement immediately:
+
+1. Do not run uncapped `--reassign-all` or continuous watch against that sister until the lane passes repair.
+2. Mark the sister unavailable for new intake (pause, ramp-block, or remove it from the active registry path, depending on company tooling).
+3. Repair the lane configuration first: `model-switch.py show`, confirm the auth-compatible preset, then run one dry run and one single-issue apply/swap-back proof before restoring general traffic.
+4. If stranded issues already moved to the bad sister, move them once to the next healthy target or the fallback CTO lane; do not loop them back into the same broken lane.
+
 ## Swap-back (after the reset window)
 
 The `fallback-swap-back` routine reads the per-primary state files and, once `resetAt` has passed, reassigns the moved issues from the sister back to the primary (again skipping issues with active runs), then closes its execution issue with a summary. Manual equivalent: `session-limit-watch.py --swap-back <primaryId> --max-issues 0 --apply --yes --force`. Verify assignment landed back on the primary before closing anything.
@@ -57,6 +67,7 @@ A lane returning from an error state runs in **controlled ramp**:
 - `model-switch.py show|list|set <preset|model-id>` edits the Codex config (`--config`, `$CODEX_CONFIG_PATH`, `$CODEX_HOME/config.toml`, `~/.codex/config.toml`, in that order); every `set` writes a timestamped backup.
 - Verified-working presets under ChatGPT auth: `codex-default`/`general-default` → `gpt-5.5`, `codex-fast` → `gpt-5.4`. Do NOT reintroduce a `-codex` model preset while ChatGPT auth is active — it breaks every `codex_local` sister heartbeat.
 - After a switch, post the handoff note: timestamp, from-model, to-model, reason.
+- After any repeated `adapter_failed` burst, require the single-issue apply/swap-back proof again before resuming uncapped fallback traffic.
 
 ## Escalation
 

@@ -379,6 +379,7 @@ const createIssueBaseSchema = z.object({
   goalId: z.string().uuid().optional().nullable(),
   parentId: z.string().uuid().optional().nullable(),
   blockedByIssueIds: z.array(z.string().uuid()).optional(),
+  acknowledgedSimilarIssueIds: z.array(z.string().uuid()).optional(),
   inheritExecutionWorkspaceFromIssueId: z.string().uuid().optional().nullable(),
   title: z.string().min(1),
   description: multilineTextSchema.optional().nullable(),
@@ -731,6 +732,13 @@ export const requestConfirmationTargetSchema = z.discriminatedUnion("type", [
   requestConfirmationCustomTargetSchema,
 ]);
 
+export const requestConfirmationAutoDefaultPolicySchema = z.object({
+  version: z.literal(1),
+  decisionClass: z.literal("R"),
+  defaultDecision: z.string().trim().min(1).max(500),
+  revertInstructionsMarkdown: z.string().trim().min(1).max(10_000),
+});
+
 export const requestConfirmationPayloadSchema = z.object({
   version: z.literal(1),
   prompt: z.string().trim().min(1).max(1000),
@@ -743,6 +751,7 @@ export const requestConfirmationPayloadSchema = z.object({
   detailsMarkdown: z.string().max(20000).nullable().optional(),
   supersedeOnUserComment: z.boolean().optional(),
   target: requestConfirmationTargetSchema.nullable().optional(),
+  autoDefault: requestConfirmationAutoDefaultPolicySchema.nullable().optional(),
 });
 
 export const requestCheckboxConfirmationOptionSchema = z.object({
@@ -848,15 +857,17 @@ export const requestCheckboxConfirmationPayloadSchema = z.object({
 export const requestConfirmationResultSchema = z.object({
   version: z.literal(1),
   outcome: z.enum(["accepted", "rejected", "superseded_by_comment", "stale_target"]),
+  resolutionSource: z.enum(["auto_default"]).optional(),
   reason: z.string().trim().max(4000).nullable().optional(),
   commentId: z.string().uuid().nullable().optional(),
   staleTarget: requestConfirmationTargetSchema.nullable().optional(),
 });
 
-// Operator asks (request_confirmation / ask_user_questions) MUST carry a summary: a crisp
-// ASK / WHY / ACTION so the board inbox is actionable at a glance and deep-links land on something
-// readable. (suggest_tasks is agent-to-agent and stays optional.) The validator only enforces
-// presence + length; the make-a-skill rule enforces the ASK/WHY/ACTION + user-facing-link quality.
+// Operator asks (request_confirmation / request_checkbox_confirmation / ask_user_questions) MUST
+// carry a summary: a crisp ASK / WHY / ACTION so the board inbox is actionable at a glance and
+// deep-links land on something readable. (suggest_tasks is agent-to-agent and stays optional.)
+// The validator only enforces presence + length; the make-a-skill rule enforces the
+// ASK/WHY/ACTION + user-facing-link quality.
 export const requiredAskSummarySchema = z
   .string()
   .trim()

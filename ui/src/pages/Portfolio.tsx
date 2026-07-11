@@ -507,7 +507,7 @@ export function Portfolio() {
   });
 
   // "Needs you" is driven by the attention model, not raw status — so pending asks
-  // (request_confirmation / ask_user_questions / linked approvals) parked on todo/in_progress
+  // (request_confirmation / request_checkbox_confirmation / ask_user_questions / linked approvals) parked on todo/in_progress
   // issues surface too, not just blocked/in_review rows. The `attention=blocked` endpoint returns
   // ONLY the rows that need a human (lean: ~1.2s / 60KB), each already carrying its attention
   // reason + interaction/approval id for deep-linking. Separate query so the rest of the page
@@ -582,8 +582,9 @@ export function Portfolio() {
         realIssues,
         openCounts,
         // Attention-driven, not status-driven: every issue the server flags as stopped /
-        // awaiting a decision — including pending asks (request_confirmation / ask_user_questions
-        // / linked approvals) that sit on todo or in_progress issues and were invisible before.
+        // awaiting a decision — including pending asks (request_confirmation /
+        // request_checkbox_confirmation / ask_user_questions / linked approvals) that sit on
+        // todo or in_progress issues and were invisible before.
         // Each row already carries its `blockedInboxAttention`. Drop coordination noise so the
         // queue stays human-sized, mirroring the rest of the page.
         needsYou: (attentionIssues ?? []).filter((issue) => !isCoordinationNoiseIssue(issue)),

@@ -36,6 +36,25 @@ export type ResolveRecoveryActionResponse = {
   recoveryAction: IssueRecoveryAction;
 };
 
+export type SimilarIssueCandidate = {
+  id: string;
+  identifier: string | null;
+  title: string;
+  status: string;
+  priority: string;
+  updatedAt: string | Date;
+  titleSimilarity: number;
+  sharedTokenCount: number;
+  sharedTokens: string[];
+  exactTitleMatch: boolean;
+  score: number;
+};
+
+export type CreateIssueResponse = Issue & {
+  similarCandidates?: SimilarIssueCandidate[];
+  ignoredSimilarCandidateCount?: number;
+};
+
 export const issuesApi = {
   list: (
     companyId: string,
@@ -137,8 +156,17 @@ export const issuesApi = {
     api.post<{ id: string; archivedAt: Date }>(`/issues/${id}/inbox-archive`, {}),
   unarchiveFromInbox: (id: string) =>
     api.delete<{ id: string; archivedAt: Date } | { ok: true }>(`/issues/${id}/inbox-archive`),
+  listSimilar: (companyId: string, filters: { title: string; excludeIssueId?: string; limit?: number }) => {
+    const params = new URLSearchParams();
+    params.set("title", filters.title);
+    if (filters.excludeIssueId) params.set("excludeIssueId", filters.excludeIssueId);
+    if (filters.limit) params.set("limit", String(filters.limit));
+    return api.get<{ similarCandidates: SimilarIssueCandidate[] }>(
+      `/companies/${companyId}/issues/similar?${params.toString()}`,
+    );
+  },
   create: (companyId: string, data: Record<string, unknown>) =>
-    api.post<Issue>(`/companies/${companyId}/issues`, data),
+    api.post<CreateIssueResponse>(`/companies/${companyId}/issues`, data),
   update: (id: string, data: Record<string, unknown>) =>
     api.patch<IssueUpdateResponse>(`/issues/${id}`, data),
   resolveRecoveryAction: (

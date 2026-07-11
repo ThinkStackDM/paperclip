@@ -333,6 +333,15 @@ export function formatActivityVerb(
   details?: Record<string, unknown> | null,
   options: ActivityFormatOptions = {},
 ): string {
+  if (
+    action === "issue.created"
+    && details
+    && typeof details.ignoredSimilarCandidateCount === "number"
+    && details.ignoredSimilarCandidateCount > 0
+  ) {
+    const count = details.ignoredSimilarCandidateCount;
+    return `created after reviewing ${count} similar active ${count === 1 ? "task" : "tasks"}`;
+  }
   if (action === "issue.updated") {
     const issueUpdatedVerb = formatIssueUpdatedVerb(details);
     if (issueUpdatedVerb) return issueUpdatedVerb;
@@ -354,6 +363,15 @@ export function formatIssueActivityAction(
   details?: Record<string, unknown> | null,
   options: ActivityFormatOptions = {},
 ): string {
+  if (
+    action === "issue.created"
+    && details
+    && typeof details.ignoredSimilarCandidateCount === "number"
+    && details.ignoredSimilarCandidateCount > 0
+  ) {
+    const count = details.ignoredSimilarCandidateCount;
+    return `created the issue after reviewing ${count} similar active ${count === 1 ? "task" : "tasks"}`;
+  }
   if (action === "issue.updated") {
     const issueUpdatedAction = formatIssueUpdatedAction(details, options);
     if (issueUpdatedAction) return issueUpdatedAction;

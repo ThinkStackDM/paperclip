@@ -5562,6 +5562,21 @@ export function issueRoutes(
     res.json({ ok: true });
   });
 
+  router.get("/companies/:companyId/issues/similar", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const title = typeof req.query.title === "string" ? req.query.title : "";
+    const excludeIssueId = typeof req.query.excludeIssueId === "string" ? req.query.excludeIssueId : null;
+    const limitRaw = typeof req.query.limit === "string" ? Number.parseInt(req.query.limit, 10) : Number.NaN;
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 10)) : 5;
+    const similarCandidates = await svc.findSimilarActive(companyId, {
+      title,
+      excludeIssueId,
+      limit,
+    });
+    res.json({ similarCandidates });
+  });
+
   router.post("/companies/:companyId/issues", applyCreateIssueStatusDefault, validate(createIssueSchema), async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
@@ -5667,6 +5682,16 @@ export function issueRoutes(
       projectId: createBody.projectId ?? null,
       executionPolicy,
     }, actor);
+    const similarCandidates = await svc.findSimilarActive(companyId, {
+      title: String(createBody.title ?? ""),
+      limit: 5,
+    });
+    const acknowledgedSimilarIssueIds = Array.isArray(createBody.acknowledgedSimilarIssueIds)
+      ? createBody.acknowledgedSimilarIssueIds.filter((value): value is string => typeof value === "string" && value.length > 0)
+      : [];
+    const ignoredSimilarCandidateCount = similarCandidates.filter(
+      (candidate) => !acknowledgedSimilarIssueIds.includes(candidate.id),
+    ).length;
     const issue = await svc.create(companyId, {
       ...createBody,
       id: issueId,
@@ -5696,6 +5721,20 @@ export function issueRoutes(
       details: {
         title: issue.title,
         identifier: issue.identifier,
+        ...(similarCandidates.length > 0
+          ? {
+            similarCandidates: similarCandidates.map((candidate) => ({
+              id: candidate.id,
+              identifier: candidate.identifier,
+              title: candidate.title,
+              status: candidate.status,
+              titleSimilarity: Number(candidate.titleSimilarity.toFixed(3)),
+              sharedTokenCount: candidate.sharedTokenCount,
+            })),
+            acknowledgedSimilarIssueIds,
+            ignoredSimilarCandidateCount,
+          }
+          : {}),
         ...(watchdogProductBugFollowUp
           ? {
             watchdogDiscovery: {
@@ -5775,6 +5814,8 @@ export function issueRoutes(
       ...issue,
       relatedWork: referenceSummary,
       referencedIssueIdentifiers: referenceSummary.outbound.map((item) => item.issue.identifier ?? item.issue.id),
+      similarCandidates,
+      ignoredSimilarCandidateCount,
     });
   });
 

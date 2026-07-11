@@ -333,6 +333,7 @@ export type {
   AskUserQuestionsPayload,
   AskUserQuestionsAnswer,
   AskUserQuestionsResult,
+  RequestConfirmationAutoDefaultPolicy,
   RequestConfirmationIssueDocumentTarget,
   RequestConfirmationCustomTarget,
   RequestConfirmationTarget,

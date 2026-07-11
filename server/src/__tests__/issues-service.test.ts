@@ -483,6 +483,28 @@ describeEmbeddedPostgres("issueService.list participantAgentId", () => {
     });
   });
 
+  it("surfaces a similar active issue when the title closely matches an existing active title", async () => {
+    const companyId = await seedAssignableAgentCompany();
+    await svc.create(companyId, {
+      title: "Platform: surface similar ACTIVE issues at creation time",
+      description: null,
+      status: "todo",
+      priority: "high",
+      assigneeAgentId: null,
+    });
+
+    const candidates = await svc.findSimilarActive(companyId, {
+      title: "Platform: surface similar active issues at creation time",
+    });
+
+    expect(candidates).toEqual([
+      expect.objectContaining({
+        title: "Platform: surface similar ACTIVE issues at creation time",
+        exactTitleMatch: true,
+      }),
+    ]);
+  });
+
   it("rejects moving an existing terminated assignment into progress without clearing it", async () => {
     const companyId = await seedAssignableAgentCompany();
     const assigneeAgentId = randomUUID();

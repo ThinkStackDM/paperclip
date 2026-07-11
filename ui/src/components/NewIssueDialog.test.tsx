@@ -46,6 +46,7 @@ const toastState = vi.hoisted(() => ({
 
 const mockIssuesApi = vi.hoisted(() => ({
   create: vi.fn(),
+  listSimilar: vi.fn(),
   upsertDocument: vi.fn(),
   uploadAttachment: vi.fn(),
 }));
@@ -318,6 +319,7 @@ describe("NewIssueDialog", () => {
     dialogContentState.onPointerDownOutside = null;
     toastState.pushToast.mockReset();
     mockIssuesApi.create.mockReset();
+    mockIssuesApi.listSimilar.mockReset();
     mockIssuesApi.upsertDocument.mockReset();
     mockIssuesApi.uploadAttachment.mockReset();
     mockExecutionWorkspacesApi.list.mockReset();
@@ -338,6 +340,7 @@ describe("NewIssueDialog", () => {
     mockAssetsApi.uploadImage.mockResolvedValue({ contentPath: "/uploads/asset.png" });
     mockInstanceSettingsApi.getExperimental.mockResolvedValue({ enableIsolatedWorkspaces: false });
     localStorage.clear();
+    mockIssuesApi.listSimilar.mockResolvedValue({ similarCandidates: [] });
     mockIssuesApi.create.mockResolvedValue({
       id: "issue-2",
       companyId: "company-1",
@@ -486,6 +489,67 @@ describe("NewIssueDialog", () => {
       expect.objectContaining({
         title: "Planned from defaults",
         workMode: "planning",
+      }),
+    );
+
+    act(() => root.unmount());
+  });
+
+  it("requires an explicit second submit when similar active issues are surfaced", async () => {
+    mockIssuesApi.listSimilar.mockResolvedValue({
+      similarCandidates: [
+        {
+          id: "issue-similar-1",
+          identifier: "PAP-88",
+          title: "Surface similar ACTIVE issues at creation time",
+          status: "in_progress",
+          priority: "high",
+          updatedAt: new Date("2026-07-10T10:00:00.000Z"),
+          titleSimilarity: 0.91,
+          sharedTokenCount: 5,
+          sharedTokens: ["surface", "similar", "issues"],
+          exactTitleMatch: false,
+          score: 131,
+        },
+      ],
+    });
+    dialogState.newIssueDefaults = {
+      title: "Surface similar ACTIVE issues at creation time",
+    };
+
+    const { root } = renderDialog(container);
+    await flush();
+
+    await waitForAssertion(() => {
+      expect(container.textContent).toContain("Similar active tasks exist");
+    });
+
+    const submitButton = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("Create Task"));
+    expect(submitButton).not.toBeUndefined();
+
+    await act(async () => {
+      submitButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flush();
+
+    expect(mockIssuesApi.create).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Create Anyway");
+
+    const createAnywayButton = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("Create Anyway"));
+    expect(createAnywayButton).not.toBeUndefined();
+
+    await act(async () => {
+      createAnywayButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flush();
+
+    expect(mockIssuesApi.create).toHaveBeenCalledWith(
+      "company-1",
+      expect.objectContaining({
+        title: "Surface similar ACTIVE issues at creation time",
+        acknowledgedSimilarIssueIds: ["issue-similar-1"],
       }),
     );
 

@@ -801,6 +801,13 @@ export type RequestConfirmationTarget =
   | RequestConfirmationIssueDocumentTarget
   | RequestConfirmationCustomTarget;
 
+export interface RequestConfirmationAutoDefaultPolicy {
+  version: 1;
+  decisionClass: "R";
+  defaultDecision: string;
+  revertInstructionsMarkdown: string;
+}
+
 export interface RequestConfirmationPayload {
   version: 1;
   prompt: string;
@@ -813,6 +820,7 @@ export interface RequestConfirmationPayload {
   detailsMarkdown?: string | null;
   supersedeOnUserComment?: boolean;
   target?: RequestConfirmationTarget | null;
+  autoDefault?: RequestConfirmationAutoDefaultPolicy | null;
 }
 
 export interface RequestCheckboxConfirmationOption {
@@ -842,6 +850,7 @@ export interface RequestCheckboxConfirmationPayload {
 export interface RequestConfirmationResult {
   version: 1;
   outcome: "accepted" | "rejected" | "superseded_by_comment" | "stale_target";
+  resolutionSource?: "auto_default";
   reason?: string | null;
   commentId?: string | null;
   staleTarget?: RequestConfirmationTarget | null;

@@ -9,6 +9,7 @@ const mockLogActivity = vi.hoisted(() => vi.fn(async () => undefined));
 const mockIssueService = vi.hoisted(() => ({
   create: vi.fn(),
   createChild: vi.fn(),
+  findSimilarActive: vi.fn(),
   getById: vi.fn(),
   getByIdentifier: vi.fn(async () => null),
   getComment: vi.fn(),
@@ -167,6 +168,7 @@ function expectClearAssignedStatusValidation(res: request.Response) {
 describe("assigned backlog creation contract", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockIssueService.findSimilarActive.mockResolvedValue([]);
     mockIssueService.getById.mockResolvedValue(makeIssue({
       id: "parent-1",
       title: "Parent issue",
@@ -239,6 +241,50 @@ describe("assigned backlog creation contract", () => {
           statusDefaulted: true,
           statusDefaultReason: "assigned_omitted_status",
           assignmentWakeSkipped: false,
+        }),
+      }),
+    );
+  });
+
+  it("returns similar candidates and logs the ignored-candidate count when creation proceeds anyway", async () => {
+    mockIssueService.findSimilarActive.mockResolvedValue([
+      {
+        id: "issue-similar-1",
+        identifier: "PAP-88",
+        title: "Surface similar ACTIVE issues at creation time",
+        status: "in_progress",
+        priority: "high",
+        updatedAt: new Date("2026-07-10T10:00:00.000Z"),
+        titleSimilarity: 0.91,
+        sharedTokenCount: 5,
+        sharedTokens: ["surface", "similar", "issues"],
+        exactTitleMatch: false,
+        score: 131,
+      },
+    ]);
+
+    const res = await request(await createApp())
+      .post("/api/companies/company-1/issues")
+      .send({
+        title: "Surface similar ACTIVE issues at creation time",
+        acknowledgedSimilarIssueIds: [],
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.similarCandidates).toEqual([
+      expect.objectContaining({
+        id: "issue-similar-1",
+        identifier: "PAP-88",
+      }),
+    ]);
+    expect(res.body.ignoredSimilarCandidateCount).toBe(1);
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "issue.created",
+        details: expect.objectContaining({
+          ignoredSimilarCandidateCount: 1,
+          acknowledgedSimilarIssueIds: [],
         }),
       }),
     );
