@@ -62,7 +62,9 @@ export async function testEnvironment(
     for (const [key, value] of Object.entries(envConfig)) {
       if (typeof value === "string") env[key] = value;
     }
-    const runtimeEnv = ensurePathInEnv({ ...process.env, ...env });
+    // Mirror execute.ts: control-plane DATABASE_URL never reaches adapter processes.
+    const { DATABASE_URL: _controlPlaneDbUrl, ...inheritedEnv } = process.env;
+    const runtimeEnv = ensurePathInEnv({ ...inheritedEnv, ...env });
     try {
       await ensureCommandResolvable(command, cwd, runtimeEnv);
       checks.push({

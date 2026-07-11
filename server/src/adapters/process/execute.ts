@@ -126,7 +126,10 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   ) {
     env.PAPERCLIP_API_KEY = authToken;
   }
-  const runtimeEnv = ensurePathInEnv({ ...process.env, ...env });
+  // Never leak the control-plane DATABASE_URL into agent lanes (2026-06-29 DB wipe);
+  // an agent that needs a DB URL must set it explicitly in its own env config.
+  const { DATABASE_URL: _controlPlaneDbUrl, ...inheritedEnv } = process.env;
+  const runtimeEnv = ensurePathInEnv({ ...inheritedEnv, ...env });
   const resolvedCommand = await resolveCommandForLogs(command, cwd, runtimeEnv);
   const loggedEnv = buildInvocationEnvForLogs(env, {
     runtimeEnv,

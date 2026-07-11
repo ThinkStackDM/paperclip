@@ -247,11 +247,14 @@ export function boardChatRoutes(
       liveBoardChats -= 1;
     };
 
+    // Board-chat claude runs with the server env minus the control-plane
+    // DATABASE_URL (2026-06-29 DB wipe: never inheritable by child processes).
+    const { DATABASE_URL: _controlPlaneDbUrl, ...boardChatEnv } = process.env;
     const proc = spawn("claude", args, {
       stdio: ["pipe", "pipe", "pipe"],
       cwd: "/tmp",
       env: {
-        ...process.env,
+        ...boardChatEnv,
         PAPERCLIP_API_URL: apiUrl,
         PAPERCLIP_COMPANY_ID: companyId,
       },
