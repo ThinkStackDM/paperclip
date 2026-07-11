@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  OPTIONAL safety refresh: regenerate the watcher's flat fallback-registry-*.json
+  from the agent_fallback_sisters DB table once a day. The files only change when
+  the table changes, so this is a no-op on quiet days. Not required — you can also
+  just run `generate.py --write` whenever lane membership changes.
+
+  Install:
+    cp this file to ~/Library/LaunchAgents/com.thinkstack.fallback-registry-gen.plist
+    (edit the <REPO> path below to the absolute path of this checkout)
+    launchctl load ~/Library/LaunchAgents/com.thinkstack.fallback-registry-gen.plist
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.thinkstack.fallback-registry-gen</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string><REPO>/scripts/lane_registry/generate.py</string>
+    <string>--write</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>9</integer>
+    <key>Minute</key><integer>30</integer>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>/Users/glad0s/.paperclip/session-limit-watch-state/logs/fallback-registry-gen.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/glad0s/.paperclip/session-limit-watch-state/logs/fallback-registry-gen.err.log</string>
+</dict>
+</plist>
