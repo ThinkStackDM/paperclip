@@ -25,6 +25,7 @@ export interface Company {
   /** True when company runs are explicitly paused (run pause control). */
   paused: boolean;
   attachmentMaxBytes: number;
+  defaultResponsibleUserId: string | null;
   requireBoardApprovalForNewAgents: boolean;
   feedbackDataSharingEnabled: boolean;
   feedbackDataSharingConsentAt: Date | null;

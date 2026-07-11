@@ -68,6 +68,8 @@ function extractPaperclipDisposition(text: string): {
     cleanedText,
   };
 }
+const CODEX_PROVIDER_QUOTA_RE =
+  /(?:you(?:'|’)ve hit your usage limit|usage limit|model (?:is )?at capacity|at capacity for this model|capacity limit)/i;
 
 export function parseCodexJsonl(stdout: string) {
   let sessionId: string | null = null;
@@ -313,10 +315,18 @@ export function isCodexTransientUpstreamError(input: {
 }): boolean {
   const haystack = buildCodexErrorHaystack(input);
 
-  if (extractCodexRetryNotBefore(input) != null) return true;
+  if (isCodexProviderQuotaError(input)) return false;
   if (!CODEX_TRANSIENT_UPSTREAM_RE.test(haystack)) return false;
   // Keep automatic retries scoped to the observed remote-compaction/high-demand
-  // failure shape, plus explicit usage-limit windows that tell us when retrying
-  // becomes safe again.
+  // failure shape.
   return CODEX_REMOTE_COMPACTION_RE.test(haystack) || /high\s+demand|temporary\s+errors/i.test(haystack);
+}
+
+export function isCodexProviderQuotaError(input: {
+  stdout?: string | null;
+  stderr?: string | null;
+  errorMessage?: string | null;
+}): boolean {
+  const haystack = buildCodexErrorHaystack(input);
+  return CODEX_PROVIDER_QUOTA_RE.test(haystack) || extractCodexRetryNotBefore(input) != null;
 }
