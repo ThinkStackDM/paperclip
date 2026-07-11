@@ -7,6 +7,7 @@ import {
 } from "@paperclipai/shared";
 import {
   isActivityWindowExemptAgent,
+  isConcurrencyExemptAdapterType,
   normalizeInstanceRunControls,
   resolveAdapterConcurrencyCap,
   runGateService,
@@ -18,7 +19,8 @@ import {
  * getRunGateBlock (with adapterType pre-supplied):
  *   1. instance_settings row   -> [{ runControls }]
  *   2. companies gate row      -> [{ id, name, activityWindow, runPauseState, emergencyStopState }]
- *   3. running-run count       -> [{ count }] (only when a concurrency cap applies)
+ *   3. adapter running count   -> [{ count }] (only when an adapter cap applies)
+ *   4. global running count    -> [{ count }]
  */
 function createDbStub(results: unknown[][]) {
   const pending = [...results];
@@ -59,7 +61,7 @@ const baseAgent = {
 
 describe("runGateService.getRunGateBlock", () => {
   it("returns null when nothing is paused, no window is set, and the adapter is under its cap", async () => {
-    const { db } = createDbStub([instanceRow(), companyRow(), countRow(0)]);
+    const { db } = createDbStub([instanceRow(), companyRow(), countRow(0), countRow(0)]);
     const block = await runGateService(db).getRunGateBlock({ ...baseAgent, now: DUBLIN_1030 });
     expect(block).toBeNull();
   });
@@ -82,7 +84,7 @@ describe("runGateService.getRunGateBlock", () => {
     expect(block?.kind).toBe("adapter_family_paused");
     expect(block?.reason).toContain("Max limits hit");
 
-    const { db: db2 } = createDbStub([instanceRow(controls), companyRow(), countRow(0)]);
+    const { db: db2 } = createDbStub([instanceRow(controls), companyRow(), countRow(0), countRow(0)]);
     const other = await runGateService(db2).getRunGateBlock({ ...baseAgent, adapterType: "codex_local" });
     expect(other).toBeNull();
   });
@@ -113,12 +115,14 @@ describe("runGateService.getRunGateBlock", () => {
       instanceRow(),
       companyRow({ emergencyStopState: { mode: "stop_mutation", reason: "done", clearedAt: new Date().toISOString() } }),
       countRow(0),
+      countRow(0),
     ]);
     expect(await runGateService(cleared.db).getRunGateBlock({ ...baseAgent, now: DUBLIN_1030 })).toBeNull();
 
     const recovery = createDbStub([
       instanceRow(),
       companyRow({ emergencyStopState: { mode: "recovery", reason: "recovering" } }),
+      countRow(0),
       countRow(0),
     ]);
     expect(await runGateService(recovery.db).getRunGateBlock({ ...baseAgent, now: DUBLIN_1030 })).toBeNull();
@@ -136,7 +140,7 @@ describe("runGateService.getRunGateBlock", () => {
   });
 
   it("starts runs inside the company activity window", async () => {
-    const { db } = createDbStub([instanceRow(), companyRow({ activityWindow: DUBLIN_BOOKS_WINDOW }), countRow(0)]);
+    const { db } = createDbStub([instanceRow(), companyRow({ activityWindow: DUBLIN_BOOKS_WINDOW }), countRow(0), countRow(0)]);
     const block = await runGateService(db).getRunGateBlock({ ...baseAgent, now: DUBLIN_0230 });
     expect(block).toBeNull();
   });
@@ -149,6 +153,7 @@ describe("runGateService.getRunGateBlock", () => {
     const { db } = createDbStub([
       instanceRow(),
       companyRow({ activityWindow: DUBLIN_BOOKS_WINDOW }),
+      countRow(0),
       countRow(0),
     ]);
     const block = await runGateService(db).getRunGateBlock({
@@ -177,7 +182,7 @@ describe("runGateService.getRunGateBlock", () => {
 
   it("handles wrap-past-midnight windows (Recruitment 20:00-00:00)", async () => {
     const window = { timezone: "Europe/Dublin", startHour: 20, endHour: 0 };
-    const open = createDbStub([instanceRow(), companyRow({ activityWindow: window }), countRow(0)]);
+    const open = createDbStub([instanceRow(), companyRow({ activityWindow: window }), countRow(0), countRow(0)]);
     expect(await runGateService(open.db).getRunGateBlock({ ...baseAgent, now: DUBLIN_2100 })).toBeNull();
 
     const closed = createDbStub([instanceRow(), companyRow({ activityWindow: window })]);
@@ -185,15 +190,15 @@ describe("runGateService.getRunGateBlock", () => {
     expect(block?.kind).toBe("outside_activity_window");
   });
 
-  it("exempts paperclip_shell_handler from windows and concurrency", async () => {
-    const { db, select } = createDbStub([instanceRow(), companyRow({ activityWindow: DUBLIN_BOOKS_WINDOW })]);
+  it("exempts paperclip_shell_handler from windows and both concurrency caps", async () => {
+    const { db, select } = createDbStub([instanceRow({ globalConcurrency: 1 }), companyRow({ activityWindow: DUBLIN_BOOKS_WINDOW })]);
     const block = await runGateService(db).getRunGateBlock({
       ...baseAgent,
       adapterType: "paperclip_shell_handler",
       now: DUBLIN_1030,
     });
     expect(block).toBeNull();
-    // Instance settings + company row only — no concurrency count query.
+    // Instance settings + company row. Exempt adapters do not hit either concurrency-count query.
     expect(select).toHaveBeenCalledTimes(2);
   });
 
@@ -217,8 +222,21 @@ describe("runGateService.getRunGateBlock", () => {
       instanceRow({ adapterConcurrency: { claude_local: 5 } }),
       companyRow(),
       countRow(3),
+      countRow(0),
     ]);
     expect(await runGateService(raised.db).getRunGateBlock(baseAgent)).toBeNull();
+  });
+
+  it("defers runs when the instance-level global concurrency cap is full", async () => {
+    const { db } = createDbStub([
+      instanceRow({ globalConcurrency: 2 }),
+      companyRow(),
+      countRow(1),
+      countRow(2),
+    ]);
+    const block = await runGateService(db).getRunGateBlock(baseAgent);
+    expect(block?.kind).toBe("global_concurrency_limit");
+    expect(block?.reason).toContain("2/2");
   });
 
   it("caps unknown adapter types at the default of 2", async () => {
@@ -233,6 +251,7 @@ describe("runGateService.getRunGateBlock", () => {
       [{ adapterType: "paperclip_shell_handler", runtimeConfig: {} }],
       instanceRow(),
       companyRow({ activityWindow: DUBLIN_BOOKS_WINDOW }),
+      countRow(0),
     ]);
     const block = await runGateService(db).getRunGateBlock({
       companyId: "company-1",
@@ -256,6 +275,7 @@ describe("run gate helpers", () => {
     expect(controls.adapterConcurrency.bogus).toBeUndefined();
     expect(controls.adapterPauses.codex_local?.reason).toBe("limit");
     expect(controls.adapterPauses.junk).toBeUndefined();
+    expect(controls.globalConcurrency).toBe(20);
     expect(controls.pauseAll).toBeNull();
   });
 
@@ -265,6 +285,12 @@ describe("run gate helpers", () => {
     expect(resolveAdapterConcurrencyCap(controls, "claude_local")).toBe(3);
     expect(resolveAdapterConcurrencyCap(controls, "codex_local")).toBe(3);
     expect(resolveAdapterConcurrencyCap(controls, "gemini_local")).toBe(2);
+  });
+
+  it("isConcurrencyExemptAdapterType matches the documented exemption set", () => {
+    expect(isConcurrencyExemptAdapterType("paperclip_shell_handler")).toBe(true);
+    expect(isConcurrencyExemptAdapterType("claude_local")).toBe(false);
+    expect(isConcurrencyExemptAdapterType(null)).toBe(false);
   });
 
   it("isActivityWindowExemptAgent honors adapter type and runtimeConfig flag", () => {

@@ -7,6 +7,7 @@
  *   3. per-company pause (companies.run_pause_state)
  *   4. company activity window / "sprint" (companies.activity_window)
  *   5. per-adapter-type concurrency cap (instance_settings.run_controls.adapterConcurrency)
+ *   6. instance-wide global concurrency cap (instance_settings.run_controls.globalConcurrency)
  *
  * A non-null block means the run must be DEFERRED: left queued, never failed
  * or cancelled. The periodic heartbeat scheduler retries deferred runs, so
@@ -24,6 +25,7 @@ import {
   ACTIVITY_WINDOW_EXEMPT_ADAPTER_TYPES,
   CONCURRENCY_EXEMPT_ADAPTER_TYPES,
   DEFAULT_ADAPTER_CONCURRENCY,
+  DEFAULT_GLOBAL_CONCURRENCY,
   IGNORE_ACTIVITY_WINDOW_RUNTIME_CONFIG_KEY,
   formatActivityWindowOpensAt,
   getActivityWindowState,
@@ -43,7 +45,8 @@ export type RunGateBlockKind =
   | "adapter_family_paused"
   | "company_paused"
   | "outside_activity_window"
-  | "adapter_concurrency_limit";
+  | "adapter_concurrency_limit"
+  | "global_concurrency_limit";
 
 export interface RunGateBlock {
   kind: RunGateBlockKind;
@@ -155,6 +158,15 @@ export function normalizeInstanceRunControls(raw: unknown): InstanceRunControls 
     adapterPauses,
     adapterConcurrency,
     adapterDailyRunBudgets,
+    globalConcurrency:
+      (
+        typeof candidate.globalConcurrency === "number"
+        && Number.isInteger(candidate.globalConcurrency)
+        && candidate.globalConcurrency >= 1
+        && candidate.globalConcurrency <= 100
+      )
+        ? candidate.globalConcurrency
+        : DEFAULT_GLOBAL_CONCURRENCY,
   };
 }
 
@@ -162,11 +174,15 @@ export function resolveAdapterConcurrencyCap(
   controls: InstanceRunControls,
   adapterType: string,
 ): number | null {
-  if ((CONCURRENCY_EXEMPT_ADAPTER_TYPES as readonly string[]).includes(adapterType)) return null;
+  if (isConcurrencyExemptAdapterType(adapterType)) return null;
   const explicit = controls.adapterConcurrency[adapterType];
   if (typeof explicit === "number") return explicit;
   const fallback = controls.adapterConcurrency.default;
   return typeof fallback === "number" ? fallback : null;
+}
+
+export function isConcurrencyExemptAdapterType(adapterType: string | null | undefined): boolean {
+  return !!adapterType && (CONCURRENCY_EXEMPT_ADAPTER_TYPES as readonly string[]).includes(adapterType);
 }
 
 export function isActivityWindowExemptAgent(input: {
@@ -272,6 +288,14 @@ export function runGateService(db: Db) {
     return Number(row?.count ?? 0);
   }
 
+  async function countRunningRunsGlobal(): Promise<number> {
+    const [row] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(heartbeatRuns)
+      .where(eq(heartbeatRuns.status, "running"));
+    return Number(row?.count ?? 0);
+  }
+
   async function getRunGateBlock(input: RunGateAgentContext): Promise<RunGateBlock | null> {
     const now = input.now ?? new Date();
 
@@ -360,6 +384,19 @@ export function runGateService(db: Db) {
             nextChangeAt: null,
           };
         }
+      }
+    }
+
+    if (!isConcurrencyExemptAdapterType(adapterType)) {
+      const runningGlobal = await countRunningRunsGlobal();
+      if (runningGlobal >= controls.globalConcurrency) {
+        return {
+          kind: "global_concurrency_limit",
+          reason:
+            `Instance is at its global concurrency limit `
+            + `(${runningGlobal}/${controls.globalConcurrency} running); run is deferred until a slot frees up.`,
+          nextChangeAt: null,
+        };
       }
     }
 

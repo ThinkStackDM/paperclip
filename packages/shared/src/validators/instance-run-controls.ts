@@ -21,7 +21,8 @@ export const patchInstanceAdapterConcurrencySchema = z.object({
   adapterConcurrency: z.record(
     adapterTypeSchema,
     z.number().int().min(1).max(50).nullable(),
-  ),
+  ).optional(),
+  globalConcurrency: z.number().int().min(1).max(100).nullable().optional(),
 }).strict();
 
 export const patchInstanceAdapterDailyRunBudgetsSchema = z.object({

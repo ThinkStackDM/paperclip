@@ -1404,6 +1404,38 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     expect((await heartbeat.getRun(runId))?.status).toBe("queued");
   });
 
+  it("leaves a concurrency-throttled queued run alone while its backoff is still active", async () => {
+    const { runId, agentId } = await seedRunFixture({
+      runStatus: "queued",
+      agentStatus: "idle",
+      includeIssue: false,
+    });
+    await db
+      .update(agents)
+      .set({ runtimeConfig: { ignoreActivityWindow: true } })
+      .where(eq(agents.id, agentId));
+    await db
+      .update(heartbeatRuns)
+      .set({
+        resultJson: {
+          retryNotBefore: new Date(Date.now() + 2 * 86_400_000).toISOString(),
+          runGateThrottle: {
+            kind: "global_concurrency_limit",
+            attempt: 2,
+          },
+        },
+      })
+      .where(eq(heartbeatRuns.id, runId));
+    const heartbeat = heartbeatService(db);
+
+    const result = await heartbeat.reapStaleQueuedRuns({
+      staleMs: 60_000,
+      now: new Date(Date.now() + 86_400_000),
+    });
+    expect(result.reaped).toBe(0);
+    expect((await heartbeat.getRun(runId))?.status).toBe("queued");
+  });
+
   it("reapOrphanedWakeups cancels wakeups for done/cancelled issues and leaves open-issue + no-issue wakeups alone", async () => {
     const companyId = randomUUID();
     const agentId = randomUUID();

@@ -206,6 +206,7 @@ import {
 } from "@paperclipai/adapter-utils/server-utils";
 import { extractSkillMentionIds, isUuidLike } from "@paperclipai/shared";
 import { environmentService } from "./environments.js";
+import { buildRoundRobinQueuedAgentOrder } from "./queued-run-fairness.js";
 import { parseExecutionPolicyBootstrapEnv } from "./execution-policy-bootstrap.js";
 import { environmentRuntimeService } from "./environment-runtime.js";
 import { skillVersionSelectionMap } from "./runtime-skill-selections.js";
@@ -8843,6 +8844,51 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     return Number(count ?? 0);
   }
 
+  const RUN_GATE_CONCURRENCY_BACKOFF_MS = [5_000, 10_000, 20_000, 30_000, 60_000] as const;
+
+  function isConcurrencyRunGateBlockKind(kind: string): kind is "adapter_concurrency_limit" | "global_concurrency_limit" {
+    return kind === "adapter_concurrency_limit" || kind === "global_concurrency_limit";
+  }
+
+  function getRunGateThrottleState(resultJson: unknown) {
+    const parsed = parseObject(resultJson);
+    const throttle = parseObject(parsed.runGateThrottle);
+    return {
+      resultJson: parsed,
+      attempt: countValue(throttle.attempt),
+      retryNotBefore: dateValue(parsed.retryNotBefore),
+    };
+  }
+
+  async function markQueuedRunDeferredByGate(
+    run: typeof heartbeatRuns.$inferSelect,
+    block: { kind: string; reason: string },
+    now: Date,
+  ) {
+    if (!isConcurrencyRunGateBlockKind(block.kind)) return;
+    const throttle = getRunGateThrottleState(run.resultJson);
+    const nextAttempt = Math.min(throttle.attempt + 1, RUN_GATE_CONCURRENCY_BACKOFF_MS.length);
+    const delayMs = RUN_GATE_CONCURRENCY_BACKOFF_MS[nextAttempt - 1] ?? RUN_GATE_CONCURRENCY_BACKOFF_MS.at(-1)!;
+    const retryNotBefore = new Date(now.getTime() + delayMs);
+    await db
+      .update(heartbeatRuns)
+      .set({
+        resultJson: {
+          ...throttle.resultJson,
+          retryNotBefore: retryNotBefore.toISOString(),
+          runGateThrottle: {
+            kind: block.kind,
+            reason: block.reason,
+            attempt: nextAttempt,
+            deferredAt: now.toISOString(),
+            retryNotBefore: retryNotBefore.toISOString(),
+          },
+        },
+        updatedAt: now,
+      })
+      .where(and(eq(heartbeatRuns.id, run.id), eq(heartbeatRuns.status, "queued")));
+  }
+
   async function claimQueuedRun(run: typeof heartbeatRuns.$inferSelect, companyAgents?: AgentOrgRow[]) {
     if (run.status !== "queued") return run;
     const agent = await getAgent(run.agentId);
@@ -8855,6 +8901,12 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       : await getAgentInvokability(agent);
     if (!invokability.invokable) {
       await cancelRunInternal(run.id, `Cancelled because the agent is not invokable: ${invokability.reason}`);
+      return null;
+    }
+
+    const now = new Date();
+    const throttleState = getRunGateThrottleState(run.resultJson);
+    if (throttleState.retryNotBefore && throttleState.retryNotBefore.getTime() > now.getTime()) {
       return null;
     }
 
@@ -8873,8 +8925,10 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       adapterType: agent.adapterType,
       agentRuntimeConfig: parseObject(agent.runtimeConfig),
       isManualOverride,
+      now,
     });
     if (runGateBlock) {
+      await markQueuedRunDeferredByGate(run, runGateBlock, now);
       logger.debug(
         { runId: run.id, agentId: run.agentId, kind: runGateBlock.kind, reason: runGateBlock.reason },
         "claimQueuedRun: run deferred by run gate",
@@ -8968,6 +9022,11 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       .set({
         status: "running",
         startedAt: run.startedAt ?? claimedAt,
+        resultJson: {
+          ...throttleState.resultJson,
+          retryNotBefore: null,
+          runGateThrottle: null,
+        },
         updatedAt: claimedAt,
       })
       .where(and(eq(heartbeatRuns.id, run.id), eq(heartbeatRuns.status, "queued")))
@@ -9703,7 +9762,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       });
 
       await finalizeAgentStatus(run.agentId, "failed", baseMessage);
-      await startNextQueuedRunForAgent(run.agentId);
+      await resumeQueuedRuns();
       runningProcesses.delete(run.id);
       reaped.push(run.id);
     }
@@ -9909,17 +9968,36 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
 
   async function resumeQueuedRuns() {
     const queuedRuns = await db
-      .select({ agentId: heartbeatRuns.agentId })
+      .select({
+        companyId: heartbeatRuns.companyId,
+        agentId: heartbeatRuns.agentId,
+        createdAt: heartbeatRuns.createdAt,
+        runId: heartbeatRuns.id,
+      })
       .from(heartbeatRuns)
       .innerJoin(companies, eq(companies.id, heartbeatRuns.companyId))
       .where(and(
         eq(heartbeatRuns.status, "queued"),
         eq(companies.status, "active"),
-      ));
+      ))
+      .orderBy(asc(heartbeatRuns.createdAt), asc(heartbeatRuns.id));
 
-    const agentIds = [...new Set(queuedRuns.map((r) => r.agentId))];
-    for (const agentId of agentIds) {
-      await startNextQueuedRunForAgent(agentId);
+    const orderedAgentIds = buildRoundRobinQueuedAgentOrder(
+      queuedRuns.map((queuedRun) => ({
+        companyId: queuedRun.companyId,
+        agentId: queuedRun.agentId,
+      })),
+    );
+
+    while (true) {
+      let attempted = false;
+      let claimedAny = false;
+      for (const agentId of orderedAgentIds) {
+        attempted = true;
+        const claimed = await startNextQueuedRunForAgent(agentId, { maxClaims: 1 });
+        if (claimed.length > 0) claimedAny = true;
+      }
+      if (!attempted || !claimedAny) break;
     }
   }
 
@@ -10271,7 +10349,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     }
   }
 
-  async function startNextQueuedRunForAgent(agentId: string) {
+  async function startNextQueuedRunForAgent(agentId: string, opts?: { maxClaims?: number }) {
     return withAgentStartLock(agentId, async () => {
       const agent = await getAgent(agentId);
       if (!agent) return [];
@@ -10286,6 +10364,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       const runningCount = await countRunningRunsForAgent(agentId);
       const availableSlots = Math.max(0, policy.maxConcurrentRuns - runningCount);
       if (availableSlots <= 0) return [];
+      const claimLimit = Math.max(1, Math.min(availableSlots, opts?.maxClaims ?? availableSlots));
 
       const queuedRuns = await db
         .select()
@@ -10334,7 +10413,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
 
       const claimedRuns: Array<typeof heartbeatRuns.$inferSelect> = [];
       for (const queuedRun of prioritizedRuns) {
-        if (claimedRuns.length >= availableSlots) break;
+        if (claimedRuns.length >= claimLimit) break;
         const claimed = await claimQueuedRun(queuedRun, companyAgents);
         if (claimed) claimedRuns.push(claimed);
       }
@@ -12428,7 +12507,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
           });
           await releaseRuntimeServicesForRun(run.id).catch(() => undefined);
           activeRunExecutions.delete(run.id);
-          await startNextQueuedRunForAgent(run.agentId);
+          await resumeQueuedRuns();
         }
   }
 
@@ -14313,7 +14392,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     }
 
     await finalizeAgentStatus(run.agentId, "cancelled");
-    await startNextQueuedRunForAgent(run.agentId);
+    await resumeQueuedRuns();
     return cancelled;
   }
 
