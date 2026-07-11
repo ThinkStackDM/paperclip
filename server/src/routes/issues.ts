@@ -339,7 +339,7 @@ async function resolveServedBranchRef() {
     const resolved = stdout.trim();
     if (resolved) return resolved;
   } catch {}
-  for (const candidate of ["origin/master", "origin/main", "master", "main", "HEAD"]) {
+  for (const candidate of ["origin/live", "live", "origin/master", "origin/main", "master", "main", "HEAD"]) {
     try {
       await execFile("git", ["rev-parse", "--verify", candidate], { cwd: process.cwd() });
       return candidate;

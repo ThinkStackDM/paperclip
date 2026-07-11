@@ -683,7 +683,7 @@ describe("issue execution policy routes", () => {
 
   it("rejects a platform-class done transition when the verification commit is not on the served branch", async () => {
     const previousServedRef = process.env.PAPERCLIP_SERVED_BRANCH_REF;
-    process.env.PAPERCLIP_SERVED_BRANCH_REF = "origin/master";
+    process.env.PAPERCLIP_SERVED_BRANCH_REF = "origin/live";
     try {
       const issue = {
         id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
@@ -699,7 +699,7 @@ describe("issue execution policy routes", () => {
         executionState: null,
         labels: [{ name: "platform" }],
       };
-      const servedTree = execFileSync("git", ["rev-parse", "origin/master^{tree}"], {
+      const servedTree = execFileSync("git", ["rev-parse", "origin/live^{tree}"], {
         cwd: process.cwd(),
         encoding: "utf8",
       }).trim();
@@ -727,7 +727,7 @@ describe("issue execution policy routes", () => {
       expect(res.status).toBe(422);
       expect(res.body.details).toMatchObject({
         code: "commit_not_on_served_branch",
-        servedRef: "origin/master",
+        servedRef: "origin/live",
       });
       expect(mockIssueService.update).not.toHaveBeenCalled();
     } finally {
