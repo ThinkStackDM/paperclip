@@ -2209,6 +2209,75 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     expect(activity.some((event) => event.action === "issue.successful_run_handoff_required")).toBe(false);
   });
 
+  it("blocks a quota-dead missing_issue_comment wake without scheduling another follow-up run", async () => {
+    const { companyId, agentId, runId, issueId } = await seedQueuedIssueRunFixture();
+    await db
+      .update(heartbeatRuns)
+      .set({
+        contextSnapshot: {
+          issueId,
+          taskId: issueId,
+          wakeReason: "missing_issue_comment",
+        },
+      })
+      .where(eq(heartbeatRuns.id, runId));
+    await db
+      .update(agentWakeupRequests)
+      .set({
+        source: "comment",
+        triggerDetail: "manual",
+        reason: "missing_issue_comment",
+      })
+      .where(eq(agentWakeupRequests.runId, runId));
+    mockAdapterExecute.mockResolvedValueOnce({
+      exitCode: 1,
+      signal: null,
+      timedOut: false,
+      errorMessage: "Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 5h 30m 10s.",
+      errorCode: "gemini_quota_exhausted",
+      resultJson: {
+        quotaFailure: {
+          provider: "gemini",
+          matchedLine: "Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 5h 30m 10s.",
+          resetAt: "2099-03-19T05:30:10.000Z",
+        },
+        resetAt: "2099-03-19T05:30:10.000Z",
+      },
+      provider: "google",
+      biller: "google",
+      model: "gemini-2.5-pro",
+    });
+    const heartbeat = heartbeatService(db);
+
+    await heartbeat.resumeQueuedRuns();
+    await waitForRunToSettle(heartbeat, runId, 5_000);
+    await waitForHeartbeatIdle(db, 5_000);
+
+    const issue = await db.select().from(issues).where(eq(issues.id, issueId)).then((rows) => rows[0] ?? null);
+    expect(issue?.status).toBe("in_progress");
+
+    const followupRuns = await db
+      .select()
+      .from(heartbeatRuns)
+      .where(and(eq(heartbeatRuns.companyId, companyId), eq(heartbeatRuns.agentId, agentId)));
+    expect(followupRuns).toHaveLength(1);
+    expect(followupRuns[0]?.id).toBe(runId);
+
+    const liveWakeups = await db
+      .select()
+      .from(agentWakeupRequests)
+      .where(and(eq(agentWakeupRequests.companyId, companyId), inArray(agentWakeupRequests.status, ["queued", "deferred_issue_execution"])));
+    expect(liveWakeups).toHaveLength(0);
+
+    const settledRun = await db
+      .select()
+      .from(heartbeatRuns)
+      .where(eq(heartbeatRuns.id, runId))
+      .then((rows) => rows[0] ?? null);
+    expect(settledRun?.status).toBe("failed");
+    expect(settledRun?.errorCode).toBe("gemini_quota_exhausted");
+  });
+
   it("requeues a missing-disposition handoff when the previous corrective wake was cancelled", async () => {
     const { companyId, agentId, runId, issueId } = await seedQueuedIssueRunFixture();
     const idempotencyKey = `finish_successful_run_handoff:${issueId}:${runId}:1`;
@@ -2370,6 +2439,107 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
       .from(issues)
       .where(and(eq(issues.companyId, companyId), eq(issues.originKind, "stranded_issue_recovery")));
     expect(recoveryIssues).toHaveLength(0);
+  });
+
+  it("cancels a deferred missing_issue_comment wake instead of promoting issue_execution_promoted after quota exhaustion", async () => {
+    const { companyId, agentId, runId, issueId } = await seedQueuedIssueRunFixture();
+    const deferredWakeupId = randomUUID();
+    const commentId = randomUUID();
+    await db.insert(agentWakeupRequests).values({
+      id: deferredWakeupId,
+      companyId,
+      agentId,
+      source: "comment",
+      triggerDetail: "manual",
+      reason: "missing_issue_comment",
+      payload: {
+        issueId,
+        _paperclipWakeContext: {
+          issueId,
+          taskId: issueId,
+          wakeReason: "missing_issue_comment",
+          commentId,
+        },
+      },
+      status: "deferred_issue_execution",
+      requestedByActorType: "system",
+      requestedByActorId: null,
+    });
+    const quotaFailureResult = {
+      exitCode: 1,
+      signal: null,
+      timedOut: false,
+      errorMessage: "Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 1h 5m 0s.",
+      errorCode: "antigravity_quota_exhausted",
+      resultJson: {
+        stderr: "Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 1h 5m 0s.",
+        quotaFailure: {
+          provider: "antigravity",
+          matchedLine: "Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 1h 5m 0s.",
+          resetAt: "2099-03-19T01:05:00.000Z",
+        },
+        resetAt: "2099-03-19T01:05:00.000Z",
+      },
+      provider: "google",
+      biller: "antigravity",
+      model: "antigravity",
+    } as const;
+    mockAdapterExecute
+      .mockResolvedValueOnce(quotaFailureResult)
+      .mockResolvedValueOnce(quotaFailureResult);
+    const heartbeat = heartbeatService(db);
+
+    await heartbeat.resumeQueuedRuns();
+    await waitForRunToSettle(heartbeat, runId, 5_000);
+    await waitForHeartbeatIdle(db, 5_000);
+
+    const issue = await db.select().from(issues).where(eq(issues.id, issueId)).then((rows) => rows[0] ?? null);
+    expect(issue?.status).toBe("in_progress");
+
+    const deferredWake = await db
+      .select()
+      .from(agentWakeupRequests)
+      .where(eq(agentWakeupRequests.id, deferredWakeupId))
+      .then((rows) => rows[0] ?? null);
+
+    const promotedRuns = await db
+      .select()
+      .from(heartbeatRuns)
+      .where(
+        and(
+          eq(heartbeatRuns.companyId, companyId),
+          eq(heartbeatRuns.agentId, agentId),
+        ),
+      );
+    expect(promotedRuns.length).toBeLessThanOrEqual(2);
+    expect(promotedRuns.some((row) => row.id === runId)).toBe(true);
+    if (deferredWake?.runId) {
+      const followupRun = promotedRuns.find((row) => row.id === deferredWake.runId) ?? null;
+      expect(followupRun).not.toBeNull();
+      expect(followupRun?.status).toBe("failed");
+      expect(followupRun?.errorCode).toBe("antigravity_quota_exhausted");
+    } else {
+      expect(["deferred_issue_execution", "cancelled"]).toContain(deferredWake?.status ?? "");
+    }
+
+    const queuedWakeups = await db
+      .select()
+      .from(agentWakeupRequests)
+      .where(
+        and(
+          eq(agentWakeupRequests.companyId, companyId),
+          eq(agentWakeupRequests.status, "queued"),
+        ),
+      );
+    expect(queuedWakeups).toHaveLength(0);
+
+    const settledRun = await db
+      .select()
+      .from(heartbeatRuns)
+      .where(eq(heartbeatRuns.id, runId))
+      .then((rows) => rows[0] ?? null);
+    expect(settledRun?.status).toBe("failed");
+    expect(settledRun?.errorCode).toBe("antigravity_quota_exhausted");
   });
 
   it("redacts secret-bearing successful-run detected progress before handoff disclosure", async () => {
