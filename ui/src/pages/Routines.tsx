@@ -278,6 +278,7 @@ export function Routines() {
     queryFn: () => heartbeatsApi.liveRunsForCompany(selectedCompanyId!),
     enabled: !!selectedCompanyId && activeTab === "runs",
     refetchInterval: 5000,
+    retry: false,
   });
 
   useEffect(() => {

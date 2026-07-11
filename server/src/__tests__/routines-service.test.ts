@@ -2249,6 +2249,92 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     expect(after?.completedAt?.getTime()).toBe(completedAt.getTime());
   });
 
+  it("auto-hides a clean no-op routine execution issue when it closes done", async () => {
+    const { companyId, issueSvc, routine, svc } = await seedFixture();
+    const issue = await issueSvc.create(companyId, {
+      projectId: routine.projectId,
+      title: routine.title,
+      description: routine.description,
+      status: "done",
+      priority: routine.priority,
+      assigneeAgentId: routine.assigneeAgentId,
+      originKind: "routine_execution",
+      originId: routine.id,
+      originRunId: randomUUID(),
+    });
+
+    await db.insert(routineRuns).values({
+      id: issue.originRunId!,
+      companyId,
+      routineId: routine.id,
+      triggerId: null,
+      source: "manual",
+      status: "completed",
+      failureReason: null,
+      triggeredAt: new Date("2026-03-20T12:00:00.000Z"),
+      linkedIssueId: issue.id,
+      completedAt: new Date("2026-03-20T12:05:00.000Z"),
+    });
+    await db.insert(issueComments).values({
+      companyId,
+      issueId: issue.id,
+      body: "Fallback monitor: no usage-limit failures detected in the last 20m (checked 4 failed runs) and no paused primaries with stranded open issues.",
+    });
+
+    const synced = await svc.syncRunStatusForIssue(issue.id);
+    expect(synced?.status).toBe("completed");
+
+    const refreshedIssue = await db
+      .select({ hiddenAt: issues.hiddenAt })
+      .from(issues)
+      .where(eq(issues.id, issue.id))
+      .then((rows) => rows[0] ?? null);
+    expect(refreshedIssue?.hiddenAt).toBeTruthy();
+  });
+
+  it("keeps an actioned routine execution issue visible when it closes done", async () => {
+    const { companyId, issueSvc, routine, svc } = await seedFixture();
+    const issue = await issueSvc.create(companyId, {
+      projectId: routine.projectId,
+      title: routine.title,
+      description: routine.description,
+      status: "done",
+      priority: routine.priority,
+      assigneeAgentId: routine.assigneeAgentId,
+      originKind: "routine_execution",
+      originId: routine.id,
+      originRunId: randomUUID(),
+    });
+
+    await db.insert(routineRuns).values({
+      id: issue.originRunId!,
+      companyId,
+      routineId: routine.id,
+      triggerId: null,
+      source: "manual",
+      status: "completed",
+      failureReason: null,
+      triggeredAt: new Date("2026-03-20T12:00:00.000Z"),
+      linkedIssueId: issue.id,
+      completedAt: new Date("2026-03-20T12:05:00.000Z"),
+    });
+    await db.insert(issueComments).values({
+      companyId,
+      issueId: issue.id,
+      body: "Fallback monitor: detected usage-limit failures and/or paused primaries and reassigned issues.\n- primary `agent-1` → sisters `agent-2` (session limit) until `2026-03-20T12:30:00.000Z` (runId `run-1`): TSMC-1 → `agent-2`",
+    });
+
+    const synced = await svc.syncRunStatusForIssue(issue.id);
+    expect(synced?.status).toBe("completed");
+
+    const refreshedIssue = await db
+      .select({ hiddenAt: issues.hiddenAt })
+      .from(issues)
+      .where(eq(issues.id, issue.id))
+      .then((rows) => rows[0] ?? null);
+    expect(refreshedIssue?.hiddenAt).toBeNull();
+  });
+
   // THIAAAAAA-203 / THIAAAAAA-2176: a webhook trigger's company_secret_bindings
   // join row can vanish while the secret itself stays live, which 422-rejects
   // OpCo callbacks. The fire handler must self-heal by recreating the binding
@@ -2403,6 +2489,11 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
       .update(issues)
       .set({ status: "done", completedAt: new Date(), executionRunId: null, executionLockedAt: null })
       .where(eq(issues.id, firstIssue!.id));
+    await db.insert(issueComments).values({
+      companyId,
+      issueId: firstIssue!.id,
+      body: "Fallback swap-back: no eligible reset-window state found.",
+    });
     await svc.syncRunStatusForIssue(firstIssue!.id);
 
     await db
@@ -2420,6 +2511,7 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     expect(routineIssues).toHaveLength(1);
     expect(routineIssues[0]?.id).toBe(firstIssue!.id);
     expect(routineIssues[0]?.status).toBe("todo");
+    expect(routineIssues[0]?.hiddenAt).toBeNull();
 
     const runs = (await db
       .select()
@@ -2440,7 +2532,226 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     expect(refreshedTrigger?.lastResult).toMatch(/reused/i);
   });
 
-  it("rolls back a reused terminal issue when queueing the assignment wakeup fails", async () => {
+  it("skips scheduled terminal-issue reuse when the routine parent issue is already terminal", async () => {
+    const { companyId, routine, svc, wakeups } = await seedFixture({ wakeup: async () => null });
+    const parentIssueId = randomUUID();
+    await db.insert(issues).values({
+      id: parentIssueId,
+      companyId,
+      title: "Completed parent",
+      status: "done",
+      priority: "medium",
+      completedAt: new Date("2026-01-01T00:00:00.000Z"),
+    });
+    await svc.update(
+      routine.id,
+      {
+        parentIssueId,
+        env: {
+          PAPERCLIP_ROUTINE_ISSUE_MODE: { type: "plain", value: "reuse_terminal" },
+        },
+      },
+      {},
+    );
+    const { trigger } = await svc.createTrigger(
+      routine.id,
+      {
+        kind: "schedule",
+        label: "daily",
+        cronExpression: "0 0 * * *",
+        timezone: "UTC",
+      },
+      {},
+    );
+    const terminalIssueId = randomUUID();
+    await db.insert(issues).values({
+      id: terminalIssueId,
+      companyId,
+      projectId: routine.projectId,
+      goalId: routine.goalId,
+      parentId: parentIssueId,
+      title: routine.title,
+      description: routine.description,
+      status: "done",
+      priority: routine.priority,
+      assigneeAgentId: routine.assigneeAgentId,
+      originKind: "routine_execution",
+      originId: routine.id,
+      originRunId: randomUUID(),
+      originFingerprint: "default",
+      completedAt: new Date("2026-01-02T00:00:00.000Z"),
+    });
+
+    await db
+      .update(routineTriggers)
+      .set({ nextRunAt: new Date("2020-01-01T00:00:00.000Z") })
+      .where(eq(routineTriggers.id, trigger.id));
+
+    const result = await svc.tickScheduledTriggers(new Date());
+    expect(result.triggered).toBe(1);
+
+    const routineIssue = await db
+      .select({
+        status: issues.status,
+        originRunId: issues.originRunId,
+        executionRunId: issues.executionRunId,
+      })
+      .from(issues)
+      .where(eq(issues.id, terminalIssueId))
+      .then((rows) => rows[0] ?? null);
+    expect(routineIssue).toMatchObject({
+      status: "done",
+      executionRunId: null,
+    });
+
+    const latestRun = await db
+      .select()
+      .from(routineRuns)
+      .where(eq(routineRuns.routineId, routine.id))
+      .orderBy(routineRuns.createdAt)
+      .then((rows) => rows.at(-1) ?? null);
+    expect(latestRun).toMatchObject({
+      status: "skipped",
+      linkedIssueId: null,
+      failureReason: "parent_issue_terminal_done",
+    });
+    expect(wakeups).toHaveLength(0);
+  });
+
+  it("skips scheduled terminal-issue reuse when the reusable issue's parent is already terminal", async () => {
+    const { companyId, routine, svc, wakeups } = await seedFixture({ wakeup: async () => null });
+    const parentIssueId = randomUUID();
+    await db.insert(issues).values({
+      id: parentIssueId,
+      companyId,
+      title: "Completed parent",
+      status: "done",
+      priority: "medium",
+      completedAt: new Date("2026-01-01T00:00:00.000Z"),
+    });
+    await svc.update(
+      routine.id,
+      {
+        env: {
+          PAPERCLIP_ROUTINE_ISSUE_MODE: { type: "plain", value: "reuse_terminal" },
+        },
+      },
+      {},
+    );
+    const { trigger } = await svc.createTrigger(
+      routine.id,
+      {
+        kind: "schedule",
+        label: "daily",
+        cronExpression: "0 0 * * *",
+        timezone: "UTC",
+      },
+      {},
+    );
+    const terminalIssueId = randomUUID();
+    await db.insert(issues).values({
+      id: terminalIssueId,
+      companyId,
+      projectId: routine.projectId,
+      goalId: routine.goalId,
+      parentId: parentIssueId,
+      title: routine.title,
+      description: routine.description,
+      status: "done",
+      priority: routine.priority,
+      assigneeAgentId: routine.assigneeAgentId,
+      originKind: "routine_execution",
+      originId: routine.id,
+      originRunId: randomUUID(),
+      originFingerprint: "default",
+      completedAt: new Date("2026-01-02T00:00:00.000Z"),
+    });
+
+    await db
+      .update(routineTriggers)
+      .set({ nextRunAt: new Date("2020-01-01T00:00:00.000Z") })
+      .where(eq(routineTriggers.id, trigger.id));
+
+    const result = await svc.tickScheduledTriggers(new Date());
+    expect(result.triggered).toBe(1);
+
+    const routineIssue = await db
+      .select({
+        status: issues.status,
+        originRunId: issues.originRunId,
+        executionRunId: issues.executionRunId,
+      })
+      .from(issues)
+      .where(eq(issues.id, terminalIssueId))
+      .then((rows) => rows[0] ?? null);
+    expect(routineIssue).toMatchObject({
+      status: "done",
+      executionRunId: null,
+    });
+
+    const latestRun = await db
+      .select()
+      .from(routineRuns)
+      .where(eq(routineRuns.routineId, routine.id))
+      .orderBy(routineRuns.createdAt)
+      .then((rows) => rows.at(-1) ?? null);
+    expect(latestRun).toMatchObject({
+      status: "skipped",
+      linkedIssueId: null,
+      failureReason: "parent_issue_terminal_done",
+    });
+    expect(wakeups).toHaveLength(0);
+  });
+
+  it("creates a scheduled execution issue when the project goal pointer is stale", async () => {
+    const { companyId, projectId, routine, svc } = await seedFixture({ wakeup: async () => null });
+    const { trigger } = await svc.createTrigger(
+      routine.id,
+      {
+        kind: "schedule",
+        label: "daily",
+        cronExpression: "0 0 * * *",
+        timezone: "UTC",
+      },
+      {},
+    );
+    const pastDue = new Date("2020-01-01T00:00:00.000Z");
+
+    await db
+      .update(projects)
+      .set({ goalId: randomUUID() })
+      .where(eq(projects.id, projectId));
+    await db
+      .update(routineTriggers)
+      .set({ nextRunAt: pastDue })
+      .where(eq(routineTriggers.id, trigger.id));
+
+    const result = await svc.tickScheduledTriggers(new Date());
+    expect(result.triggered).toBe(1);
+
+    const run = await db
+      .select()
+      .from(routineRuns)
+      .where(eq(routineRuns.routineId, routine.id))
+      .orderBy(routineRuns.createdAt)
+      .then((rows) => rows.at(-1) ?? null);
+    expect(run?.status).toBe("issue_created");
+    expect(run?.failureReason).toBeNull();
+
+    const routineIssue = await db
+      .select({
+        goalId: issues.goalId,
+        originRunId: issues.originRunId,
+      })
+      .from(issues)
+      .where(eq(issues.companyId, companyId))
+      .then((rows) => rows[0] ?? null);
+    expect(routineIssue).toBeTruthy();
+    expect(routineIssue?.goalId).toBeNull();
+    expect(routineIssue?.originRunId).toBe(run?.id ?? null);
+  });
+
+  it("keeps a reused terminal issue committed when the assignment wakeup hits issue-lock contention", async () => {
     let failReuseWakeup = false;
     const { companyId, routine, svc } = await seedFixture({
       wakeup: async (_agentId, wakeupOpts) => {
@@ -2514,12 +2825,12 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     expect(routineIssues).toHaveLength(1);
     expect(routineIssues[0]).toMatchObject({
       id: firstIssue!.id,
-      status: "done",
-      originRunId: firstIssue!.originRunId,
+      status: "todo",
       executionRunId: null,
       executionLockedAt: null,
     });
-    expect(routineIssues[0]?.completedAt).toBeTruthy();
+    expect(routineIssues[0]?.originRunId).not.toBe(firstIssue!.originRunId);
+    expect(routineIssues[0]?.completedAt).toBeNull();
 
     const runs = (await db
       .select()
@@ -2528,9 +2839,9 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
       .sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime());
     expect(runs).toHaveLength(2);
     expect(runs[0]?.status).toBe("completed");
-    expect(runs[1]?.status).toBe("failed");
-    expect(runs[1]?.linkedIssueId).toBeNull();
-    expect(runs[1]?.failureReason).toContain("Failed query: select id from issues where id = $1 and company_id = $2 for update");
+    expect(runs[1]?.status).toBe("issue_reused");
+    expect(runs[1]?.linkedIssueId).toBe(firstIssue!.id);
+    expect(runs[1]?.failureReason).toBeNull();
   });
 
   it("suppresses scheduled ticks while the routine project is paused, then resumes when unpaused", async () => {
@@ -2666,6 +2977,6 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
       .then((rows) => rows[0]);
     expect(refreshedTrigger?.nextRunAt).not.toBeNull();
     expect(refreshedTrigger!.nextRunAt!.getTime()).toBeGreaterThan(pastDue.getTime());
-    expect(refreshedTrigger?.lastResult).toBe("Execution failed");
+    expect(refreshedTrigger?.lastResult).toBe("Execution failed; retry scheduled");
   });
 });

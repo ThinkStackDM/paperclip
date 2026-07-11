@@ -295,6 +295,7 @@ export function SidebarAgents({ streamlined = false }: { streamlined?: boolean }
     queryFn: () => heartbeatsApi.liveRunsForCompany(selectedCompanyId!),
     enabled: !!selectedCompanyId,
     refetchInterval: 10_000,
+    retry: false,
   });
 
   const liveCountByAgent = useMemo(() => {

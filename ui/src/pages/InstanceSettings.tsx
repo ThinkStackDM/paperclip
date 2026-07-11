@@ -13,6 +13,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { queryKeys } from "../lib/queryKeys";
 import { formatDateTime, relativeTime } from "../lib/utils";
 
+const STALE_HEARTBEAT_THRESHOLD_MS = 48 * 60 * 60 * 1000;
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
@@ -20,6 +22,17 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function humanize(value: string) {
   return value.replaceAll("_", " ");
+}
+
+function isStaleHeartbeat(agent: InstanceSchedulerHeartbeatAgent, nowMs: number) {
+  if (!agent.lastHeartbeatAt) return true;
+  return nowMs - new Date(agent.lastHeartbeatAt).getTime() > STALE_HEARTBEAT_THRESHOLD_MS;
+}
+
+function agentModeLabel(agent: InstanceSchedulerHeartbeatAgent) {
+  if (agent.schedulerActive) return "Active";
+  if (agent.staleHeartbeatCategory === "wake_on_demand_dormant") return "Dormant";
+  return "Inactive";
 }
 
 function buildAgentHref(agent: InstanceSchedulerHeartbeatAgent) {
@@ -132,10 +145,19 @@ export function InstanceSettings() {
   });
 
   const agents = heartbeatsQuery.data ?? [];
+  const nowMs = Date.now();
   const activeCount = agents.filter((agent) => agent.schedulerActive).length;
   const disabledCount = agents.length - activeCount;
   const enabledCount = agents.filter((agent) => agent.heartbeatEnabled).length;
   const anyEnabled = enabledCount > 0;
+  const actionableStaleCount = agents.filter(
+    (agent) => agent.staleHeartbeatEligible && isStaleHeartbeat(agent, nowMs),
+  ).length;
+  const dormantWakeOnDemandCount = agents.filter(
+    (agent) =>
+      agent.staleHeartbeatCategory === "wake_on_demand_dormant" &&
+      isStaleHeartbeat(agent, nowMs),
+  ).length;
 
   const grouped = useMemo(() => {
     const map = new Map<string, { companyName: string; agents: InstanceSchedulerHeartbeatAgent[] }>();
@@ -172,13 +194,15 @@ export function InstanceSettings() {
           <h1 className="text-lg font-semibold">Scheduler Heartbeats</h1>
         </div>
         <p className="text-sm text-muted-foreground">
-          Agents with a timer heartbeat enabled across all of your companies.
+          Stale heartbeat reporting counts scheduler-active lanes only. Dormant wake-on-demand lanes are labeled separately and excluded from the actionable stale total.
         </p>
       </div>
 
       <div className="flex items-center gap-4 text-sm text-muted-foreground">
         <span><span className="font-semibold text-foreground">{activeCount}</span> active</span>
         <span><span className="font-semibold text-foreground">{disabledCount}</span> disabled</span>
+        <span><span className="font-semibold text-foreground">{actionableStaleCount}</span> actionable stale &gt;48h</span>
+        <span><span className="font-semibold text-foreground">{dormantWakeOnDemandCount}</span> dormant wake-on-demand &gt;48h</span>
         <span><span className="font-semibold text-foreground">{grouped.length}</span> {grouped.length === 1 ? "company" : "companies"}</span>
         {anyEnabled && (
           <Button
@@ -230,7 +254,7 @@ export function InstanceSettings() {
                           variant={agent.schedulerActive ? "default" : "outline"}
                           className="shrink-0 text-[10px] px-1.5 py-0"
                         >
-                          {agent.schedulerActive ? "On" : "Off"}
+                          {agentModeLabel(agent)}
                         </Badge>
                         <Link
                           to={buildAgentHref(agent)}

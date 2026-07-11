@@ -1101,6 +1101,13 @@ export function agentRoutes(
     return {
       enabled: parseBooleanLike(heartbeat.enabled) ?? false,
       intervalSec: Math.max(0, parseNumberLike(heartbeat.intervalSec) ?? 0),
+      wakeOnDemand:
+        parseBooleanLike(
+          heartbeat.wakeOnDemand ??
+            heartbeat.wakeOnAssignment ??
+            heartbeat.wakeOnOnDemand ??
+            heartbeat.wakeOnAutomation,
+        ) ?? true,
     };
   }
 
@@ -2116,6 +2123,12 @@ export function agentRoutes(
           row.status !== "paused" &&
           row.status !== "terminated" &&
           row.status !== "pending_approval";
+        const schedulerActive = statusEligible && policy.enabled && policy.intervalSec > 0;
+        const staleHeartbeatCategory: InstanceSchedulerHeartbeatAgent["staleHeartbeatCategory"] = schedulerActive
+          ? "scheduler_active"
+          : !policy.enabled && policy.wakeOnDemand
+            ? "wake_on_demand_dormant"
+            : "scheduler_inactive";
 
         return {
           id: row.id,
@@ -2130,7 +2143,10 @@ export function agentRoutes(
           adapterType: row.adapterType,
           intervalSec: policy.intervalSec,
           heartbeatEnabled: policy.enabled,
-          schedulerActive: statusEligible && policy.enabled && policy.intervalSec > 0,
+          wakeOnDemand: policy.wakeOnDemand,
+          schedulerActive,
+          staleHeartbeatEligible: schedulerActive,
+          staleHeartbeatCategory,
           lastHeartbeatAt: row.lastHeartbeatAt,
         };
       })

@@ -1,0 +1,13 @@
+{
+  "source": "DP-3754 truthful baseline from DP-3752 / DP-2415 / DP-3027 lineage",
+  "pin_id": "pin-001",
+  "species": "MONSTERA DELICIOSA",
+  "title": "Vintage Botanical Print - Monstera Deliciosa",
+  "description": "High-quality vintage-style botanical illustration of Monstera deliciosa, suitable for wall art / digital download.",
+  "destination": {
+    "platform": "etsy",
+    "listing_id": "4523345239",
+    "url": "https://www.etsy.com/listing/4523345239"
+  },
+  "provenance": "canonical listing IDs recorded in DP-1161; pin-001 described in DP-3752"
+}

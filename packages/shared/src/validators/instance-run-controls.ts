@@ -3,6 +3,10 @@ import { z } from "zod";
 const adapterTypeSchema = z.string().trim().min(1).max(64).regex(/^[a-z0-9_:-]+$/i, {
   message: "adapterType must be an adapter type identifier",
 });
+const adapterDailyRunBudgetSchema = z.object({
+  maxRunsPerDay: z.number().int().min(0).max(100_000),
+  alertThresholdPct: z.number().int().min(1).max(100).optional(),
+}).strict();
 
 export const setInstanceRunPauseSchema = z.object({
   reason: z.string().trim().min(1).max(2000).optional(),
@@ -20,6 +24,14 @@ export const patchInstanceAdapterConcurrencySchema = z.object({
   ),
 }).strict();
 
+export const patchInstanceAdapterDailyRunBudgetsSchema = z.object({
+  adapterDailyRunBudgets: z.record(
+    adapterTypeSchema,
+    adapterDailyRunBudgetSchema.nullable(),
+  ),
+}).strict();
+
 export type SetInstanceRunPause = z.infer<typeof setInstanceRunPauseSchema>;
 export type SetInstanceAdapterPause = z.infer<typeof setInstanceAdapterPauseSchema>;
 export type PatchInstanceAdapterConcurrency = z.infer<typeof patchInstanceAdapterConcurrencySchema>;
+export type PatchInstanceAdapterDailyRunBudgets = z.infer<typeof patchInstanceAdapterDailyRunBudgetsSchema>;

@@ -835,6 +835,7 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
     queryKey: queryKeys.issues.liveRuns(issueId),
     queryFn: () => heartbeatsApi.liveRunsForIssue(issueId),
     refetchInterval: 3000,
+    retry: false,
     placeholderData: keepPreviousDataForSameQueryTail<LiveRunForIssue[]>(issueId),
   });
   const resolvedLiveRuns = liveRuns ?? [];
@@ -844,6 +845,7 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
     queryFn: () => heartbeatsApi.activeRunForIssue(issueId),
     enabled: !!executionRunId || issueStatus === "in_progress",
     refetchInterval: liveRunCount > 0 ? false : 3000,
+    retry: false,
     placeholderData: keepPreviousDataForSameQueryTail<ActiveRunForIssue | null>(issueId),
   });
   const resolvedActiveRun = useMemo(
@@ -1168,7 +1170,7 @@ function IssueDetailActivityTab({
       output,
       cached,
       cost,
-      totalTokens: input + output,
+      totalTokens: input + cached + output,
       hasCost,
       hasTokens,
       runtimeMs,
@@ -1177,7 +1179,9 @@ function IssueDetailActivityTab({
     };
   }, [linkedRuns]);
   const issueTreeCostTokens =
-    (issueTreeCostSummary?.inputTokens ?? 0) + (issueTreeCostSummary?.outputTokens ?? 0);
+    (issueTreeCostSummary?.inputTokens ?? 0) +
+    (issueTreeCostSummary?.cachedInputTokens ?? 0) +
+    (issueTreeCostSummary?.outputTokens ?? 0);
   const hasIssueTreeCost =
     !!issueTreeCostSummary
     && (issueTreeCostSummary.costCents > 0
@@ -1449,6 +1453,7 @@ export function IssueDetail() {
     queryFn: () => heartbeatsApi.liveRunsForIssue(issueId!),
     enabled: !!issueId,
     refetchInterval: 3000,
+    retry: false,
     select: (runs) => runs.length,
     placeholderData: keepPreviousDataForSameQueryTail<LiveRunForIssue[]>(issueId ?? "pending"),
   });
@@ -1458,6 +1463,7 @@ export function IssueDetail() {
     queryFn: () => heartbeatsApi.activeRunForIssue(issueId!),
     enabled: !!issueId && (!!issue?.executionRunId || issue?.status === "in_progress"),
     refetchInterval: liveRunCount > 0 ? false : 3000,
+    retry: false,
     select: (run) => !!run,
     placeholderData: keepPreviousDataForSameQueryTail<ActiveRunForIssue | null>(issueId ?? "pending"),
   });
@@ -1499,6 +1505,7 @@ export function IssueDetail() {
     queryFn: () => heartbeatsApi.liveRunsForCompany(resolvedCompanyId!),
     enabled: !!resolvedCompanyId,
     refetchInterval: 5000,
+    retry: false,
     placeholderData: keepPreviousDataForSameQueryTail<LiveRunForIssue[]>(resolvedCompanyId ?? "pending"),
   });
 

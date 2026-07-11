@@ -98,7 +98,12 @@ const ROUTINE_ISSUE_MODE_ALIASES = new Set([
   "terminal_reuse",
   "rollup_reuse",
 ]);
+const ROUTINE_EXECUTION_AUTO_HIDE_COMMENT_PATTERNS = [
+  /^Fallback monitor: no usage-limit failures detected in the last \d+m \(checked \d+ failed runs\) and no paused primaries with stranded open issues\.\s*$/i,
+  /^Fallback swap-back: no eligible reset-window state found\.\s*$/i,
+];
 const DEFAULT_SCHEDULE_DISPATCH_LOCK_TIMEOUT_MS = 15_000;
+const DEFAULT_SCHEDULE_DISPATCH_RETRY_DELAY_MS = 5 * 60_000;
 
 function readScheduleDispatchLockTimeoutMs() {
   const raw = process.env.ROUTINE_SCHEDULE_DISPATCH_LOCK_TIMEOUT_MS;
@@ -106,6 +111,22 @@ function readScheduleDispatchLockTimeoutMs() {
   const parsed = Number.parseInt(raw, 10);
   if (!Number.isFinite(parsed) || parsed < 0) return DEFAULT_SCHEDULE_DISPATCH_LOCK_TIMEOUT_MS;
   return parsed;
+}
+
+function readScheduleDispatchRetryDelayMs() {
+  const raw = process.env.ROUTINE_SCHEDULE_DISPATCH_RETRY_DELAY_MS;
+  if (!raw || raw.trim() === "") return DEFAULT_SCHEDULE_DISPATCH_RETRY_DELAY_MS;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) return DEFAULT_SCHEDULE_DISPATCH_RETRY_DELAY_MS;
+  return parsed;
+}
+
+function computeScheduleDispatchRetryAt(triggeredAt: Date, claimedNextRunAt: Date | null) {
+  if (!claimedNextRunAt) return null;
+  const retryDelayMs = readScheduleDispatchRetryDelayMs();
+  if (retryDelayMs <= 0) return claimedNextRunAt;
+  const retryAt = new Date(triggeredAt.getTime() + retryDelayMs);
+  return retryAt.getTime() < claimedNextRunAt.getTime() ? retryAt : claimedNextRunAt;
 }
 
 interface RoutineTriggerSecretRestoreMaterial extends RoutineTriggerSecretMaterial {
@@ -146,6 +167,13 @@ function isConflictError(err: unknown): boolean {
     err !== null &&
     (err as { status?: number }).status === 409
   );
+}
+
+function isIssueWakeLockContentionError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const message = err.message.toLowerCase();
+  return message.includes("select id from issues where id = $1 and company_id = $2 for update")
+    || message.includes("lock timeout");
 }
 
 function assertTimeZone(timeZone: string) {
@@ -250,6 +278,7 @@ function nextResultText(status: string, issueId?: string | null) {
   if (status === "skipped") return "Skipped because a live execution issue already exists";
   if (status === "completed") return "Execution issue completed";
   if (status === "cancelled") return "Execution issue cancelled";
+  if (status === "failed_retry_scheduled") return "Execution failed; retry scheduled";
   if (status === "failed") return "Execution failed";
   return status;
 }
@@ -1266,6 +1295,7 @@ export function routineService(
   }) {
     const triggeredAt = new Date();
     const failureReason = input.error instanceof Error ? input.error.message : String(input.error);
+    const resultStatus = input.nextRunAt ? "failed_retry_scheduled" : "failed";
     const run = await db.transaction(async (tx) => {
       const txDb = tx as unknown as Db;
       const [createdRun] = await txDb
@@ -1287,7 +1317,7 @@ export function routineService(
         routineId: input.routine.id,
         triggerId: input.trigger.id,
         triggeredAt,
-        status: "failed",
+        status: resultStatus,
         nextRunAt: input.nextRunAt,
       }, txDb);
       return createdRun;
@@ -1468,6 +1498,7 @@ export function routineService(
         executionWorkspaceSettings: issues.executionWorkspaceSettings,
         completedAt: issues.completedAt,
         cancelledAt: issues.cancelledAt,
+        hiddenAt: issues.hiddenAt,
         checkoutRunId: issues.checkoutRunId,
         executionRunId: issues.executionRunId,
         executionLockedAt: issues.executionLockedAt,
@@ -1480,13 +1511,26 @@ export function routineService(
           eq(issues.originId, originId),
           isNotNull(issues.originRunId),
           inArray(issues.status, ["done", "cancelled"]),
-          isNull(issues.hiddenAt),
           ...(fingerprintCondition ? [fingerprintCondition] : []),
         ),
       )
       .orderBy(desc(issues.updatedAt), desc(issues.createdAt))
       .limit(1)
       .then((rows) => rows[0] ?? null);
+  }
+
+  async function readTerminalParentIssueStatus(
+    companyId: string,
+    parentIssueId: string | null | undefined,
+    executor: Db = db,
+  ) {
+    if (!parentIssueId) return null;
+    const parent = await executor
+      .select({ status: issues.status })
+      .from(issues)
+      .where(and(eq(issues.id, parentIssueId), eq(issues.companyId, companyId)))
+      .then((rows) => rows[0] ?? null);
+    return parent && TERMINAL_ISSUE_STATUSES.has(parent.status) ? parent.status : null;
   }
 
   async function restoreReusedTerminalExecutionIssue(
@@ -1517,12 +1561,39 @@ export function routineService(
         executionWorkspaceSettings: issue.executionWorkspaceSettings,
         completedAt: issue.completedAt,
         cancelledAt: issue.cancelledAt,
+        hiddenAt: issue.hiddenAt,
         checkoutRunId: issue.checkoutRunId,
         executionRunId: issue.executionRunId,
         executionLockedAt: issue.executionLockedAt,
         updatedAt: new Date(),
       })
       .where(eq(issues.id, issue.id));
+  }
+
+  async function shouldAutoHideCompletedRoutineExecutionIssue(
+    issueId: string,
+    executor: Db = db,
+  ) {
+    const comments = await executor
+      .select({ body: issueComments.body })
+      .from(issueComments)
+      .where(and(eq(issueComments.issueId, issueId), isNull(issueComments.deletedAt)))
+      .orderBy(desc(issueComments.createdAt))
+      .limit(2);
+    if (comments.length === 0) return true;
+    if (comments.length > 1) return false;
+    const body = comments[0]?.body.trim() ?? "";
+    return ROUTINE_EXECUTION_AUTO_HIDE_COMMENT_PATTERNS.some((pattern) => pattern.test(body));
+  }
+
+  async function hideCompletedRoutineExecutionIssue(issueId: string, executor: Db = db) {
+    await executor
+      .update(issues)
+      .set({
+        hiddenAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(and(eq(issues.id, issueId), isNull(issues.hiddenAt)));
   }
 
   async function clearTerminalExecutionIssueLocks(
@@ -2103,6 +2174,34 @@ export function routineService(
         ? nextCronTickInTimeZone(input.trigger.cronExpression, input.trigger.timezone, triggeredAt)
         : undefined;
 
+      if (input.source === "schedule" && input.routine.parentIssueId) {
+        const parentIssue = await txDb
+          .select({ status: issues.status })
+          .from(issues)
+          .where(
+            and(
+              eq(issues.id, input.routine.parentIssueId),
+              eq(issues.companyId, input.routine.companyId),
+            ),
+          )
+          .then((rows) => rows[0] ?? null);
+        if (parentIssue && (parentIssue.status === "done" || parentIssue.status === "cancelled")) {
+          const updated = await finalizeRun(createdRun.id, {
+            status: "skipped",
+            completedAt: triggeredAt,
+            failureReason: `parent_issue_terminal_${parentIssue.status}`,
+          }, txDb);
+          await updateRoutineTouchedState({
+            routineId: input.routine.id,
+            triggerId: input.trigger?.id ?? null,
+            triggeredAt,
+            status: "skipped",
+            nextRunAt,
+          }, txDb);
+          return updated ?? createdRun;
+        }
+      }
+
       let createdIssue: Awaited<ReturnType<typeof issueSvc.create>> | null = null;
       let executionIssue: Awaited<ReturnType<typeof issueSvc.create>> | null = null;
       let reusedIssueSnapshot: Awaited<ReturnType<typeof findReusableTerminalExecutionIssue>> | null = null;
@@ -2150,6 +2249,26 @@ export function routineService(
             id: issueOriginId,
           }, { ignoreFingerprint: coalesceByOriginOnly });
           if (reusableIssue) {
+            const reusableParentTerminalStatus = await readTerminalParentIssueStatus(
+              input.routine.companyId,
+              reusableIssue.parentId,
+              txDb,
+            );
+            if (reusableParentTerminalStatus) {
+              const updated = await finalizeRun(createdRun.id, {
+                status: "skipped",
+                completedAt: triggeredAt,
+                failureReason: `parent_issue_terminal_${reusableParentTerminalStatus}`,
+              }, txDb);
+              await updateRoutineTouchedState({
+                routineId: input.routine.id,
+                triggerId: input.trigger?.id ?? null,
+                triggeredAt,
+                status: "skipped",
+                nextRunAt,
+              }, txDb);
+              return updated ?? createdRun;
+            }
             reusedIssueSnapshot = reusableIssue;
             executionIssue = await issueSvc.update(reusableIssue.id, {
               projectId,
@@ -2171,6 +2290,12 @@ export function routineService(
               executionWorkspaceSettings: input.executionWorkspaceSettings ?? null,
             }, txDb);
             if (executionIssue) {
+              if (reusableIssue.hiddenAt) {
+                await txDb
+                  .update(issues)
+                  .set({ hiddenAt: null, updatedAt: new Date() })
+                  .where(eq(issues.id, reusableIssue.id));
+              }
               dispatchStatus = "issue_reused";
             }
           }
@@ -2203,7 +2328,7 @@ export function routineService(
               executionWorkspaceId: input.executionWorkspaceId ?? null,
               executionWorkspacePreference: input.executionWorkspacePreference ?? null,
               executionWorkspaceSettings: input.executionWorkspaceSettings ?? null,
-            });
+            }, txDb);
             executionIssue = createdIssue;
           } catch (error) {
             const isOpenExecutionConflict =
@@ -2257,16 +2382,35 @@ export function routineService(
           throw new Error("Routine dispatch did not produce an execution issue");
         }
 
-        // Keep the dispatch lock until the issue is linked to a queued heartbeat run.
-        await queueIssueAssignmentWakeup({
-          heartbeat,
-          issue: executionIssue,
-          reason: "issue_assigned",
-          mutation: dispatchStatus === "issue_reused" ? "update" : "create",
-          contextSource: "routine.dispatch",
-          requestedByActorType: input.source === "schedule" ? "system" : undefined,
-          rethrowOnError: true,
-        });
+        // Keep the fast-path assignment wake for normal dispatches. For scheduled
+        // terminal-issue reuse, tolerate a transient wake-time issue-row lock race:
+        // the reused issue is still valid committed work, and stranded-assignment
+        // recovery will enqueue a normal issue_assigned wake if this immediate
+        // handoff misses.
+        try {
+          await queueIssueAssignmentWakeup({
+            heartbeat,
+            issue: executionIssue,
+            reason: "issue_assigned",
+            mutation: dispatchStatus === "issue_reused" ? "update" : "create",
+            contextSource: "routine.dispatch",
+            requestedByActorType: input.source === "schedule" ? "system" : undefined,
+            rethrowOnError: true,
+          });
+        } catch (err) {
+          if (
+            input.source === "schedule" &&
+            dispatchStatus === "issue_reused" &&
+            isIssueWakeLockContentionError(err)
+          ) {
+            logger.warn(
+              { err, issueId: executionIssue.id, routineId: input.routine.id, runId: createdRun.id },
+              "scheduled routine issue reuse committed despite transient assignment wake lock contention",
+            );
+          } else {
+            throw err;
+          }
+        }
         const updated = await finalizeRun(createdRun.id, {
           status: dispatchStatus,
           linkedIssueId: executionIssue.id,
@@ -3411,11 +3555,12 @@ export function routineService(
             });
             triggered += 1;
           } catch (err) {
+            const retryAt = computeScheduleDispatchRetryAt(new Date(), claimedNextRunAt);
             await recordFailedScheduleDispatch({
               routine: row.routine,
               trigger: row.trigger,
               error: err,
-              nextRunAt: claimedNextRunAt,
+              nextRunAt: retryAt,
             });
           }
         }
@@ -3431,6 +3576,7 @@ export function routineService(
           status: issues.status,
           originKind: issues.originKind,
           originRunId: issues.originRunId,
+          hiddenAt: issues.hiddenAt,
         })
         .from(issues)
         .where(eq(issues.id, issueId))
@@ -3472,19 +3618,30 @@ export function routineService(
         .then((rows) => rows[0] ?? null);
       if (!current) return null;
 
+      const shouldHide = issue.status === "done"
+        && issue.hiddenAt === null
+        && await shouldAutoHideCompletedRoutineExecutionIssue(issue.id);
+
       // Idempotent: skip the write (and its updatedAt churn) when the run already
       // reflects the issue's state. Still re-writes when failure metadata is stale
       // so a reopened/closed issue clears its old failureReason.
       const completedAtSatisfied = terminal ? current.completedAt !== null : current.completedAt === null;
       if (current.status === desiredStatus && current.failureReason === null && completedAtSatisfied) {
+        if (shouldHide) {
+          await hideCompletedRoutineExecutionIssue(issue.id);
+        }
         return current;
       }
 
-      return finalizeRun(issue.originRunId, {
+      const synced = await finalizeRun(issue.originRunId, {
         status: desiredStatus,
         failureReason: null,
         completedAt: terminal ? current.completedAt ?? new Date() : null,
       });
+      if (shouldHide) {
+        await hideCompletedRoutineExecutionIssue(issue.id);
+      }
+      return synced;
     },
   };
 }

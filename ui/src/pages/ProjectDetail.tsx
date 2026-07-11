@@ -237,6 +237,7 @@ function ProjectIssuesList({ projectId, companyId }: { projectId: string; compan
     queryFn: () => heartbeatsApi.liveRunsForCompany(companyId),
     enabled: !!companyId,
     refetchInterval: 5000,
+    retry: false,
   });
   const { data: projects } = useQuery({
     queryKey: queryKeys.projects.list(companyId),
@@ -303,6 +304,7 @@ function ProjectPluginOperationsList({
     queryFn: () => heartbeatsApi.liveRunsForCompany(companyId),
     enabled: !!companyId,
     refetchInterval: 5000,
+    retry: false,
   });
   const liveIssueIds = useMemo(() => collectLiveIssueIds(liveRuns), [liveRuns]);
 

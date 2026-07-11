@@ -1,0 +1,14 @@
+{
+  "source": "DP-3754 seeded wrong-link variant (only destination mutated)",
+  "pin_id": "pin-001",
+  "species": "MONSTERA DELICIOSA",
+  "title": "Vintage Botanical Print - Monstera Deliciosa",
+  "description": "High-quality vintage-style botanical illustration of Monstera deliciosa, suitable for wall art / digital download.",
+  "destination": {
+    "platform": "etsy",
+    "listing_id": "4523365920",
+    "url": "https://www.etsy.com/listing/4523365920"
+  },
+  "note": "Wrong-link seed: destination swapped to live Hoya kerrii listing while keeping species/title identical to truthful case",
+  "provenance": "canonical listing IDs recorded in DP-1161; mutation isolated to destination only"
+}

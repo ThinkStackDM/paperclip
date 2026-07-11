@@ -190,6 +190,7 @@ export function RoutineDetail() {
     queryFn: () => heartbeatsApi.liveRunsForIssue(activeIssueId!),
     enabled: !!activeIssueId,
     refetchInterval: 3000,
+    retry: false,
   });
   const hasLiveRun = (liveRuns ?? []).length > 0;
   const { data: routineRuns } = useQuery({

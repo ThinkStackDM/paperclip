@@ -116,6 +116,38 @@ export function routineRoutes(
     return routine;
   }
 
+  function isSupervisorPausePatch(patch: Record<string, unknown>) {
+    const keys = Object.keys(patch);
+    if (keys.length === 0) return false;
+    if (patch.status !== "paused") return false;
+    return keys.every((key) => key === "status" || key === "pauseReason");
+  }
+
+  async function assertCanPauseManagedRoutine(
+    req: Request,
+    routine: Awaited<ReturnType<typeof svc.get>>,
+    patch: Record<string, unknown>,
+  ) {
+    if (!routine || req.actor.type !== "agent" || !req.actor.agentId) return false;
+    if (!isSupervisorPausePatch(patch)) return false;
+    const decision = await access.decide({
+      actor: {
+        type: "agent",
+        agentId: req.actor.agentId,
+        companyId: req.actor.companyId,
+        runId: req.actor.runId ?? null,
+        source: req.actor.source,
+      },
+      action: "tasks:manage_active_checkouts",
+      resource: {
+        type: "issue",
+        companyId: routine.companyId,
+        assigneeAgentId: routine.assigneeAgentId,
+      },
+    });
+    return decision.allowed;
+  }
+
   async function logRoutineRevisionCreated(req: Request, input: {
     companyId: string;
     routineId: string;
@@ -359,10 +391,19 @@ export function routineRoutes(
   );
 
   router.patch("/routines/:id", validate(updateRoutineSchema), async (req, res) => {
-    const routine = await assertCanManageExistingRoutine(req, req.params.id as string);
+    let routine = await assertCanManageExistingRoutine(req, req.params.id as string);
+    if (!routine && res.headersSent) return;
     if (!routine) {
       res.status(404).json({ error: "Routine not found" });
       return;
+    }
+    if (
+      req.actor.type === "agent" &&
+      req.actor.agentId &&
+      routine.assigneeAgentId !== req.actor.agentId &&
+      !(await assertCanPauseManagedRoutine(req, routine, req.body as Record<string, unknown>))
+    ) {
+      throw forbidden("Agents can only manage routines assigned to themselves unless they are pausing a managed routine");
     }
     const assigneeWillChange =
       req.body.assigneeAgentId !== undefined &&

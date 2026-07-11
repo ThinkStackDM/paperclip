@@ -275,6 +275,7 @@ function PluginSdkIssuesList({
     queryFn: () => heartbeatsApi.liveRunsForCompany(companyId!),
     enabled: !!companyId,
     refetchInterval: 5000,
+    retry: false,
   });
   const liveIssueIds = useMemo(() => collectLiveIssueIds(liveRuns), [liveRuns]);
 

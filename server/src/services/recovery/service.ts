@@ -224,6 +224,8 @@ const NON_RETRYABLE_CONTINUATION_ERROR_CODES = new Set<string>([
   "budget_exhausted",
   "issue_paused",
   "issue_dependencies_blocked",
+  "gemini_quota_exhausted",
+  "antigravity_quota_exhausted",
 ]);
 
 // A continuation cancelled with this code is a *deliberate wait* (the latest run
@@ -1041,6 +1043,91 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
     return row ?? null;
   }
 
+  async function latestActiveOutputQuietUntilDecisions(
+    companyId: string,
+    runIds: string[],
+    now = new Date(),
+  ) {
+    if (runIds.length === 0) return new Map<string, typeof heartbeatRunWatchdogDecisions.$inferSelect>();
+
+    const rows = await db
+      .select()
+      .from(heartbeatRunWatchdogDecisions)
+      .where(
+        and(
+          eq(heartbeatRunWatchdogDecisions.companyId, companyId),
+          inArray(heartbeatRunWatchdogDecisions.runId, runIds),
+          inArray(heartbeatRunWatchdogDecisions.decision, ["snooze", "continue"]),
+          gt(heartbeatRunWatchdogDecisions.snoozedUntil, now),
+        ),
+      )
+      .orderBy(desc(heartbeatRunWatchdogDecisions.createdAt));
+
+    const map = new Map<string, typeof heartbeatRunWatchdogDecisions.$inferSelect>();
+    for (const row of rows) {
+      if (!map.has(row.runId)) {
+        map.set(row.runId, row);
+      }
+    }
+    return map;
+  }
+
+  async function findOpenStaleRunEvaluations(companyId: string, runIds: string[]) {
+    if (runIds.length === 0) {
+      return new Map<string, {
+        id: string;
+        identifier: string;
+        status: string;
+        priority: string;
+        assigneeAgentId: string | null;
+        updatedAt: Date;
+      }>();
+    }
+
+    const rows = await db
+      .select({
+        id: issues.id,
+        identifier: issues.identifier,
+        status: issues.status,
+        priority: issues.priority,
+        assigneeAgentId: issues.assigneeAgentId,
+        updatedAt: issues.updatedAt,
+        originId: issues.originId,
+      })
+      .from(issues)
+      .where(
+        and(
+          eq(issues.companyId, companyId),
+          eq(issues.originKind, STALE_ACTIVE_RUN_EVALUATION_ORIGIN_KIND),
+          inArray(issues.originId, runIds),
+          isNull(issues.hiddenAt),
+          notInArray(issues.status, ["done", "cancelled"]),
+        ),
+      );
+
+    const map = new Map<string, {
+      id: string;
+      identifier: string;
+      status: string;
+      priority: string;
+      assigneeAgentId: string | null;
+      updatedAt: Date;
+    }>();
+    for (const row of rows) {
+      if (row.originId && !map.has(row.originId)) {
+        map.set(row.originId, {
+          id: row.id,
+          identifier: row.identifier,
+          status: row.status,
+          priority: row.priority,
+          assigneeAgentId: row.assigneeAgentId,
+          updatedAt: row.updatedAt,
+        });
+      }
+    }
+    return map;
+  }
+
   /**
    * Count how many silent-run review issues have ever been opened for the same
    * run (origin = the run id). Each closed-then-reopened review is one "review
@@ -1142,21 +1229,38 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
     >,
     now = new Date(),
   ): Promise<RunOutputSilenceSummary> {
+    if (run.status !== "running") {
+      return {
+        lastOutputAt: run.lastOutputAt ?? null,
+        lastOutputSeq: run.lastOutputSeq ?? 0,
+        lastOutputStream: (run.lastOutputStream === "stdout" || run.lastOutputStream === "stderr")
+          ? run.lastOutputStream
+          : null,
+        silenceStartedAt: silenceStartedAtForRun(run),
+        silenceAgeMs: null,
+        level: "not_applicable",
+        suspicionThresholdMs: ACTIVE_RUN_OUTPUT_SUSPICION_THRESHOLD_MS,
+        criticalThresholdMs: ACTIVE_RUN_OUTPUT_CRITICAL_THRESHOLD_MS,
+        snoozedUntil: null,
+        evaluationIssueId: null,
+        evaluationIssueIdentifier: null,
+        evaluationIssueAssigneeAgentId: null,
+      };
+    }
+
     const [quietUntilDecision, evaluation] = await Promise.all([
       latestActiveOutputQuietUntilDecision(run.companyId, run.id, now),
       findOpenStaleRunEvaluation(run.companyId, run.id),
     ]);
     const silenceStartedAt = silenceStartedAtForRun(run);
-    const silenceAgeMs = run.status === "running" ? silenceAgeMsForRun(run, now) : null;
-    const level = run.status !== "running"
-      ? "not_applicable"
-      : quietUntilDecision
-        ? "snoozed"
-        : (silenceAgeMs ?? 0) >= ACTIVE_RUN_OUTPUT_CRITICAL_THRESHOLD_MS
-          ? "critical"
-          : (silenceAgeMs ?? 0) >= ACTIVE_RUN_OUTPUT_SUSPICION_THRESHOLD_MS
-            ? "suspicious"
-            : "ok";
+    const silenceAgeMs = silenceAgeMsForRun(run, now);
+    const level = quietUntilDecision
+      ? "snoozed"
+      : (silenceAgeMs ?? 0) >= ACTIVE_RUN_OUTPUT_CRITICAL_THRESHOLD_MS
+        ? "critical"
+        : (silenceAgeMs ?? 0) >= ACTIVE_RUN_OUTPUT_SUSPICION_THRESHOLD_MS
+          ? "suspicious"
+          : "ok";
     return {
       lastOutputAt: run.lastOutputAt ?? null,
       lastOutputSeq: run.lastOutputSeq ?? 0,
@@ -1173,6 +1277,96 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
       evaluationIssueIdentifier: evaluation?.identifier ?? null,
       evaluationIssueAssigneeAgentId: evaluation?.assigneeAgentId ?? null,
     };
+  }
+
+  async function buildRunOutputSilenceBatch(
+    runs: Array<Pick<
+      typeof heartbeatRuns.$inferSelect,
+      "id" | "companyId" | "status" | "lastOutputAt" | "lastOutputSeq" | "lastOutputStream" | "processStartedAt" | "startedAt" | "createdAt"
+    >>,
+    now = new Date(),
+  ): Promise<RunOutputSilenceSummary[]> {
+    if (runs.length === 0) return [];
+
+    const runningByCompany = new Map<string, string[]>();
+    for (const run of runs) {
+      if (run.status !== "running") continue;
+      const existing = runningByCompany.get(run.companyId);
+      if (existing) existing.push(run.id);
+      else runningByCompany.set(run.companyId, [run.id]);
+    }
+
+    const quietDecisions = new Map<string, typeof heartbeatRunWatchdogDecisions.$inferSelect>();
+    const evaluations = new Map<string, {
+      id: string;
+      identifier: string;
+      status: string;
+      priority: string;
+      assigneeAgentId: string | null;
+      updatedAt: Date;
+    }>();
+
+    await Promise.all(Array.from(runningByCompany.entries()).map(async ([companyId, runIds]) => {
+      const [companyQuietDecisions, companyEvaluations] = await Promise.all([
+        latestActiveOutputQuietUntilDecisions(companyId, runIds, now),
+        findOpenStaleRunEvaluations(companyId, runIds),
+      ]);
+      for (const [runId, row] of companyQuietDecisions.entries()) {
+        quietDecisions.set(runId, row);
+      }
+      for (const [runId, row] of companyEvaluations.entries()) {
+        evaluations.set(runId, row);
+      }
+    }));
+
+    return runs.map((run) => {
+      const silenceStartedAt = silenceStartedAtForRun(run);
+      if (run.status !== "running") {
+        return {
+          lastOutputAt: run.lastOutputAt ?? null,
+          lastOutputSeq: run.lastOutputSeq ?? 0,
+          lastOutputStream: (run.lastOutputStream === "stdout" || run.lastOutputStream === "stderr")
+            ? run.lastOutputStream
+            : null,
+          silenceStartedAt,
+          silenceAgeMs: null,
+          level: "not_applicable",
+          suspicionThresholdMs: ACTIVE_RUN_OUTPUT_SUSPICION_THRESHOLD_MS,
+          criticalThresholdMs: ACTIVE_RUN_OUTPUT_CRITICAL_THRESHOLD_MS,
+          snoozedUntil: null,
+          evaluationIssueId: null,
+          evaluationIssueIdentifier: null,
+          evaluationIssueAssigneeAgentId: null,
+        };
+      }
+
+      const quietUntilDecision = quietDecisions.get(run.id) ?? null;
+      const evaluation = evaluations.get(run.id) ?? null;
+      const silenceAgeMs = silenceAgeMsForRun(run, now);
+      const level = quietUntilDecision
+        ? "snoozed"
+        : (silenceAgeMs ?? 0) >= ACTIVE_RUN_OUTPUT_CRITICAL_THRESHOLD_MS
+          ? "critical"
+          : (silenceAgeMs ?? 0) >= ACTIVE_RUN_OUTPUT_SUSPICION_THRESHOLD_MS
+            ? "suspicious"
+            : "ok";
+      return {
+        lastOutputAt: run.lastOutputAt ?? null,
+        lastOutputSeq: run.lastOutputSeq ?? 0,
+        lastOutputStream: (run.lastOutputStream === "stdout" || run.lastOutputStream === "stderr")
+          ? run.lastOutputStream
+          : null,
+        silenceStartedAt,
+        silenceAgeMs,
+        level,
+        suspicionThresholdMs: ACTIVE_RUN_OUTPUT_SUSPICION_THRESHOLD_MS,
+        criticalThresholdMs: ACTIVE_RUN_OUTPUT_CRITICAL_THRESHOLD_MS,
+        snoozedUntil: quietUntilDecision?.snoozedUntil ?? null,
+        evaluationIssueId: evaluation?.id ?? null,
+        evaluationIssueIdentifier: evaluation?.identifier ?? null,
+        evaluationIssueAssigneeAgentId: evaluation?.assigneeAgentId ?? null,
+      };
+    });
   }
 
   function redactWatchdogEvidenceText(value: string, currentUserRedactionOptions: Awaited<ReturnType<typeof getCurrentUserRedactionOptions>>) {
@@ -4920,6 +5114,7 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
   }
 
   return {
+    buildRunOutputSilenceBatch,
     buildRunOutputSilence,
     escalateStrandedRecoveryIssueInPlace,
     escalateStrandedAssignedIssue,
@@ -4932,5 +5127,3 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
     readRecoveryTimerIntervalMs,
   };
 }
-  "gemini_quota_exhausted",
-  "antigravity_quota_exhausted",

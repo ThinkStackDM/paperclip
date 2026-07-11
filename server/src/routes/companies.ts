@@ -187,6 +187,33 @@ export function companyRoutes(db: Db, storage?: StorageService) {
     if (req.actor.type !== "agent") assertBoard(req);
     const days = Math.min(30, Math.max(1, Number(req.query.days) || 4));
     try {
+      const tokenSumExpr = sql`
+        coalesce((hr.usage_json->>'inputTokens')::numeric, (hr.usage_json->>'input_tokens')::numeric, 0) +
+        coalesce(
+          (hr.usage_json->>'cachedInputTokens')::numeric,
+          (hr.usage_json->>'cached_input_tokens')::numeric,
+          (hr.usage_json->>'cache_read_input_tokens')::numeric,
+          (hr.usage_json->>'cacheReadInputTokens')::numeric,
+          (hr.usage_json->>'cacheCreationInputTokens')::numeric,
+          (hr.usage_json->>'cache_creation_input_tokens')::numeric,
+          0
+        ) +
+        coalesce((hr.usage_json->>'outputTokens')::numeric, (hr.usage_json->>'output_tokens')::numeric, 0)
+      `;
+      const hasTokenUsageExpr = sql`
+        coalesce(
+          hr.usage_json->>'inputTokens',
+          hr.usage_json->>'input_tokens',
+          hr.usage_json->>'cachedInputTokens',
+          hr.usage_json->>'cached_input_tokens',
+          hr.usage_json->>'cache_read_input_tokens',
+          hr.usage_json->>'cacheReadInputTokens',
+          hr.usage_json->>'cacheCreationInputTokens',
+          hr.usage_json->>'cache_creation_input_tokens',
+          hr.usage_json->>'outputTokens',
+          hr.usage_json->>'output_tokens'
+        ) is not null
+      `;
       const result = await db.execute(sql`
         SELECT a.id AS agent_id, a.name AS agent, a.adapter_type AS adapter, a.status AS status,
           count(hr.id) AS runs,
@@ -194,8 +221,8 @@ export function companyRoutes(db: Db, storage?: StorageService) {
           count(hr.id) FILTER (WHERE hr.status = 'failed' AND hr.error_code = 'adapter_failed') AS real_fail,
           count(hr.id) FILTER (WHERE hr.status = 'failed' AND coalesce(hr.error_code, '') <> 'adapter_failed') AS infra_fail,
           count(hr.id) FILTER (WHERE hr.status = 'cancelled') AS cancel,
-          round(avg((hr.usage_json->>'inputTokens')::numeric + (hr.usage_json->>'outputTokens')::numeric) FILTER (WHERE (hr.usage_json->>'outputTokens') IS NOT NULL)) AS avg_tokens,
-          round(sum((hr.usage_json->>'inputTokens')::numeric + (hr.usage_json->>'outputTokens')::numeric) FILTER (WHERE (hr.usage_json->>'outputTokens') IS NOT NULL)) AS total_tokens
+          round(avg(${tokenSumExpr}) FILTER (WHERE ${hasTokenUsageExpr})) AS avg_tokens,
+          round(sum(${tokenSumExpr}) FILTER (WHERE ${hasTokenUsageExpr})) AS total_tokens
         FROM agents a
         LEFT JOIN heartbeat_runs hr ON hr.agent_id = a.id AND hr.created_at > now() - (${days} * interval '1 day')
         WHERE a.company_id = ${companyId} AND a.status IN ('active', 'idle')

@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { and, desc, eq, gte, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   agents,
@@ -905,6 +905,17 @@ export function agentService(db: Db) {
         .select()
         .from(heartbeatRuns)
         .where(and(eq(heartbeatRuns.agentId, agentId), inArray(heartbeatRuns.status, ["queued", "running"]))),
+
+    listFallbackRelationships: async (companyId: string, primaryAgentId: string) =>
+      db
+        .select()
+        .from(agentFallbackSisters)
+        .where(and(
+          eq(agentFallbackSisters.companyId, companyId),
+          eq(agentFallbackSisters.primaryAgentId, primaryAgentId),
+          isNull(agentFallbackSisters.revokedAt),
+        ))
+        .orderBy(asc(agentFallbackSisters.priority), asc(agentFallbackSisters.createdAt)),
 
     getFallbackRelationship: async (companyId: string, primaryAgentId: string, sisterAgentId: string) =>
       db

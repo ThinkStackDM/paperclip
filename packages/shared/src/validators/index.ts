@@ -51,9 +51,11 @@ export {
   setInstanceRunPauseSchema,
   setInstanceAdapterPauseSchema,
   patchInstanceAdapterConcurrencySchema,
+  patchInstanceAdapterDailyRunBudgetsSchema,
   type SetInstanceRunPause,
   type SetInstanceAdapterPause,
   type PatchInstanceAdapterConcurrency,
+  type PatchInstanceAdapterDailyRunBudgets,
 } from "./instance-run-controls.js";
 export {
   environmentDriverSchema,

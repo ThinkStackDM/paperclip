@@ -50,7 +50,7 @@ describe("task watchdog subtree classifier", () => {
     });
   });
 
-  it("treats terminal and waiting leaves as stopped work that needs verification", () => {
+  it("treats in_review leaves with pending interactions as a live waiting path", () => {
     const result = classify({
       issues: [
         issue({ status: "done" }),
@@ -59,16 +59,10 @@ describe("task watchdog subtree classifier", () => {
       pendingInteractions: [{ companyId, issueId: childId, id: "interaction-1", status: "pending" }],
     });
 
-    expect(result.state).toBe("stopped");
-    if (result.state !== "stopped") return;
-    expect(result.stopFingerprint).toMatch(/^task_watchdog_stop:/);
-    expect(result.stoppedLeaves).toEqual([
-      expect.objectContaining({
-        issueId: childId,
-        status: "in_review",
-        pendingInteractionIds: ["interaction-1"],
-      }),
-    ]);
+    expect(result).toMatchObject({
+      state: "live",
+      liveIssueIds: [childId],
+    });
   });
 
   it("suppresses an unchanged stopped fingerprint once the watchdog reviewed it", () => {

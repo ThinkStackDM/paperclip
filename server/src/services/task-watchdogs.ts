@@ -323,11 +323,18 @@ export function classifyTaskWatchdogSubtree(input: TaskWatchdogClassifierInput):
     ...pathIssueIds(input.activeRuns, input.watchdog.companyId),
     ...pathIssueIds(input.queuedWakeRequests, input.watchdog.companyId),
   ].filter((issueId) => includedIdSet.has(issueId));
-  const uniqueLiveIssueIds = [...new Set(liveIssueIds)].sort();
+  const waitingIssueIds = included
+    .filter((issue) => issue.status === "in_review")
+    .filter((issue) =>
+      waitingPathIds(input.pendingInteractions, input.watchdog.companyId, issue.id).length > 0
+      || waitingPathIds(input.pendingApprovals, input.watchdog.companyId, issue.id).length > 0
+    )
+    .map((issue) => issue.id);
+  const uniqueLiveIssueIds = [...new Set([...liveIssueIds, ...waitingIssueIds])].sort();
   if (uniqueLiveIssueIds.length > 0) {
     return {
       state: "live",
-      reason: "At least one issue in the watched subtree has a live run, queued wake, or scheduled retry.",
+      reason: "At least one issue in the watched subtree has a live run, queued wake, scheduled retry, or waiting review path.",
       includedIssueIds: includedIds,
       liveIssueIds: uniqueLiveIssueIds,
     };

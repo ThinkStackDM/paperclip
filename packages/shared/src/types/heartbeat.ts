@@ -196,6 +196,9 @@ export interface InstanceSchedulerHeartbeatAgent {
   adapterType: string;
   intervalSec: number;
   heartbeatEnabled: boolean;
+  wakeOnDemand: boolean;
   schedulerActive: boolean;
+  staleHeartbeatEligible: boolean;
+  staleHeartbeatCategory: "scheduler_active" | "wake_on_demand_dormant" | "scheduler_inactive";
   lastHeartbeatAt: Date | null;
 }

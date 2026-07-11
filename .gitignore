@@ -78,3 +78,7 @@ __pycache__/
 benchmark/*.log
 # transient operator resume/preserve state
 scripts/.claude-preserve/
+
+# local instance state — never commit
+.secrets/
+artifacts/

@@ -236,6 +236,7 @@ export function instanceSettingsService(db: Db) {
               ]),
             ),
             adapterConcurrency: next.adapterConcurrency,
+            adapterDailyRunBudgets: next.adapterDailyRunBudgets,
           },
           updatedAt: now,
         })

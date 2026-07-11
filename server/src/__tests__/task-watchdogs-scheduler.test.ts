@@ -11,6 +11,7 @@ import {
   heartbeatRuns,
   issueComments,
   issueDocuments,
+  issueThreadInteractions,
   issueWorkProducts,
   issues,
   issueWatchdogs,
@@ -45,6 +46,7 @@ describeEmbeddedPostgres("task watchdog scheduler", () => {
     await db.delete(issueDocuments);
     await db.delete(documents);
     await db.delete(issueComments);
+    await db.delete(issueThreadInteractions);
     await db.delete(heartbeatRuns);
     await db.delete(agentWakeupRequests);
     await db.delete(issueWatchdogs);
@@ -240,6 +242,41 @@ describeEmbeddedPostgres("task watchdog scheduler", () => {
       .from(issues)
       .where(and(eq(issues.companyId, companyId), eq(issues.originKind, "task_watchdog")));
     expect(watchdogIssues).toHaveLength(0);
+  });
+
+  it("does not reopen a source issue parked in_review behind a pending interaction after child work completes", async () => {
+    const companyId = await seedCompany();
+    const sourceId = await seedIssue(companyId, { identifier: "WDOG-REVIEW", status: "in_review" });
+    const childId = await seedIssue(companyId, { parentId: sourceId, status: "in_progress" });
+    const agentId = await seedAgent(companyId);
+    await seedWatchdog(companyId, sourceId, agentId);
+    await db.insert(issueThreadInteractions).values({
+      companyId,
+      issueId: sourceId,
+      kind: "request_confirmation",
+      status: "pending",
+      continuationPolicy: "wake_assignee",
+      createdByAgentId: agentId,
+      payload: { version: 1, prompt: "Approve the plan?" },
+    });
+    const { service, wakes } = createService();
+
+    const initiallyLive = await service.reconcileTaskWatchdogs({ companyId });
+    expect(initiallyLive).toMatchObject({ checked: 1, triggered: 0, live: 1 });
+
+    await db
+      .update(issues)
+      .set({ status: "done", updatedAt: new Date(Date.now() + 60_000) })
+      .where(eq(issues.id, childId));
+    const afterChildCompletes = await service.reconcileTaskWatchdogs({ companyId });
+
+    expect(afterChildCompletes).toMatchObject({ checked: 1, triggered: 0, live: 1 });
+    const watchdogIssues = await db
+      .select()
+      .from(issues)
+      .where(and(eq(issues.companyId, companyId), eq(issues.originKind, "task_watchdog")));
+    expect(watchdogIssues).toHaveLength(0);
+    expect(wakes).toHaveLength(0);
   });
 
   it("does not trigger while a descendant has a queued assignment wake", async () => {

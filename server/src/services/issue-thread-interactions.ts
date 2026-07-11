@@ -81,6 +81,14 @@ type IssueInteractionStateSnapshot = {
   assigneeUserId: string | null;
 };
 
+type IssueDocumentTargetSnapshot = {
+  issueId: string;
+  documentId: string;
+  key: string;
+  latestRevisionId: string | null;
+  latestRevisionNumber: number;
+};
+
 const REQUEST_CONFIRMATION_INTERACTION_KINDS = [
   "request_confirmation",
   "request_checkbox_confirmation",
@@ -105,6 +113,12 @@ function isRequestConfirmationLikeKind(kind: string): kind is RequestConfirmatio
 
 function isUserCommentSupersedableKind(kind: string): kind is UserCommentSupersedableKind {
   return (USER_COMMENT_SUPERSEDABLE_INTERACTION_KINDS as readonly string[]).includes(kind);
+}
+
+function isOperatorFacingInteractionKind(kind: string) {
+  return kind === "request_confirmation"
+    || kind === "request_checkbox_confirmation"
+    || kind === "ask_user_questions";
 }
 
 function isIssueThreadInteractionIdempotencyConflict(error: unknown): boolean {
@@ -242,6 +256,7 @@ function buildSupersededByCommentResult(row: IssueThreadInteractionRow, commentI
     return {
       version: 1,
       answers: [],
+      cancelled: true,
       expirationReason: "superseded_by_comment",
       commentId,
       summaryMarkdown: null,
@@ -441,7 +456,7 @@ async function getIssueDocumentTargetSnapshot(db: Db | any, args: {
   companyId: string;
   issueId: string;
   target: RequestConfirmationTarget;
-}) {
+}): Promise<IssueDocumentTargetSnapshot | null> {
   if (args.target.type !== "issue_document") return null;
   const targetIssueId = args.target.issueId ?? args.issueId;
   const row = await db
@@ -459,17 +474,47 @@ async function getIssueDocumentTargetSnapshot(db: Db | any, args: {
       eq(issueDocuments.issueId, targetIssueId),
       eq(issueDocuments.key, args.target.key),
     ))
-    .then((rows: Array<{
-      issueId: string;
-      documentId: string;
-      key: string;
-      latestRevisionId: string | null;
-      latestRevisionNumber: number;
-    }>) => rows[0] ?? null);
+    .then((rows: IssueDocumentTargetSnapshot[]) => rows[0] ?? null);
 
   if (!row) return null;
   if (args.target.documentId && args.target.documentId !== row.documentId) return null;
   return row;
+}
+
+async function createStaleTargetReplacementInteraction(
+  db: Db | any,
+  args: {
+    row: IssueThreadInteractionRow;
+    interaction: RequestConfirmationLikeInteraction;
+    currentTarget: RequestConfirmationTarget;
+  },
+) {
+  const replacementIdempotencyKey = args.row.idempotencyKey
+    ? `${args.row.idempotencyKey}:stale-target:${args.currentTarget.revisionId}`
+    : null;
+  const [replacement] = await db
+    .insert(issueThreadInteractions)
+    .values({
+      companyId: args.row.companyId,
+      issueId: args.row.issueId,
+      kind: args.row.kind,
+      status: "pending",
+      continuationPolicy: args.row.continuationPolicy,
+      idempotencyKey: replacementIdempotencyKey,
+      sourceCommentId: args.row.sourceCommentId ?? null,
+      sourceRunId: args.row.sourceRunId ?? null,
+      title: args.row.title ?? null,
+      summary: args.row.summary ?? null,
+      createdByAgentId: args.row.createdByAgentId ?? null,
+      createdByUserId: args.row.createdByUserId ?? null,
+      payload: {
+        ...args.interaction.payload,
+        target: args.currentTarget,
+      },
+    })
+    .returning();
+
+  return replacement ? hydrateInteraction(replacement) : null;
 }
 
 function buildIssueDocumentTargetFromSnapshot(args: {
@@ -554,37 +599,50 @@ async function expireStaleRequestConfirmationTarget(db: Db | any, args: {
     issueId: args.row.issueId,
     snapshot,
   });
-  const [updated] = await db
-    .update(issueThreadInteractions)
-    .set({
-      status: "expired",
-      payload: currentTarget
-        ? {
-            ...interaction.payload,
-            target: currentTarget,
-          }
-        : interaction.payload,
-      result: {
-        version: 1,
-        outcome: "stale_target",
-        staleTarget: target,
-      },
-      resolvedByAgentId: args.actor.agentId ?? null,
-      resolvedByUserId: args.actor.userId ?? null,
-      resolvedAt: now,
-      updatedAt: now,
-    })
-    .where(and(
-      eq(issueThreadInteractions.id, args.row.id),
-      eq(issueThreadInteractions.status, "pending"),
-    ))
-    .returning();
+  const expired = await db.transaction(async (tx: Db | any) => {
+    const [updated] = await tx
+      .update(issueThreadInteractions)
+      .set({
+        status: "cancelled",
+        payload: currentTarget
+          ? {
+              ...interaction.payload,
+              target: currentTarget,
+            }
+          : interaction.payload,
+        result: {
+          version: 1,
+          outcome: "stale_target",
+          staleTarget: target,
+        },
+        resolvedByAgentId: args.actor.agentId ?? null,
+        resolvedByUserId: args.actor.userId ?? null,
+        resolvedAt: now,
+        updatedAt: now,
+      })
+      .where(and(
+        eq(issueThreadInteractions.id, args.row.id),
+        eq(issueThreadInteractions.status, "pending"),
+      ))
+      .returning();
 
-  if (!updated) {
-    throw conflict("Interaction has already been resolved");
-  }
-  await touchIssue(db, args.row.issueId);
-  return hydrateInteraction(updated);
+    if (!updated) {
+      throw conflict("Interaction has already been resolved");
+    }
+
+    if (currentTarget && isOperatorFacingInteractionKind(args.row.kind)) {
+      await createStaleTargetReplacementInteraction(tx, {
+        row: args.row,
+        interaction,
+        currentTarget,
+      });
+    }
+
+    await touchIssue(tx, args.row.issueId);
+    return hydrateInteraction(updated);
+  });
+
+  return expired;
 }
 
 export function issueThreadInteractionService(db: Db) {
@@ -1206,6 +1264,7 @@ export function issueThreadInteractionService(db: Db) {
 
       const superseded = rows.filter((row) => {
         if (!isUserCommentSupersedableKind(row.kind)) return false;
+        if (isOperatorFacingInteractionKind(row.kind)) return false;
         const interaction = hydrateInteraction(row) as UserCommentSupersedableInteraction;
         return (
           shouldSupersedeInteractionOnUserComment(interaction)
@@ -1224,7 +1283,7 @@ export function issueThreadInteractionService(db: Db) {
         const [updated] = await db
           .update(issueThreadInteractions)
           .set({
-            status: "expired",
+            status: "cancelled",
             result: buildSupersededByCommentResult(row, comment.id),
             resolvedByAgentId: actor.agentId ?? null,
             resolvedByUserId: actor.userId ?? null,
@@ -1282,6 +1341,7 @@ export function issueThreadInteractionService(db: Db) {
       >();
       for (const row of rows) {
         if (!isUserCommentSupersedableKind(row.kind)) continue;
+        if (isOperatorFacingInteractionKind(row.kind)) continue;
         const interaction = hydrateInteraction(row) as UserCommentSupersedableInteraction;
         if (!shouldSupersedeInteractionOnUserComment(interaction)) continue;
 
@@ -1320,7 +1380,7 @@ export function issueThreadInteractionService(db: Db) {
           const updatedRows = await db
             .update(issueThreadInteractions)
             .set({
-              status: "expired",
+              status: "cancelled",
               result: buildSupersededByCommentResult(sampleQuestionRow, comment.id),
               resolvedByAgentId: null,
               resolvedByUserId: comment.authorUserId,
@@ -1341,7 +1401,7 @@ export function issueThreadInteractionService(db: Db) {
           const updatedRows = await db
             .update(issueThreadInteractions)
             .set({
-              status: "expired",
+              status: "cancelled",
               result: buildSupersededByCommentResult(sampleConfirmationRow, comment.id),
               resolvedByAgentId: null,
               resolvedByUserId: comment.authorUserId,
@@ -1404,31 +1464,43 @@ export function issueThreadInteractionService(db: Db) {
           issueId: issue.id,
           document,
         });
-        const [updated] = await db
-          .update(issueThreadInteractions)
-          .set({
-            status: "expired",
-            payload: currentTarget
-              ? {
-                  ...interaction.payload,
-                  target: currentTarget,
-                }
-              : interaction.payload,
-            result: {
-              version: 1,
-              outcome: "stale_target",
-              staleTarget: target,
-            },
-            resolvedByAgentId: actor.agentId ?? null,
-            resolvedByUserId: actor.userId ?? null,
-            resolvedAt: now,
-            updatedAt: now,
-          })
-          .where(and(
-            eq(issueThreadInteractions.id, row.id),
-            eq(issueThreadInteractions.status, "pending"),
-          ))
-          .returning();
+        const updated = await db.transaction(async (tx: Db | any) => {
+          const [resolved] = await tx
+            .update(issueThreadInteractions)
+            .set({
+              status: "cancelled",
+              payload: currentTarget
+                ? {
+                    ...interaction.payload,
+                    target: currentTarget,
+                  }
+                : interaction.payload,
+              result: {
+                version: 1,
+                outcome: "stale_target",
+                staleTarget: target,
+              },
+              resolvedByAgentId: actor.agentId ?? null,
+              resolvedByUserId: actor.userId ?? null,
+              resolvedAt: now,
+              updatedAt: now,
+            })
+            .where(and(
+              eq(issueThreadInteractions.id, row.id),
+              eq(issueThreadInteractions.status, "pending"),
+            ))
+            .returning();
+          if (!resolved) return null;
+
+          if (currentTarget && isOperatorFacingInteractionKind(row.kind)) {
+            await createStaleTargetReplacementInteraction(tx, {
+              row,
+              interaction,
+              currentTarget,
+            });
+          }
+          return resolved;
+        });
         if (updated) expired.push(hydrateInteraction(updated));
       }
 
@@ -1481,7 +1553,7 @@ export function issueThreadInteractionService(db: Db) {
                   },
                 }
               : {
-                  status: "expired" as const,
+                  status: "cancelled" as const,
                   result: {
                     version: 1 as const,
                     outcome: "stale_issue_state" as const,

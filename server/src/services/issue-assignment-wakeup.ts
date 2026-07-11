@@ -14,8 +14,13 @@ export interface IssueAssignmentWakeupDeps {
       requestedByActorType?: "user" | "agent" | "system";
       requestedByActorId?: string | null;
       contextSnapshot?: Record<string, unknown>;
+      skipIssueLock?: boolean;
     },
   ) => Promise<unknown>;
+}
+
+function isClosedIssueStatus(status: string | null | undefined): status is "done" | "cancelled" {
+  return status === "done" || status === "cancelled";
 }
 
 type WakeFailure = {
@@ -54,7 +59,9 @@ export function queueIssueAssignmentWakeup(input: {
   requestedByActorId?: string | null;
   rethrowOnError?: boolean;
 }) {
-  if (!input.issue.assigneeAgentId || input.issue.status === "backlog") return;
+  if (!input.issue.assigneeAgentId || input.issue.status === "backlog" || isClosedIssueStatus(input.issue.status)) {
+    return;
+  }
 
   return input.heartbeat
     .wakeup(input.issue.assigneeAgentId, {
@@ -65,6 +72,7 @@ export function queueIssueAssignmentWakeup(input: {
       requestedByActorType: input.requestedByActorType,
       requestedByActorId: input.requestedByActorId ?? null,
       contextSnapshot: { issueId: input.issue.id, source: input.contextSource },
+      skipIssueLock: input.mutation === "update",
     })
     .catch((err) => {
       if (isNonInvokableAssignmentWakeFailure(err)) {

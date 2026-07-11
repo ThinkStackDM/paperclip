@@ -171,9 +171,9 @@ export function portfolioService(db: Db) {
           SELECT
             hr.company_id,
             hr.agent_id,
-            COUNT(*)::int AS runs_total,
-            COUNT(*) FILTER (WHERE hr.status = 'succeeded')::int AS runs_succeeded,
-            COUNT(*) FILTER (WHERE hr.status IN (${failureStatusesParam}))::int AS runs_failed,
+            COUNT(DISTINCT hr.id)::int AS runs_total,
+            COUNT(DISTINCT hr.id) FILTER (WHERE hr.status = 'succeeded')::int AS runs_succeeded,
+            COUNT(DISTINCT hr.id) FILTER (WHERE hr.status IN (${failureStatusesParam}))::int AS runs_failed,
             COALESCE(
               SUM(
                 CASE

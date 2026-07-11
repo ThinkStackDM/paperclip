@@ -271,6 +271,31 @@ describe("issue update comment wakeups", () => {
     );
   });
 
+  it("does not wake a newly assigned agent when a terminal issue is only reassigned", async () => {
+    const existing = makeIssue({
+      status: "done",
+      assigneeAgentId: PREVIOUS_AGENT_ID,
+      assigneeUserId: null,
+    });
+    const updated = makeIssue({
+      status: "done",
+      assigneeAgentId: ASSIGNEE_AGENT_ID,
+      assigneeUserId: null,
+    });
+    mockIssueService.getById.mockResolvedValue(existing);
+    mockIssueService.update.mockResolvedValue(updated);
+
+    const res = await request(await createApp())
+      .patch(`/api/issues/${existing.id}`)
+      .send({
+        assigneeAgentId: ASSIGNEE_AGENT_ID,
+        assigneeUserId: null,
+      });
+
+    expect(res.status).toBe(200);
+    expect(mockHeartbeatService.wakeup).not.toHaveBeenCalled();
+  });
+
   it("interrupts the active run and wakes the newly assigned agent with handoff context", async () => {
     const existing = makeIssue({
       assigneeAgentId: PREVIOUS_AGENT_ID,

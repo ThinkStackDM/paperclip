@@ -1026,6 +1026,8 @@ export {
 export {
   DEFAULT_ADAPTER_CONCURRENCY,
   CONCURRENCY_EXEMPT_ADAPTER_TYPES,
+  type InstanceAdapterDailyRunBudget,
+  type InstanceAdapterDailyRunBudgetState,
   type InstanceRunPause,
   type InstanceRunControls,
 } from "./types/instance-run-controls.js";
@@ -1095,9 +1097,11 @@ export {
   setInstanceRunPauseSchema,
   setInstanceAdapterPauseSchema,
   patchInstanceAdapterConcurrencySchema,
+  patchInstanceAdapterDailyRunBudgetsSchema,
   type SetInstanceRunPause,
   type SetInstanceAdapterPause,
   type PatchInstanceAdapterConcurrency,
+  type PatchInstanceAdapterDailyRunBudgets,
   type UpsertIssueFeedbackVote,
   type ExternalObjectCanonicalIdentityInput,
   type ExternalObjectMentionSourceInput,

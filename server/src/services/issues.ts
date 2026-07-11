@@ -115,6 +115,75 @@ const ISSUE_COMMENT_RUN_LOG_DERIVATION_CHUNK_BYTES = 256_000;
 const ISSUE_COMMENT_RUN_LOG_DERIVATION_END_SLACK_MS = 60_000;
 const ISSUE_COMMENT_RUN_LOG_DERIVATION_MAX_PARALLEL_READS = 8;
 const DELETED_ISSUE_COMMENT_BODY = "";
+const EXTERNAL_BLOCKER_MIRROR_ORIGIN_KIND = "external_blocker_mirror";
+const EXTERNAL_BLOCKER_MIRROR_SYNC_METADATA = Symbol("external_blocker_mirror_sync");
+
+type ExternalBlockerMirrorRemoteIssue = {
+  id: string;
+  companyId: string;
+  identifier: string | null;
+  title: string;
+  status: string;
+  priority: string;
+  hiddenAt: Date | null;
+};
+
+type ExternalBlockerMirrorSyncResult = {
+  mirrorIssueId: string;
+  previousStatus: string;
+  status: string;
+};
+
+function buildExternalBlockerMirrorTitle(remoteIssue: ExternalBlockerMirrorRemoteIssue) {
+  return `External blocker mirror: ${remoteIssue.identifier ?? remoteIssue.title}`;
+}
+
+function buildExternalBlockerMirrorDescription(remoteIssue: ExternalBlockerMirrorRemoteIssue) {
+  const remoteReference = remoteIssue.identifier ?? remoteIssue.id;
+  const remoteStateLabel =
+    remoteIssue.hiddenAt
+      ? "hidden"
+      : remoteIssue.status === "cancelled"
+        ? "cancelled"
+        : remoteIssue.status;
+  const externalAction =
+    remoteIssue.hiddenAt || remoteIssue.status === "cancelled"
+      ? `Replace or manually clear remote blocker ${remoteReference}`
+      : `Wait for remote blocker ${remoteReference} to complete`;
+  return [
+    "Paperclip-managed mirror for a cross-company blocker.",
+    "",
+    `Remote issue: ${remoteReference}`,
+    `Remote issue id: ${remoteIssue.id}`,
+    `Remote company id: ${remoteIssue.companyId}`,
+    `Remote status: ${remoteStateLabel}`,
+    "External owner: Remote company assignee",
+    `External action: ${externalAction}`,
+  ].join("\n");
+}
+
+function mapExternalBlockerMirrorStatus(remoteIssue: ExternalBlockerMirrorRemoteIssue) {
+  return remoteIssue.status === "done" ? "done" : "blocked";
+}
+
+function attachExternalBlockerMirrorSyncMetadata<T extends Record<string, unknown>>(
+  issue: T,
+  results: ExternalBlockerMirrorSyncResult[],
+) {
+  Object.defineProperty(issue, EXTERNAL_BLOCKER_MIRROR_SYNC_METADATA, {
+    value: results,
+    enumerable: false,
+    configurable: true,
+  });
+  return issue;
+}
+
+export function readExternalBlockerMirrorSyncMetadata(issue: unknown): ExternalBlockerMirrorSyncResult[] {
+  if (!issue || typeof issue !== "object") return [];
+  const value = (issue as Record<PropertyKey, unknown>)[EXTERNAL_BLOCKER_MIRROR_SYNC_METADATA];
+  return Array.isArray(value) ? value as ExternalBlockerMirrorSyncResult[] : [];
+}
+
 function assertTransition(from: string, to: string) {
   if (from === to) return;
   if (!ALL_ISSUE_STATUSES.includes(to)) {
@@ -392,6 +461,7 @@ type DbReader = Pick<Db, "select">;
 type IssueCreateInput = Omit<typeof issues.$inferInsert, "companyId"> & {
   labelIds?: string[];
   blockedByIssueIds?: string[];
+  externalBlockedByIssueIds?: string[];
   inheritExecutionWorkspaceFromIssueId?: string | null;
   watchdog?: { agentId: string; instructions?: string | null } | null;
   watchdogActorRunId?: string | null;
@@ -935,6 +1005,52 @@ async function getProjectDefaultGoalId(
     .where(and(eq(projects.id, projectId), eq(projects.companyId, companyId)))
     .then((rows) => rows[0] ?? null);
   return row?.goalId ?? null;
+}
+
+async function goalExistsForCompany(
+  db: Pick<Db, "select">,
+  companyId: string,
+  goalId: string | null | undefined,
+) {
+  if (!goalId) return false;
+  const row = await db
+    .select({ id: goals.id })
+    .from(goals)
+    .where(and(eq(goals.id, goalId), eq(goals.companyId, companyId)))
+    .then((rows) => rows[0] ?? null);
+  return Boolean(row);
+}
+
+async function resolveCreateGoalId(
+  db: Pick<Db, "select">,
+  input: {
+    companyId: string;
+    projectId: string | null | undefined;
+    explicitGoalId: string | null | undefined;
+    projectGoalId: string | null | undefined;
+    defaultGoalId: string | null | undefined;
+  },
+) {
+  if (input.explicitGoalId !== undefined && input.explicitGoalId !== null) {
+    if (await goalExistsForCompany(db, input.companyId, input.explicitGoalId)) {
+      return input.explicitGoalId;
+    }
+    throw unprocessable("Goal not found");
+  }
+
+  if (
+    input.projectId &&
+    input.projectGoalId &&
+    await goalExistsForCompany(db, input.companyId, input.projectGoalId)
+  ) {
+    return input.projectGoalId;
+  }
+
+  if (await goalExistsForCompany(db, input.companyId, input.defaultGoalId)) {
+    return input.defaultGoalId ?? null;
+  }
+
+  return null;
 }
 
 async function getWorkspaceInheritanceIssue(
@@ -2639,7 +2755,7 @@ function boardActionDecisionTextFromInteraction(input: {
 }) {
   const interactionLabel = [input.title, input.summary].find((value) => value && value.trim().length > 0)?.trim();
   const interactionName = interactionLabel ? ` interaction \"${interactionLabel}\"` : " interaction";
-  if (input.kind === "request_confirmation") {
+  if (input.kind === "request_confirmation" || input.kind === "request_checkbox_confirmation") {
     return `Approve, reject, or request revision${interactionName}.`;
   }
   return `Respond to the open question${interactionName}.`;
@@ -2653,7 +2769,13 @@ function isBoardActionInteraction(
   interaction: { kind: string; issueId: string; title: string | null; summary: string | null },
   issueRow: { assigneeUserId?: string | null },
 ) {
-  if (interaction.kind !== "request_confirmation" && interaction.kind !== "ask_user_questions") return false;
+  if (
+    interaction.kind !== "request_confirmation"
+    && interaction.kind !== "request_checkbox_confirmation"
+    && interaction.kind !== "ask_user_questions"
+  ) {
+    return false;
+  }
   if (interaction.kind === "ask_user_questions" && issueRow.assigneeUserId) return false;
   return true;
 }
@@ -4252,6 +4374,174 @@ export function issueService(db: Db) {
     );
   }
 
+  async function listExternalBlockerMirrorIssues(
+    companyId: string,
+    dbOrTx: any = db,
+  ) {
+    return dbOrTx
+      .select({
+        id: issues.id,
+        originId: issues.originId,
+      })
+      .from(issues)
+      .where(
+        and(
+          eq(issues.companyId, companyId),
+          eq(issues.originKind, EXTERNAL_BLOCKER_MIRROR_ORIGIN_KIND),
+        ),
+      );
+  }
+
+  async function resolveExternalBlockerMirrorIssueIds(input: {
+    companyId: string;
+    externalBlockedByIssueIds: string[];
+    actor?: { agentId?: string | null; userId?: string | null };
+    dbOrTx?: any;
+  }) {
+    const dbOrTx = input.dbOrTx ?? db;
+    const dedupedRemoteIssueIds = [...new Set(input.externalBlockedByIssueIds.filter(Boolean))];
+    if (dedupedRemoteIssueIds.length === 0) return [];
+
+    const remoteIssues = await dbOrTx
+      .select({
+        id: issues.id,
+        companyId: issues.companyId,
+        identifier: issues.identifier,
+        title: issues.title,
+        status: issues.status,
+        priority: issues.priority,
+        hiddenAt: issues.hiddenAt,
+      })
+      .from(issues)
+      .where(inArray(issues.id, dedupedRemoteIssueIds));
+    if (remoteIssues.length !== dedupedRemoteIssueIds.length) {
+      throw unprocessable("External blocked-by issues must exist");
+    }
+    if (remoteIssues.some((row) => row.companyId === input.companyId)) {
+      throw unprocessable("External blocked-by issues must belong to a different company");
+    }
+
+    const existingMirrors = await dbOrTx
+      .select({
+        id: issues.id,
+        originId: issues.originId,
+      })
+      .from(issues)
+      .where(
+        and(
+          eq(issues.companyId, input.companyId),
+          eq(issues.originKind, EXTERNAL_BLOCKER_MIRROR_ORIGIN_KIND),
+          inArray(issues.originId, dedupedRemoteIssueIds),
+        ),
+      );
+    const mirrorIdByRemoteIssueId = new Map(existingMirrors.map((row) => [row.originId ?? "", row.id]));
+    const mirrorIssueIds: string[] = [];
+
+    for (const remoteIssueId of dedupedRemoteIssueIds) {
+      const remoteIssue = remoteIssues.find((row) => row.id === remoteIssueId);
+      if (!remoteIssue) continue;
+
+      const existingMirrorIssueId = mirrorIdByRemoteIssueId.get(remoteIssue.id);
+      const desiredStatus = mapExternalBlockerMirrorStatus(remoteIssue);
+      const desiredDescription = buildExternalBlockerMirrorDescription(remoteIssue);
+      const desiredTitle = buildExternalBlockerMirrorTitle(remoteIssue);
+
+      if (existingMirrorIssueId) {
+        await dbOrTx
+          .update(issues)
+          .set({
+            title: desiredTitle,
+            description: desiredDescription,
+            priority: remoteIssue.priority as typeof issues.$inferInsert.priority,
+            status: desiredStatus,
+            completedAt: desiredStatus === "done" ? new Date() : null,
+            cancelledAt: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(issues.id, existingMirrorIssueId));
+        mirrorIssueIds.push(existingMirrorIssueId);
+        continue;
+      }
+
+      const [mirrorIssue] = await dbOrTx.insert(issues).values({
+        companyId: input.companyId,
+        title: desiredTitle,
+        description: desiredDescription,
+        status: desiredStatus,
+        priority: remoteIssue.priority as typeof issues.$inferInsert.priority,
+        originKind: EXTERNAL_BLOCKER_MIRROR_ORIGIN_KIND,
+        originId: remoteIssue.id,
+        createdByAgentId: input.actor?.agentId ?? null,
+        createdByUserId: input.actor?.userId ?? null,
+        completedAt: desiredStatus === "done" ? new Date() : null,
+      }).returning({ id: issues.id });
+      mirrorIssueIds.push(mirrorIssue.id);
+    }
+
+    return mirrorIssueIds;
+  }
+
+  async function syncExternalBlockerMirrorStatusesForRemoteIssue(
+    remoteIssueId: string,
+    dbOrTx: any = db,
+  ): Promise<ExternalBlockerMirrorSyncResult[]> {
+    const remoteIssue = await dbOrTx
+      .select({
+        id: issues.id,
+        companyId: issues.companyId,
+        identifier: issues.identifier,
+        title: issues.title,
+        status: issues.status,
+        priority: issues.priority,
+        hiddenAt: issues.hiddenAt,
+      })
+      .from(issues)
+      .where(eq(issues.id, remoteIssueId))
+      .then((rows) => rows[0] ?? null);
+    if (!remoteIssue) return [];
+
+    const mirrors = await dbOrTx
+      .select({
+        id: issues.id,
+        status: issues.status,
+      })
+      .from(issues)
+      .where(
+        and(
+          eq(issues.originKind, EXTERNAL_BLOCKER_MIRROR_ORIGIN_KIND),
+          eq(issues.originId, remoteIssue.id),
+        ),
+      );
+    if (mirrors.length === 0) return [];
+
+    const nextStatus = mapExternalBlockerMirrorStatus(remoteIssue);
+    const nextDescription = buildExternalBlockerMirrorDescription(remoteIssue);
+    const nextTitle = buildExternalBlockerMirrorTitle(remoteIssue);
+    const now = new Date();
+
+    const results: ExternalBlockerMirrorSyncResult[] = [];
+    for (const mirror of mirrors) {
+      await dbOrTx
+        .update(issues)
+        .set({
+          title: nextTitle,
+          description: nextDescription,
+          priority: remoteIssue.priority as typeof issues.$inferInsert.priority,
+          status: nextStatus,
+          completedAt: nextStatus === "done" ? now : null,
+          cancelledAt: null,
+          updatedAt: now,
+        })
+        .where(eq(issues.id, mirror.id));
+      results.push({
+        mirrorIssueId: mirror.id,
+        previousStatus: mirror.status,
+        status: nextStatus,
+      });
+    }
+    return results;
+  }
+
   async function isTerminalOrMissingHeartbeatRun(runId: string, dbOrTx: DbReader = db) {
     const run = await dbOrTx
       .select({ status: heartbeatRuns.status })
@@ -5702,16 +5992,19 @@ export function issueService(db: Db) {
         const issueNumber = company.issueCounter;
         const identifier = `${company.issuePrefix}-${issueNumber}`;
 
+        const resolvedGoalId = await resolveCreateGoalId(tx, {
+          companyId,
+          projectId: issueData.projectId,
+          explicitGoalId: issueData.goalId,
+          projectGoalId,
+          defaultGoalId: defaultCompanyGoal?.id ?? null,
+        });
+
         const values = {
           ...issueData,
           requestDepth: clampIssueRequestDepth(issueData.requestDepth),
           originKind: issueData.originKind ?? "manual",
-          goalId: resolveIssueGoalId({
-            projectId: issueData.projectId,
-            goalId: issueData.goalId,
-            projectGoalId,
-            defaultGoalId: defaultCompanyGoal?.id ?? null,
-          }),
+          goalId: resolvedGoalId,
           ...(projectWorkspaceId ? { projectWorkspaceId } : {}),
           ...(executionWorkspaceId ? { executionWorkspaceId } : {}),
           ...(executionWorkspacePreference ? { executionWorkspacePreference } : {}),
@@ -5835,7 +6128,15 @@ export function issueService(db: Db) {
           throw unprocessable("Issue is blocked by unresolved blockers", { unresolvedBlockerIssueIds });
         }
       }
-      if (patch.status === "blocked" && existing.status !== "blocked") {
+      const nextStatus = issueData.status ?? existing.status;
+      const shouldValidateBlockedState =
+        nextStatus === "blocked" &&
+        (
+          patch.status === "blocked" ||
+          blockedByIssueIds !== undefined ||
+          issueData.description !== undefined
+        );
+      if (shouldValidateBlockedState) {
         const unresolvedBlockerIssueIds = blockedByIssueIds !== undefined
           ? await listUnresolvedBlockerIssueIds(dbOrTx, existing.companyId, blockedByIssueIds)
           : (
@@ -6256,19 +6557,38 @@ export function issueService(db: Db) {
       checkoutRunId: string | null,
       options?: { checkoutType?: "execution" | "review" },
     ) => {
-      const issueCompany = await db
-        .select({ companyId: issues.companyId })
+      const currentIssue = await db
+        .select({
+          companyId: issues.companyId,
+          status: issues.status,
+          assigneeAgentId: issues.assigneeAgentId,
+          checkoutRunId: issues.checkoutRunId,
+          executionRunId: issues.executionRunId,
+        })
         .from(issues)
         .where(eq(issues.id, id))
         .then((rows) => rows[0] ?? null);
-      if (!issueCompany) throw notFound("Issue not found");
-      await assertAssignableAgent(db, issueCompany.companyId, agentId, { kind: "work" });
+      if (!currentIssue) throw notFound("Issue not found");
+      await assertAssignableAgent(db, currentIssue.companyId, agentId, { kind: "work" });
+
+      if (
+        (currentIssue.status === "done" || currentIssue.status === "cancelled") &&
+        options?.checkoutType !== "review"
+      ) {
+        throw conflict("Cannot checkout a terminal issue for execution", {
+          issueId: id,
+          status: currentIssue.status,
+          assigneeAgentId: currentIssue.assigneeAgentId,
+          checkoutRunId: currentIssue.checkoutRunId,
+          executionRunId: currentIssue.executionRunId,
+        });
+      }
 
       const now = new Date();
-      const activePauseHold = await treeControlSvc.getActivePauseHoldGate(issueCompany.companyId, id);
+      const activePauseHold = await treeControlSvc.getActivePauseHoldGate(currentIssue.companyId, id);
       if (
         activePauseHold &&
-        !(await isTreeHoldInteractionCheckoutAllowed(issueCompany.companyId, checkoutRunId, activePauseHold))
+        !(await isTreeHoldInteractionCheckoutAllowed(currentIssue.companyId, checkoutRunId, activePauseHold))
       ) {
         throw conflict("Issue checkout blocked by active subtree pause hold", {
           issueId: id,
@@ -6305,7 +6625,7 @@ export function issueService(db: Db) {
         }
       }
 
-      const dependencyReadiness = await listIssueDependencyReadinessMap(db, issueCompany.companyId, [id]);
+      const dependencyReadiness = await listIssueDependencyReadinessMap(db, currentIssue.companyId, [id]);
       const unresolvedBlockerIssueIds = dependencyReadiness.get(id)?.unresolvedBlockerIssueIds ?? [];
       if (unresolvedBlockerIssueIds.length > 0) {
         throw unprocessable("Issue is blocked by unresolved blockers", { unresolvedBlockerIssueIds });

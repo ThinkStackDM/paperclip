@@ -54,11 +54,10 @@ export const modelProfiles: AdapterModelProfileDefinition[] = [
   {
     key: "cheap",
     label: "Cheap",
-    description: "Use the lowest-cost known Codex local model lane without changing the primary model.",
+    description: "Use the fast ChatGPT-auth-safe Codex local lane without changing the primary model.",
     adapterConfig: {
-      model: "gpt-5.3-codex-spark",
-      // Spark is the cheap lane by model price; high effort keeps Codex coding behavior usable for delegated work.
-      modelReasoningEffort: "high",
+      model: "gpt-5.4",
+      modelReasoningEffort: "medium",
     },
     source: "adapter_default",
   },

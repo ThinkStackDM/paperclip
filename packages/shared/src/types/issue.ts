@@ -142,6 +142,7 @@ export interface AcceptedPlanDecompositionChild {
   projectWorkspaceId?: string | null;
   goalId?: string | null;
   blockedByIssueIds?: string[];
+  externalBlockedByIssueIds?: string[];
   title: string;
   description?: string | null;
   status: IssueStatus;

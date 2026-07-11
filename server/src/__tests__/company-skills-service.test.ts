@@ -108,6 +108,54 @@ describeEmbeddedPostgres("companySkillService.list", () => {
     });
   });
 
+  it("registers maintainer bundled skills that moved under .agents/skills", async () => {
+    const companyId = randomUUID();
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+
+    const listed = await svc.list(companyId);
+    const slugs = new Set(listed.map((skill) => skill.slug));
+
+    expect(slugs.has("diagnose-why-work-stopped")).toBe(true);
+    expect(slugs.has("paperclip-create-plugin")).toBe(true);
+    expect(slugs.has("terminal-bench-loop")).toBe(true);
+  });
+
+  it("drops retired bundled skill rows when the bundled source no longer exists", async () => {
+    const companyId = randomUUID();
+    const skillId = randomUUID();
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+    await db.insert(companySkills).values({
+      id: skillId,
+      companyId,
+      key: "paperclipai/paperclip/paperclip-dev",
+      slug: "paperclip-dev",
+      name: "paperclip-dev",
+      description: "Retired bundled Paperclip skill.",
+      markdown: "# paperclip-dev\n",
+      sourceType: "local_path",
+      sourceLocator: path.resolve("/Users/glad0s/paperclip/skills/paperclip-dev"),
+      trustLevel: "markdown_only",
+      compatibility: "compatible",
+      fileInventory: [{ path: "SKILL.md", kind: "skill" }],
+      metadata: { sourceKind: "paperclip_bundled", skillKey: "paperclipai/paperclip/paperclip-dev" },
+    });
+
+    const listed = await svc.list(companyId);
+
+    expect(listed.some((skill) => skill.slug === "paperclip-dev")).toBe(false);
+    await expect(svc.getById(companyId, skillId)).resolves.toBeNull();
+  });
+
   it("does not persist audit failures for remote-source skills", async () => {
     const companyId = randomUUID();
     const skillId = randomUUID();

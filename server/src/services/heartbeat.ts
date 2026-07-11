@@ -78,6 +78,11 @@ import { getTelemetryClient } from "../telemetry.js";
 import { companySkillService } from "./company-skills.js";
 import { budgetService, type BudgetEnforcementScope } from "./budgets.js";
 import {
+  buildQuotaCooldownCopy,
+  isQuotaExhaustedFailureRun,
+  readQuotaFailureResetAt,
+} from "./automatic-retry-policy.js";
+import {
   getActivityWindowScheduleSkip,
   isActivityWindowExemptAgent,
   runGateService,
@@ -1842,6 +1847,7 @@ interface WakeupOptions {
   requestedByActorType?: "user" | "agent" | "system";
   requestedByActorId?: string | null;
   contextSnapshot?: Record<string, unknown>;
+  skipIssueLock?: boolean;
 }
 
 type UsageTotals = {
@@ -2210,6 +2216,16 @@ function didAutomaticRecoveryFail(
       latestRun.status as (typeof UNSUCCESSFUL_HEARTBEAT_RUN_TERMINAL_STATUSES)[number],
     )
   );
+}
+
+function readActiveQuotaCooldown(
+  run: Pick<typeof heartbeatRuns.$inferSelect, "errorCode" | "resultJson"> | null | undefined,
+  now: Date = new Date(),
+): Date | null {
+  if (!isQuotaExhaustedFailureRun(run)) return null;
+  const resetAt = readQuotaFailureResetAt(run);
+  if (!resetAt || resetAt.getTime() <= now.getTime()) return null;
+  return resetAt;
 }
 
 function normalizeLedgerBillingType(value: unknown): BillingType {
@@ -7104,6 +7120,21 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     agent: typeof agents.$inferSelect,
     issueId: string,
   ) {
+    const activeQuotaCooldown = readActiveQuotaCooldown(run);
+    if (activeQuotaCooldown) {
+      await appendRunEvent(run, await nextRunEventSeq(run.id), {
+        eventType: "lifecycle",
+        stream: "system",
+        level: "warn",
+        message: `Missing-comment retry suppressed because the adapter is quota-limited until ${activeQuotaCooldown.toISOString()}`,
+        payload: {
+          errorCode: run.errorCode ?? null,
+          resetAt: activeQuotaCooldown.toISOString(),
+        },
+      });
+      return null;
+    }
+
     const invokability = await getAgentInvokability(agent);
     if (!invokability.invokable) {
       await appendRunEvent(run, await nextRunEventSeq(run.id), {
@@ -8519,6 +8550,9 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       maxDailyRuns: normalizeOptionalNonNegativeInteger(
         heartbeat.maxDailyRuns ?? heartbeat.dailyRunLimit ?? heartbeat.dailyRunCap ?? heartbeat.maxRunsPerDay,
       ),
+      maxRunsPerHour: normalizeOptionalNonNegativeInteger(
+        heartbeat.maxRunsPerHour ?? heartbeat.hourlyRunLimit ?? heartbeat.hourlyRunCap,
+      ),
       maxDailyCostCents: normalizeOptionalNonNegativeInteger(
         heartbeat.maxDailyCostCents ??
           heartbeat.dailyCostCentsLimit ??
@@ -8538,6 +8572,45 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
     const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0, 0));
     return { start, end };
+  }
+
+  function currentTrailingHourWindow(now = new Date()) {
+    const end = now;
+    const start = new Date(now.getTime() - (60 * 60 * 1000));
+    return { start, end };
+  }
+
+  async function getHeartbeatHourlyCapBlock(
+    agent: typeof agents.$inferSelect,
+    policy: ReturnType<typeof parseHeartbeatPolicy>,
+    options: { excludeRunId?: string | null } = {},
+    client: Pick<Db, "select"> = db,
+  ) {
+    if (policy.maxRunsPerHour === null) return null;
+    const { start, end } = currentTrailingHourWindow();
+    const conditions = [
+      eq(heartbeatRuns.companyId, agent.companyId),
+      eq(heartbeatRuns.agentId, agent.id),
+      gte(heartbeatRuns.startedAt, start),
+      lt(heartbeatRuns.startedAt, end),
+      notInArray(heartbeatRuns.status, ["queued", "scheduled_retry"]),
+    ];
+    if (options.excludeRunId) {
+      conditions.push(sql`${heartbeatRuns.id} <> ${options.excludeRunId}`);
+    }
+    const [row] = await client
+      .select({ total: sql<number>`count(*)::integer` })
+      .from(heartbeatRuns)
+      .where(and(...conditions));
+    const observed = Number(row?.total ?? 0);
+    if (observed >= policy.maxRunsPerHour) {
+      return {
+        reason: "heartbeat.hourly_run_limit",
+        observed,
+        limit: policy.maxRunsPerHour,
+      };
+    }
+    return null;
   }
 
   async function getHeartbeatDailyCapBlock(
@@ -8636,6 +8709,51 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
         reason: dailyCapBlock.reason,
         observed: dailyCapBlock.observed,
         limit: dailyCapBlock.limit,
+      },
+    });
+
+    await releaseIssueExecutionAndPromote(cancelled, { suppressImmediateRecovery: true });
+
+    return cancelled;
+  }
+
+  async function cancelQueuedRunForHeartbeatHourlyCap(
+    run: typeof heartbeatRuns.$inferSelect,
+    hourlyCapBlock: NonNullable<Awaited<ReturnType<typeof getHeartbeatHourlyCapBlock>>>,
+  ) {
+    const now = new Date();
+    const reason = "Cancelled because the agent reached a per-hour heartbeat rate cap before adapter invocation";
+    const cancelled = await setRunStatus(run.id, "cancelled", {
+      finishedAt: now,
+      error: reason,
+      errorCode: hourlyCapBlock.reason,
+      resultJson: {
+        ...parseObject(run.resultJson),
+        stopReason: hourlyCapBlock.reason,
+        observed: hourlyCapBlock.observed,
+        limit: hourlyCapBlock.limit,
+        effectiveTimeoutSec: 0,
+        timeoutConfigured: false,
+        timeoutSource: "heartbeat_hourly_cap_gate",
+        timeoutFired: false,
+      },
+    });
+    if (!cancelled) return null;
+
+    await setWakeupStatus(run.wakeupRequestId, "skipped", {
+      finishedAt: now,
+      error: reason,
+    });
+
+    await appendRunEvent(cancelled, await nextRunEventSeq(cancelled.id), {
+      eventType: "lifecycle",
+      stream: "system",
+      level: "warn",
+      message: reason,
+      payload: {
+        reason: hourlyCapBlock.reason,
+        observed: hourlyCapBlock.observed,
+        limit: hourlyCapBlock.limit,
       },
     });
 
@@ -8779,6 +8897,13 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       checkRunCap: true,
       checkCostCap: true,
     });
+    const hourlyCapBlock = await getHeartbeatHourlyCapBlock(agent, parseHeartbeatPolicy(agent), {
+      excludeRunId: run.id,
+    });
+    if (hourlyCapBlock) {
+      await cancelQueuedRunForHeartbeatHourlyCap(run, hourlyCapBlock);
+      return null;
+    }
     if (dailyCapBlock) {
       await cancelQueuedRunForHeartbeatDailyCap(run, dailyCapBlock);
       return null;
@@ -12327,6 +12452,27 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     );
   }
 
+  function buildQuotaExhaustedExecutionPathRecoveryComment(input: {
+    status: "todo" | "in_progress";
+    latestRun: Pick<typeof heartbeatRuns.$inferSelect, "error" | "errorCode" | "resultJson"> | null | undefined;
+  }) {
+    const failureSummary = summarizeRunFailureForIssueComment(input.latestRun);
+    const cooldownCopy = buildQuotaCooldownCopy(input.latestRun);
+    if (input.status === "todo") {
+      return (
+        "Paperclip stopped automatic dispatch for this assigned `todo` issue because the latest run hit a quota exhaustion gate. " +
+        `Re-invoking the same lane before reset would only burn more quota.${failureSummary ?? ""}${cooldownCopy} ` +
+        "Moving it to `blocked` instead of queueing another wake."
+      );
+    }
+
+    return (
+      "Paperclip stopped automatic continuation for this assigned `in_progress` issue because the latest run hit a quota exhaustion gate. " +
+      `Re-invoking the same lane before reset would only burn more quota.${failureSummary ?? ""}${cooldownCopy} ` +
+      "Moving it to `blocked` instead of queueing another wake."
+    );
+  }
+
   function buildWorkspaceValidationRecoveryComment(input: {
     latestRun: Pick<typeof heartbeatRuns.$inferSelect, "error" | "errorCode"> | null | undefined;
   }) {
@@ -12479,6 +12625,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
 
       if (!issue) return null;
       if (issue.executionRunId && issue.executionRunId !== run.id) return null;
+      const activeQuotaCooldown = readActiveQuotaCooldown(run);
 
       // Workspace-validation recovery: if the finalizing run failed workspace
       // validation, surface the primary issue for the blocked-recovery comment path.
@@ -12552,6 +12699,19 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
               status: "failed",
               finishedAt: new Date(),
               error: "Deferred wake could not be promoted: agent is not invokable",
+              updatedAt: new Date(),
+            })
+            .where(eq(agentWakeupRequests.id, deferred.id));
+          continue;
+        }
+
+        if (activeQuotaCooldown) {
+          await tx
+            .update(agentWakeupRequests)
+            .set({
+              status: "cancelled",
+              finishedAt: new Date(),
+              error: `Deferred wake suppressed by active quota cooldown until ${activeQuotaCooldown.toISOString()}`,
               updatedAt: new Date(),
             })
             .where(eq(agentWakeupRequests.id, deferred.id));
@@ -12786,6 +12946,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       }
 
       const shouldBlockImmediately =
+        !!activeQuotaCooldown ||
         !recoveryAgentInvokable ||
         !recoveryAgent ||
         isWorkspaceValidationFailedRun(run) ||
@@ -12794,14 +12955,19 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       if (shouldBlockImmediately) {
         const workspaceValidationFailure = isWorkspaceValidationFailedRun(run);
         const configurationIncompleteFailure = isConfigurationIncompleteFailedRun(run);
-        const comment = workspaceValidationFailure
-          ? buildWorkspaceValidationRecoveryComment({ latestRun: run })
-          : configurationIncompleteFailure
-            ? buildConfigurationIncompleteRecoveryComment({ latestRun: run })
-            : buildImmediateExecutionPathRecoveryComment({
-                status: issue.status as "todo" | "in_progress",
-                latestRun: run,
-              });
+        const comment = activeQuotaCooldown
+          ? buildQuotaExhaustedExecutionPathRecoveryComment({
+              status: issue.status as "todo" | "in_progress",
+              latestRun: run,
+            })
+          : workspaceValidationFailure
+            ? buildWorkspaceValidationRecoveryComment({ latestRun: run })
+            : configurationIncompleteFailure
+              ? buildConfigurationIncompleteRecoveryComment({ latestRun: run })
+              : buildImmediateExecutionPathRecoveryComment({
+                  status: issue.status as "todo" | "in_progress",
+                  latestRun: run,
+                });
         return {
           kind: "blocked" as const,
           issue,
@@ -13217,9 +13383,11 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
         if (issueLockTimeoutMs > 0) {
           await tx.execute(sql`select set_config('lock_timeout', ${`${issueLockTimeoutMs}ms`}, true)`);
         }
-        await tx.execute(
-          sql`select id from issues where id = ${issueId} and company_id = ${agent.companyId} for update`,
-        );
+        if (!opts.skipIssueLock) {
+          await tx.execute(
+            sql`select id from issues where id = ${issueId} and company_id = ${agent.companyId} for update`,
+          );
+        }
 
         const issue = await tx
           .select({
@@ -13636,6 +13804,41 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
           }
         }
 
+        const hourlyCapBlock = await getHeartbeatHourlyCapBlock(agent, policy, {}, tx);
+        if (hourlyCapBlock) {
+          const now = new Date();
+          await tx.insert(agentWakeupRequests).values({
+            companyId: agent.companyId,
+            agentId,
+            source,
+            triggerDetail,
+            reason: hourlyCapBlock.reason,
+            payload: {
+              ...(payload ?? {}),
+              heartbeatSkip: {
+                reason: "Per-agent heartbeat hourly cap reached before adapter invocation.",
+                observed: hourlyCapBlock.observed,
+                limit: hourlyCapBlock.limit,
+              },
+            },
+            status: "skipped",
+            requestedByActorType: opts.requestedByActorType ?? null,
+            requestedByActorId: opts.requestedByActorId ?? null,
+            idempotencyKey: opts.idempotencyKey ?? null,
+            finishedAt: now,
+          });
+          if (source === "timer") {
+            await tx
+              .update(agents)
+              .set({
+                lastHeartbeatAt: now,
+                updatedAt: now,
+              })
+              .where(eq(agents.id, agentId));
+          }
+          return { kind: "skipped" as const };
+        }
+
         const dailyCapBlock = await getHeartbeatDailyCapBlock(agent, policy, {}, tx);
         if (dailyCapBlock) {
           const now = new Date();
@@ -13809,6 +14012,41 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       await tx.execute(
         sql`select id from agents where id = ${agentId} and company_id = ${agent.companyId} for update`,
       );
+
+      const hourlyCapBlock = await getHeartbeatHourlyCapBlock(agent, policy, {}, tx);
+      if (hourlyCapBlock) {
+        const now = new Date();
+        await tx.insert(agentWakeupRequests).values({
+          companyId: agent.companyId,
+          agentId,
+          source,
+          triggerDetail,
+          reason: hourlyCapBlock.reason,
+          payload: {
+            ...(payload ?? {}),
+            heartbeatSkip: {
+              reason: "Per-agent heartbeat hourly cap reached before adapter invocation.",
+              observed: hourlyCapBlock.observed,
+              limit: hourlyCapBlock.limit,
+            },
+          },
+          status: "skipped",
+          requestedByActorType: opts.requestedByActorType ?? null,
+          requestedByActorId: opts.requestedByActorId ?? null,
+          idempotencyKey: opts.idempotencyKey ?? null,
+          finishedAt: now,
+        });
+        if (source === "timer") {
+          await tx
+            .update(agents)
+            .set({
+              lastHeartbeatAt: now,
+              updatedAt: now,
+            })
+            .where(eq(agents.id, agentId));
+        }
+        return { kind: "skipped" as const };
+      }
 
       const dailyCapBlock = await getHeartbeatDailyCapBlock(agent, policy, {}, tx);
       if (dailyCapBlock) {

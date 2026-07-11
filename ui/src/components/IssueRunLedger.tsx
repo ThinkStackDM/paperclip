@@ -427,6 +427,7 @@ export function IssueRunLedger({
     queryFn: () => heartbeatsApi.liveRunsForIssue(issueId),
     enabled: hasLiveRuns,
     refetchInterval: 3000,
+    retry: false,
     placeholderData: keepPreviousDataForSameQueryTail<LiveRunForIssue[]>(issueId),
   });
   const { data: activeRun = null } = useQuery({
@@ -434,6 +435,7 @@ export function IssueRunLedger({
     queryFn: () => heartbeatsApi.activeRunForIssue(issueId),
     enabled: hasLiveRuns || issueStatus === "in_progress",
     refetchInterval: hasLiveRuns ? false : 3000,
+    retry: false,
     placeholderData: keepPreviousDataForSameQueryTail<ActiveRunForIssue | null>(issueId),
   });
   const watchdogDecision = useMutation({

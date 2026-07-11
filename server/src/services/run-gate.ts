@@ -131,10 +131,30 @@ export function normalizeInstanceRunControls(raw: unknown): InstanceRunControls 
       }
     }
   }
+  const adapterDailyRunBudgets: InstanceRunControls["adapterDailyRunBudgets"] = {};
+  const rawDailyBudgets = candidate.adapterDailyRunBudgets;
+  if (rawDailyBudgets && typeof rawDailyBudgets === "object" && !Array.isArray(rawDailyBudgets)) {
+    for (const [adapterType, value] of Object.entries(rawDailyBudgets as Record<string, unknown>)) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+      const budget = value as Record<string, unknown>;
+      const maxRunsPerDay = typeof budget.maxRunsPerDay === "number" && Number.isInteger(budget.maxRunsPerDay)
+        ? budget.maxRunsPerDay
+        : null;
+      if (maxRunsPerDay === null || maxRunsPerDay < 0 || maxRunsPerDay > 100_000) continue;
+      const alertThresholdPct = typeof budget.alertThresholdPct === "number" && Number.isInteger(budget.alertThresholdPct)
+        ? budget.alertThresholdPct
+        : 70;
+      adapterDailyRunBudgets[adapterType] = {
+        maxRunsPerDay,
+        alertThresholdPct: Math.min(100, Math.max(1, alertThresholdPct)),
+      };
+    }
+  }
   return {
     pauseAll: candidate.pauseAll ? readPauseRecord(candidate.pauseAll) : null,
     adapterPauses,
     adapterConcurrency,
+    adapterDailyRunBudgets,
   };
 }
 

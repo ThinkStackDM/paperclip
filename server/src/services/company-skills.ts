@@ -737,9 +737,30 @@ function resolveBundledSkillsRoot() {
   const moduleDir = path.dirname(fileURLToPath(import.meta.url));
   return [
     path.resolve(moduleDir, "../../skills"),
+    path.resolve(moduleDir, "../../.agents/skills"),
     path.resolve(process.cwd(), "skills"),
+    path.resolve(process.cwd(), ".agents/skills"),
     path.resolve(moduleDir, "../../../skills"),
+    path.resolve(moduleDir, "../../../.agents/skills"),
   ];
+}
+
+function isBundledPaperclipSkill(skill: Pick<CompanySkill, "key" | "metadata">) {
+  const metadata = isPlainRecord(skill.metadata) ? skill.metadata : null;
+  const sourceKind = asString(metadata?.sourceKind);
+  return sourceKind === "paperclip_bundled" || skill.key.startsWith("paperclipai/paperclip/");
+}
+
+async function resolveBundledPaperclipSkillDirectory(
+  skill: Pick<CompanySkill, "key" | "slug" | "metadata">,
+) {
+  if (!isBundledPaperclipSkill(skill)) return null;
+  for (const skillsRoot of resolveBundledSkillsRoot()) {
+    const candidate = path.join(skillsRoot, skill.slug);
+    const resolved = await resolveExistingSkillDirectory(candidate);
+    if (resolved) return resolved;
+  }
+  return null;
 }
 
 function matchesRequestedSkill(relativeSkillPath: string, requestedSkillSlug: string | null) {
@@ -2204,6 +2225,33 @@ export function companySkillService(db: Db) {
             })
             .where(eq(companySkills.id, skill.id));
         }
+        continue;
+      }
+
+      const relocatedBundledDir = await resolveBundledPaperclipSkillDirectory(skill);
+      if (relocatedBundledDir) {
+        const imported = await readLocalSkillImportFromDirectory(companyId, relocatedBundledDir);
+        imported.key = deriveCanonicalSkillKey(companyId, {
+          ...imported,
+          slug: skill.slug,
+          metadata: {
+            ...(imported.metadata ?? {}),
+            sourceKind: "paperclip_bundled",
+          },
+        });
+        imported.metadata = {
+          ...(imported.metadata ?? {}),
+          sourceKind: "paperclip_bundled",
+        };
+        await upsertImportedSkills(companyId, [imported]);
+        continue;
+      }
+
+      if (isBundledPaperclipSkill(skill)) {
+        await db
+          .delete(companySkills)
+          .where(eq(companySkills.id, skill.id));
+        await fs.rm(resolveRuntimeSkillMaterializedPath(companyId, skill), { recursive: true, force: true });
         continue;
       }
 

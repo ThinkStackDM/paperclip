@@ -1011,3 +1011,34 @@ describeEmbeddedPostgres("active-run output watchdog", () => {
     expect(decision.createdByRunId).toBe(managerRunId);
   });
 });
+
+describe("buildRunOutputSilence fast path", () => {
+  it("skips DB lookups for queued runs", async () => {
+    const db = {
+      select: vi.fn(() => {
+        throw new Error("buildRunOutputSilence should not query for queued runs");
+      }),
+    } as unknown as ReturnType<typeof createDb>;
+    const recovery = recoveryService(db, { enqueueWakeup: vi.fn() });
+    const now = new Date("2026-07-05T08:00:00.000Z");
+
+    await expect(recovery.buildRunOutputSilence({
+      id: randomUUID(),
+      companyId: randomUUID(),
+      status: "queued",
+      lastOutputAt: null,
+      lastOutputSeq: 0,
+      lastOutputStream: null,
+      processStartedAt: null,
+      startedAt: now,
+      createdAt: now,
+    }, now)).resolves.toMatchObject({
+      level: "not_applicable",
+      silenceAgeMs: null,
+      snoozedUntil: null,
+      evaluationIssueId: null,
+    });
+
+    expect(db.select).not.toHaveBeenCalled();
+  });
+});

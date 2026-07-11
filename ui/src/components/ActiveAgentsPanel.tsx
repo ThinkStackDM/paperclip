@@ -78,6 +78,7 @@ export function ActiveAgentsPanel({
   const { data: liveRuns } = useQuery({
     queryKey: [...queryKeys.liveRuns(companyId), queryScope, { minRunCount, fetchLimit }],
     queryFn: () => heartbeatsApi.liveRunsForCompany(companyId, { minCount: minRunCount, limit: fetchLimit }),
+    retry: false,
   });
 
   const runs = liveRuns ?? [];

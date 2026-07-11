@@ -60,6 +60,7 @@ import {
   updateIssueSchema,
   getClosedIsolatedExecutionWorkspaceMessage,
   isClosedIsolatedExecutionWorkspace,
+  isAgentStatusInvokable,
   isUuidLike,
   normalizeIssueIdentifier as normalizeIssueReferenceIdentifier,
   type CompanySearchQuery,
@@ -2023,7 +2024,10 @@ export function issueRoutes(
         actorId: input.actor.actorId,
         agentId: input.actor.agentId,
         runId: input.actor.runId,
-        action: "issue.thread_interaction_expired",
+        action:
+          interaction.status === "cancelled"
+            ? "issue.thread_interaction_cancelled"
+            : "issue.thread_interaction_expired",
         entityType: "issue",
         entityId: input.issue.id,
         details: {
@@ -2122,8 +2126,18 @@ export function issueRoutes(
     issue: { assigneeUserId?: string | null },
   ) {
     if (interaction.kind === "request_confirmation") return true;
+    if (interaction.kind === "request_checkbox_confirmation") return true;
     if (interaction.kind === "ask_user_questions" && !issue.assigneeUserId) return true;
     return false;
+  }
+
+  async function boardActionStillPendingAfterInteraction(input: {
+    issue: IssueRouteSnapshot;
+    interaction: { id: string; kind: string };
+  }) {
+    if (!isBoardActionResolutionInteraction(input.interaction, input.issue)) return false;
+    const boardAction = (await svc.getBoardActionRequirements(input.issue.companyId, [input.issue])).get(input.issue.id);
+    return Boolean(boardAction && boardAction.sourceId !== input.interaction.id);
   }
 
   function buildBoardActionResolvedBody(interaction: {
@@ -3436,6 +3450,40 @@ export function issueRoutes(
       );
     }
     return resolved.agent.id;
+  }
+
+  async function resolveActiveIssueAssigneeAgentReference(
+    companyId: string,
+    rawAssigneeAgentId: string | null | undefined,
+  ) {
+    const normalizedAssigneeAgentId = await normalizeIssueAssigneeAgentReference(companyId, rawAssigneeAgentId);
+    if (typeof normalizedAssigneeAgentId !== "string" || normalizedAssigneeAgentId.length === 0) {
+      return normalizedAssigneeAgentId;
+    }
+
+    const assignee = await agentsSvc.getById(normalizedAssigneeAgentId);
+    if (!assignee || assignee.companyId !== companyId || assignee.status !== "paused") {
+      return normalizedAssigneeAgentId;
+    }
+
+    const [relationships, companyAgents] = await Promise.all([
+      agentsSvc.listFallbackRelationships(companyId, assignee.id),
+      agentsSvc.list(companyId, { includeTerminated: true }),
+    ]);
+    if (relationships.length === 0) {
+      return normalizedAssigneeAgentId;
+    }
+
+    const companyAgentsById = new Map(companyAgents.map((agent) => [agent.id, agent] as const));
+    for (const relationship of relationships) {
+      const sister = companyAgentsById.get(relationship.sisterAgentId) ?? null;
+      if (!sister) continue;
+      if (!isAgentStatusInvokable(sister.status)) continue;
+      if (sister.orgChainHealth?.status === "invalid_org_chain") continue;
+      return sister.id;
+    }
+
+    return normalizedAssigneeAgentId;
   }
   function toValidTimestamp(value: Date | string | null | undefined) {
     if (!value) return null;
@@ -5773,7 +5821,7 @@ export function issueRoutes(
       !watchdogProductBugFollowUp &&
       !(await assertTaskWatchdogCreateIssueAllowed(req, res, companyId, createParent))
     ) return;
-    const normalizedAssigneeAgentId = await normalizeIssueAssigneeAgentReference(
+    const normalizedAssigneeAgentId = await resolveActiveIssueAssigneeAgentReference(
       companyId,
       rawCreateBody.assigneeAgentId as string | null | undefined,
     );
@@ -5965,7 +6013,7 @@ export function issueRoutes(
     if (!(await assertTaskWatchdogCreateIssueAllowed(req, res, parent.companyId, parent))) return;
     if (await assertLowTrustControlPlaneDenied(req, res, parent.companyId, parent)) return;
     assertNoAgentHostWorkspaceCommandMutation(req, collectIssueWorkspaceCommandPaths(req.body));
-    const normalizedAssigneeAgentId = await normalizeIssueAssigneeAgentReference(
+    const normalizedAssigneeAgentId = await resolveActiveIssueAssigneeAgentReference(
       parent.companyId,
       req.body.assigneeAgentId as string | null | undefined,
     );
@@ -6138,7 +6186,7 @@ export function issueRoutes(
 
     const requestedChildren = [];
     for (const child of req.body.children as Array<typeof req.body.children[number]>) {
-      const normalizedAssigneeAgentId = await normalizeIssueAssigneeAgentReference(
+      const normalizedAssigneeAgentId = await resolveActiveIssueAssigneeAgentReference(
         sourceIssue.companyId,
         child.assigneeAgentId as string | null | undefined,
       );
@@ -6620,7 +6668,7 @@ export function issueRoutes(
     const actor = getActorInfo(req);
     const isClosed = isClosedIssueStatus(existing.status);
     const isBlocked = existing.status === "blocked";
-    const normalizedAssigneeAgentId = await normalizeIssueAssigneeAgentReference(
+    const normalizedAssigneeAgentId = await resolveActiveIssueAssigneeAgentReference(
       existing.companyId,
       req.body.assigneeAgentId as string | null | undefined,
     );
@@ -7990,8 +8038,10 @@ export function issueRoutes(
     const actor = getActorInfo(req);
     const agentSourceRunId = req.actor.type === "agent" ? requireAgentRunId(req, res) : null;
     if (req.actor.type === "agent" && !agentSourceRunId) return;
-    const boardActionRelevantInteraction = req.body.kind === "request_confirmation" ||
-      (req.body.kind === "ask_user_questions" && !issue.assigneeUserId);
+    const boardActionRelevantInteraction =
+      req.body.kind === "request_confirmation"
+      || req.body.kind === "request_checkbox_confirmation"
+      || (req.body.kind === "ask_user_questions" && !issue.assigneeUserId);
     const hadBoardActionRequirement = boardActionRelevantInteraction
       ? (await svc.getBoardActionRequirements(issue.companyId, [issue])).has(issue.id)
       : false;
@@ -8068,9 +8118,12 @@ export function issueRoutes(
         actorId: actor.actorId,
         agentId: actor.agentId,
         runId: actor.runId,
-        action: interaction.status === "expired"
-          ? "issue.thread_interaction_expired"
-          : "issue.thread_interaction_accepted",
+        action:
+          interaction.status === "cancelled"
+            ? "issue.thread_interaction_cancelled"
+            : interaction.status === "expired"
+              ? "issue.thread_interaction_expired"
+              : "issue.thread_interaction_accepted",
         entityType: "issue",
         entityId: issue.id,
         details: {
@@ -8134,17 +8187,21 @@ export function issueRoutes(
         interaction.status === "accepted" &&
         acceptedPlanTarget?.issueId === issue.id &&
         acceptedPlanTarget.key === "plan";
-      queueResolvedInteractionContinuationWakeup({
-        heartbeat,
-        issue: continuationWakeIssue,
-        interaction,
-        actor,
-        source: "issue.interaction.accept",
-        forceFreshSession: acceptedPlanConfirmation,
-        workspaceRefreshReason: acceptedPlanConfirmation ? "accepted_plan_confirmation" : null,
-      });
+      const pendingReplacementBoardAction = await boardActionStillPendingAfterInteraction({ issue, interaction });
 
-      if (isBoardActionResolutionInteraction(interaction, issue)) {
+      if (!pendingReplacementBoardAction) {
+        queueResolvedInteractionContinuationWakeup({
+          heartbeat,
+          issue: continuationWakeIssue,
+          interaction,
+          actor,
+          source: "issue.interaction.accept",
+          forceFreshSession: acceptedPlanConfirmation,
+          workspaceRefreshReason: acceptedPlanConfirmation ? "accepted_plan_confirmation" : null,
+        });
+      }
+
+      if (isBoardActionResolutionInteraction(interaction, issue) && !pendingReplacementBoardAction) {
         const resolvedAncestors = await svc.getAncestors(issue.id);
         await postBoardActionResolvedNotification({
           issue,
@@ -8191,9 +8248,12 @@ export function issueRoutes(
         actorId: actor.actorId,
         agentId: actor.agentId,
         runId: actor.runId,
-        action: interaction.status === "expired"
-          ? "issue.thread_interaction_expired"
-          : "issue.thread_interaction_rejected",
+        action:
+          interaction.status === "cancelled"
+            ? "issue.thread_interaction_cancelled"
+            : interaction.status === "expired"
+              ? "issue.thread_interaction_expired"
+              : "issue.thread_interaction_rejected",
         entityType: "issue",
         entityId: issue.id,
         details: {
@@ -8209,15 +8269,19 @@ export function issueRoutes(
         },
       });
 
-      queueResolvedInteractionContinuationWakeup({
-        heartbeat,
-        issue,
-        interaction,
-        actor,
-        source: "issue.interaction.reject",
-      });
+      const pendingReplacementBoardAction = await boardActionStillPendingAfterInteraction({ issue, interaction });
 
-      if (isBoardActionResolutionInteraction(interaction, issue)) {
+      if (!pendingReplacementBoardAction) {
+        queueResolvedInteractionContinuationWakeup({
+          heartbeat,
+          issue,
+          interaction,
+          actor,
+          source: "issue.interaction.reject",
+        });
+      }
+
+      if (isBoardActionResolutionInteraction(interaction, issue) && !pendingReplacementBoardAction) {
         const resolvedAncestors = await svc.getAncestors(issue.id);
         await postBoardActionResolvedNotification({
           issue,

@@ -116,6 +116,7 @@ export function OnboardingChat({
     queryKey: queryKeys.issues.activeRun(taskId),
     queryFn: () => heartbeatsApi.activeRunForIssue(taskId),
     refetchInterval: 3000,
+    retry: false,
   });
 
   // Sort comments chronologically (oldest first) for chat-style display

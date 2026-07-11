@@ -1,0 +1,3 @@
+Prompt: Dark city night time-lapse, glowing green line-graph light-trail climbing the skyline. Dark-premium Cashflow Compass cinematic palette with deep green and near-black tones, high-end film look, 8 seconds duration, 720p resolution, native audio on.
+Requested model: grok-imagine-video-1.5
+RESPONSE model (serving truth): grok-imagine-video

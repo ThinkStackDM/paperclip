@@ -2050,6 +2050,7 @@ export function PipelineItemDetailView({ pipelineId, caseId }: { pipelineId: str
     queryFn: () => heartbeatsApi.liveRunsForIssue(conversationIssueId!),
     enabled: Boolean(conversationIssueId),
     refetchInterval: 3000,
+    retry: false,
     placeholderData: conversationIssueId
       ? keepPreviousDataForSameQueryTail<LiveRunForIssue[]>(conversationIssueId)
       : undefined,
@@ -2061,6 +2062,7 @@ export function PipelineItemDetailView({ pipelineId, caseId }: { pipelineId: str
     queryFn: () => heartbeatsApi.activeRunForIssue(conversationIssueId!),
     enabled: Boolean(conversationIssueId && activeConversationIssue && shouldTrackIssueActiveRun(activeConversationIssue)),
     refetchInterval: conversationLiveRunCount > 0 ? false : 3000,
+    retry: false,
     placeholderData: conversationIssueId
       ? keepPreviousDataForSameQueryTail<ActiveRunForIssue | null>(conversationIssueId)
       : undefined,
