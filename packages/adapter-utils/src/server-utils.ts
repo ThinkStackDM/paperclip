@@ -1947,6 +1947,8 @@ export function sanitizeInheritedPaperclipEnv(baseEnv: NodeJS.ProcessEnv): NodeJ
     if (key === "PAPERCLIP_LISTEN_PORT") continue;
     delete env[key];
   }
+  // The control-plane DATABASE_URL must never reach child processes (2026-06-29 DB wipe).
+  delete env.DATABASE_URL;
   return env;
 }
 

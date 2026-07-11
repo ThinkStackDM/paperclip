@@ -1083,10 +1083,13 @@ async function buildRuntime(input: {
   });
   let agentCommand = configuredCommand || builtInCommand?.command || null;
   let agentCommandShell = configuredCommand || builtInCommand?.shellCommand || "";
+  // Never leak the control-plane DATABASE_URL into ACP agent processes (2026-06-29 DB wipe);
+  // an agent that needs a DB URL must set it explicitly in its own env config.
+  const { DATABASE_URL: _controlPlaneDbUrl, ...inheritedEnv } = process.env;
   if (acpxAgent === "gemini" && agentCommandShell) {
     const normalized = await normalizeGeminiAcpCommandShell(
       agentCommandShell,
-      ensurePathInEnv({ ...process.env, ...env }),
+      ensurePathInEnv({ ...inheritedEnv, ...env }),
     );
     if (normalized !== agentCommandShell) {
       agentCommandShell = normalized;
@@ -1127,7 +1130,7 @@ async function buildRuntime(input: {
     }
   }
   const runtimeEnv = Object.fromEntries(
-    Object.entries(ensurePathInEnv({ ...process.env, ...env })).filter(
+    Object.entries(ensurePathInEnv({ ...inheritedEnv, ...env })).filter(
       (entry): entry is [string, string] => typeof entry[1] === "string",
     ),
   );
