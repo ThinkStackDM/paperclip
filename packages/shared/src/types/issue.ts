@@ -629,6 +629,28 @@ export interface IssueComment {
   updatedAt: Date;
 }
 
+export type IssueVerificationRef =
+  | {
+      kind: "attachment";
+      attachmentId: string;
+    }
+  | {
+      kind: "document";
+      documentId: string;
+    }
+  | {
+      kind: "work_product";
+      workProductId: string;
+    }
+  | {
+      kind: "url";
+      url: string;
+    }
+  | {
+      kind: "commit";
+      commit: string;
+    };
+
 interface IssueCommentMetadataRowBase {
   type: IssueCommentMetadataRowType;
   label?: string | null;

@@ -324,6 +324,7 @@ export type {
   IssueReviewRequest,
   IssueExecutionDecision,
   IssueComment,
+  IssueVerificationRef,
   IssueCommentMetadata,
   IssueCommentMetadataSection,
   IssueCommentMetadataRow,

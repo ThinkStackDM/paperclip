@@ -195,6 +195,31 @@ export const issueExecutionMonitorPolicySchema = z.object({
   recoveryPolicy: z.enum(ISSUE_EXECUTION_MONITOR_RECOVERY_POLICIES).optional().nullable().default(null),
 });
 
+const gitCommitRefSchema = z.string().trim().regex(/^[0-9a-fA-F]{7,40}$/, "Commit must be a 7-40 character hex SHA");
+
+export const issueVerificationRefSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("attachment"),
+    attachmentId: z.string().uuid(),
+  }).strict(),
+  z.object({
+    kind: z.literal("document"),
+    documentId: z.string().uuid(),
+  }).strict(),
+  z.object({
+    kind: z.literal("work_product"),
+    workProductId: z.string().uuid(),
+  }).strict(),
+  z.object({
+    kind: z.literal("url"),
+    url: z.string().trim().url().max(2048),
+  }).strict(),
+  z.object({
+    kind: z.literal("commit"),
+    commit: gitCommitRefSchema,
+  }).strict(),
+]);
+
 export const issueExecutionPolicySchema = z.object({
   mode: z.enum(ISSUE_EXECUTION_POLICY_MODES).optional().default("normal"),
   commentRequired: z.boolean().optional().default(true),
@@ -452,6 +477,7 @@ export const updateIssueSchema = createIssueBaseSchema.omit({ watchdog: true }).
   requestDepth: issueRequestDepthInputSchema.optional(),
   assigneeAgentId: z.string().trim().min(1).optional().nullable(),
   comment: multilineTextSchema.pipe(z.string().min(1)).optional(),
+  verificationRef: issueVerificationRefSchema.optional(),
   reviewRequest: issueReviewRequestSchema.optional().nullable(),
   reopen: z.boolean().optional(),
   resume: z.boolean().optional(),
@@ -460,6 +486,7 @@ export const updateIssueSchema = createIssueBaseSchema.omit({ watchdog: true }).
 });
 
 export type UpdateIssue = z.infer<typeof updateIssueSchema>;
+export type IssueVerificationRef = z.infer<typeof issueVerificationRefSchema>;
 export type IssueExecutionWorkspaceSettings = z.infer<typeof issueExecutionWorkspaceSettingsSchema>;
 
 export const checkoutIssueSchema = z.object({

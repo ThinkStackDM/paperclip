@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import express from "express";
 import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,6 +12,7 @@ const mockIssueService = vi.hoisted(() => ({
   addComment: vi.fn(),
   findMentionedAgents: vi.fn(),
   getRelationSummaries: vi.fn(),
+  listAttachments: vi.fn(),
   listWakeableBlockedDependents: vi.fn(),
   getWakeableParentAfterChildCompletion: vi.fn(),
 }));
@@ -40,17 +42,29 @@ const mockDbSelectWhere = vi.hoisted(() => vi.fn(() => ({
 })));
 const mockDbSelectFrom = vi.hoisted(() => vi.fn(() => ({ where: mockDbSelectWhere })));
 const mockDbSelect = vi.hoisted(() => vi.fn(() => ({ from: mockDbSelectFrom })));
+const mockDbInsertValues = vi.hoisted(() => vi.fn(async () => undefined));
+const mockDbInsert = vi.hoisted(() => vi.fn(() => ({ values: mockDbInsertValues })));
 const mockDb = vi.hoisted(() => ({
   select: mockDbSelect,
+  insert: mockDbInsert,
+  transaction: vi.fn(async (callback: (tx: { insert: typeof mockDbInsert }) => unknown) =>
+    callback({ insert: mockDbInsert })),
 }));
 
 const mockLogActivity = vi.hoisted(() => vi.fn(async () => undefined));
+const mockDocumentService = vi.hoisted(() => ({
+  listIssueDocuments: vi.fn(async () => []),
+}));
 const mockIssueThreadInteractionService = vi.hoisted(() => ({
   listForIssue: vi.fn(async () => []),
+  expirePendingInteractionsForStaleIssueState: vi.fn(async () => []),
   expireRequestConfirmationsSupersededByComment: vi.fn(async () => []),
 }));
 const mockIssueApprovalService = vi.hoisted(() => ({
   listApprovalsForIssue: vi.fn(async () => []),
+}));
+const mockWorkProductService = vi.hoisted(() => ({
+  listForIssue: vi.fn(async () => []),
 }));
 
 function registerModuleMocks() {
@@ -76,7 +90,7 @@ function registerModuleMocks() {
       })),
     }),
     documentAnnotationService: () => ({ remapOpenThreadsForDocument: async () => [] }),
-    documentService: () => ({}),
+    documentService: () => mockDocumentService,
     executionWorkspaceService: () => ({}),
     feedbackService: () => ({
       listIssueVotesForUser: vi.fn(async () => []),
@@ -122,7 +136,7 @@ function registerModuleMocks() {
     routineService: () => ({
       syncRunStatusForIssue: vi.fn(async () => undefined),
     }),
-    workProductService: () => ({}),
+    workProductService: () => mockWorkProductService,
   }));
 }
 
@@ -174,11 +188,15 @@ describe("issue execution policy routes", () => {
     mockIssueService.assertCheckoutOwner.mockResolvedValue({ adoptedFromRunId: null });
     mockIssueService.findMentionedAgents.mockResolvedValue([]);
     mockIssueService.getRelationSummaries.mockResolvedValue({ blockedBy: [], blocks: [] });
+    mockIssueService.listAttachments.mockResolvedValue([]);
     mockIssueService.listWakeableBlockedDependents.mockResolvedValue([]);
     mockIssueService.getWakeableParentAfterChildCompletion.mockResolvedValue(null);
+    mockDocumentService.listIssueDocuments.mockResolvedValue([]);
     mockIssueThreadInteractionService.listForIssue.mockResolvedValue([]);
+    mockIssueThreadInteractionService.expirePendingInteractionsForStaleIssueState.mockResolvedValue([]);
     mockIssueThreadInteractionService.expireRequestConfirmationsSupersededByComment.mockResolvedValue([]);
     mockIssueApprovalService.listApprovalsForIssue.mockResolvedValue([]);
+    mockWorkProductService.listForIssue.mockResolvedValue([]);
     mockDbSelect.mockImplementation(() => ({ from: mockDbSelectFrom }));
     mockDbSelectFrom.mockImplementation(() => ({ where: mockDbSelectWhere }));
     mockDbSelectWhere.mockImplementation(() => ({
@@ -490,6 +508,232 @@ describe("issue execution policy routes", () => {
     expect(res.status).toBe(200);
     expect(mockIssueThreadInteractionService.listForIssue).not.toHaveBeenCalled();
     expect(mockIssueApprovalService.listApprovalsForIssue).not.toHaveBeenCalled();
+  });
+
+  it("rejects done on a directive-class issue without verification evidence", async () => {
+    const issue = {
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      companyId: "company-1",
+      status: "in_progress",
+      assigneeAgentId: "33333333-3333-4333-8333-333333333333",
+      assigneeUserId: null,
+      createdByUserId: "local-board",
+      identifier: "PAP-16051",
+      title: "⛔ OPERATOR DIRECTIVE: done needs proof",
+      description: "Platform bug fix.",
+      executionPolicy: null,
+      executionState: null,
+      labels: [{ name: "directive" }],
+    };
+    mockIssueService.getById.mockResolvedValue(issue);
+
+    const res = await request(await createApp({
+      type: "agent",
+      agentId: "33333333-3333-4333-8333-333333333333",
+      companyId: "company-1",
+      runId: "run-1",
+    }))
+      .patch("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+      .send({ status: "done" });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error).toContain("verification evidence");
+    expect(res.body.details).toMatchObject({
+      code: "issue_done_verification_required",
+    });
+    expect(mockIssueService.update).not.toHaveBeenCalled();
+  });
+
+  it("allows done on a directive-class issue when a verification ref is supplied", async () => {
+    const issue = {
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      companyId: "company-1",
+      status: "in_progress",
+      assigneeAgentId: "33333333-3333-4333-8333-333333333333",
+      assigneeUserId: null,
+      createdByUserId: "local-board",
+      identifier: "PAP-16052",
+      title: "⛔ OPERATOR DIRECTIVE: done needs proof",
+      description: "Platform bug fix.",
+      executionPolicy: null,
+      executionState: null,
+      labels: [{ name: "directive" }],
+    };
+    mockIssueService.getById.mockResolvedValue(issue);
+    mockIssueService.listAttachments.mockResolvedValue([
+      { id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", contentType: "image/png" },
+    ]);
+    mockIssueService.update.mockImplementation(async (_id: string, patch: Record<string, unknown>) => ({
+      ...issue,
+      ...patch,
+      updatedAt: new Date(),
+    }));
+    mockIssueService.addComment.mockResolvedValue({
+      id: "comment-1",
+      body: "Done with evidence.",
+    });
+
+    const res = await request(await createApp({
+      type: "agent",
+      agentId: "33333333-3333-4333-8333-333333333333",
+      companyId: "company-1",
+      runId: "run-1",
+    }))
+      .patch("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+      .send({
+        status: "done",
+        comment: "Done with evidence.",
+        verificationRef: {
+          kind: "attachment",
+          attachmentId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        },
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockIssueService.update).toHaveBeenCalledWith(
+      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      expect.objectContaining({
+        status: "done",
+        actorAgentId: "33333333-3333-4333-8333-333333333333",
+      }),
+    );
+    expect(mockIssueService.addComment).toHaveBeenCalledWith(
+      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "Done with evidence.",
+      expect.objectContaining({
+        agentId: "33333333-3333-4333-8333-333333333333",
+        runId: "run-1",
+      }),
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          sections: [
+            expect.objectContaining({
+              title: "Verification",
+            }),
+          ],
+        }),
+      }),
+    );
+  });
+
+  it("allows reviewer approval to move a directive-class issue to done without a verification ref", async () => {
+    const reviewerAgentId = "44444444-4444-4444-8444-444444444444";
+    const policy = normalizeIssueExecutionPolicy({
+      stages: [
+        {
+          id: "11111111-1111-4111-8111-111111111111",
+          type: "review",
+          participants: [{ type: "agent", agentId: reviewerAgentId }],
+        },
+      ],
+    })!;
+    const issue = {
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      companyId: "company-1",
+      status: "in_review",
+      assigneeAgentId: reviewerAgentId,
+      assigneeUserId: null,
+      createdByUserId: "local-board",
+      identifier: "PAP-16053",
+      title: "⛔ OPERATOR DIRECTIVE: done needs proof",
+      description: "Platform bug fix.",
+      labels: [{ name: "directive" }],
+      executionPolicy: policy,
+      executionState: {
+        status: "pending",
+        currentStageId: "11111111-1111-4111-8111-111111111111",
+        currentStageIndex: 0,
+        currentStageType: "review",
+        currentParticipant: { type: "agent", agentId: reviewerAgentId },
+        returnAssignee: { type: "agent", agentId: "33333333-3333-4333-8333-333333333333" },
+        reviewRequest: null,
+        completedStageIds: [],
+        lastDecisionId: null,
+        lastDecisionOutcome: null,
+        monitor: null,
+      },
+    };
+    mockIssueService.getById.mockResolvedValue(issue);
+    mockIssueService.update.mockImplementation(async (_id: string, patch: Record<string, unknown>) => ({
+      ...issue,
+      ...patch,
+      updatedAt: new Date(),
+    }));
+    mockIssueService.addComment.mockResolvedValue({
+      id: "comment-2",
+      body: "Approved with review evidence.",
+    });
+
+    const res = await request(await createApp({
+      type: "agent",
+      agentId: reviewerAgentId,
+      companyId: "company-1",
+      runId: "run-1",
+    }))
+      .patch("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+      .send({
+        status: "done",
+        comment: "Approved with review evidence.",
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockIssueService.update).toHaveBeenCalled();
+    expect(mockDbInsertValues).toHaveBeenCalled();
+  });
+
+  it("rejects a platform-class done transition when the verification commit is not on the served branch", async () => {
+    const previousServedRef = process.env.PAPERCLIP_SERVED_BRANCH_REF;
+    process.env.PAPERCLIP_SERVED_BRANCH_REF = "origin/master";
+    try {
+      const issue = {
+        id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        companyId: "company-1",
+        status: "in_progress",
+        assigneeAgentId: "33333333-3333-4333-8333-333333333333",
+        assigneeUserId: null,
+        createdByUserId: "local-board",
+        identifier: "PAP-16054",
+        title: "Platform done verification",
+        description: "Platform bug fix.",
+        executionPolicy: null,
+        executionState: null,
+        labels: [{ name: "platform" }],
+      };
+      const servedTree = execFileSync("git", ["rev-parse", "origin/master^{tree}"], {
+        cwd: process.cwd(),
+        encoding: "utf8",
+      }).trim();
+      const orphanCommit = execFileSync("git", ["commit-tree", servedTree, "-m", "verification test orphan"], {
+        cwd: process.cwd(),
+        encoding: "utf8",
+      }).trim();
+      mockIssueService.getById.mockResolvedValue(issue);
+
+      const res = await request(await createApp({
+        type: "agent",
+        agentId: "33333333-3333-4333-8333-333333333333",
+        companyId: "company-1",
+        runId: "run-1",
+      }))
+        .patch("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+        .send({
+          status: "done",
+          verificationRef: {
+            kind: "commit",
+            commit: orphanCommit,
+          },
+        });
+
+      expect(res.status).toBe(422);
+      expect(res.body.details).toMatchObject({
+        code: "commit_not_on_served_branch",
+        servedRef: "origin/master",
+      });
+      expect(mockIssueService.update).not.toHaveBeenCalled();
+    } finally {
+      if (previousServedRef === undefined) delete process.env.PAPERCLIP_SERVED_BRANCH_REF;
+      else process.env.PAPERCLIP_SERVED_BRANCH_REF = previousServedRef;
+    }
   });
 
   it("does not auto-start execution review when reviewers are added to an already in_review issue", async () => {

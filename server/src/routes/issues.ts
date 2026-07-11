@@ -1,4 +1,6 @@
+import { execFile as execFileCb } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { promisify } from "node:util";
 import { Router, type Request, type Response } from "express";
 import multer from "multer";
 import { z } from "zod";
@@ -66,7 +68,10 @@ import {
   type CompanySearchQuery,
   type CompanySearchResponse,
   type ExecutionWorkspace,
+  type IssueCommentMetadata,
+  type IssueExecutionDecision,
   type IssueRelationIssueSummary,
+  type IssueVerificationRef,
   type IssueWatchdogDiscoveryKind,
   type SourceTrustMetadata,
   type SuccessfulRunHandoffState,
@@ -158,6 +163,8 @@ import {
 import { externalObjectService } from "../services/external-objects.js";
 
 const MAX_ISSUE_COMMENT_LIMIT = 500;
+const execFile = promisify(execFileCb);
+const DONE_VERIFICATION_LABEL_HINTS = ["directive", "register-class", "platform"];
 const updateIssueRouteSchema = updateIssueSchema.extend({
   boardActionRequired: z.never().optional(),
   interrupt: z.boolean().optional(),
@@ -286,6 +293,202 @@ function isGateKeeperScopedLabel(label: string) {
 
 function gateKeeperScopedIssueLabels(issue: { labels?: Array<{ name?: string | null }> | null }) {
   return issueLabelNames(issue).filter(isGateKeeperScopedLabel);
+}
+
+function issueRequiresVerifiedDone(issue: {
+  title?: string | null;
+  description?: string | null;
+  labels?: Array<{ name?: string | null }> | null;
+}) {
+  const labels = issueLabelNames(issue).map((label) => label.toLowerCase());
+  if (labels.some((name) => DONE_VERIFICATION_LABEL_HINTS.some((hint) => name === hint || name.includes(hint)))) {
+    return true;
+  }
+  const haystack = `${issue.title ?? ""}\n${issue.description ?? ""}`.toLowerCase();
+  return haystack.includes("operator directive") || haystack.includes("register class") || haystack.includes("tskb0055");
+}
+
+function issueIsPlatformClass(issue: {
+  title?: string | null;
+  description?: string | null;
+  labels?: Array<{ name?: string | null }> | null;
+}) {
+  const labels = issueLabelNames(issue).map((label) => label.toLowerCase());
+  if (labels.some((name) => name === "platform" || name.includes("platform"))) return true;
+  return `${issue.title ?? ""}\n${issue.description ?? ""}`.toLowerCase().includes("platform");
+}
+
+function verificationMetadata(ref: IssueVerificationRef): IssueCommentMetadata {
+  const rows: IssueCommentMetadata["sections"][number]["rows"] = [];
+  if (ref.kind === "attachment") rows.push({ type: "key_value", label: "attachmentId", value: ref.attachmentId });
+  if (ref.kind === "document") rows.push({ type: "key_value", label: "documentId", value: ref.documentId });
+  if (ref.kind === "work_product") rows.push({ type: "key_value", label: "workProductId", value: ref.workProductId });
+  if (ref.kind === "url") rows.push({ type: "key_value", label: "url", value: ref.url });
+  if (ref.kind === "commit") rows.push({ type: "key_value", label: "commit", value: ref.commit });
+  return {
+    version: 1,
+    sections: [{ title: "Verification", rows }],
+  };
+}
+
+async function resolveServedBranchRef() {
+  const configured = process.env.PAPERCLIP_SERVED_BRANCH_REF?.trim();
+  if (configured) return configured;
+  try {
+    const { stdout } = await execFile("git", ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], { cwd: process.cwd() });
+    const resolved = stdout.trim();
+    if (resolved) return resolved;
+  } catch {}
+  for (const candidate of ["origin/master", "origin/main", "master", "main", "HEAD"]) {
+    try {
+      await execFile("git", ["rev-parse", "--verify", candidate], { cwd: process.cwd() });
+      return candidate;
+    } catch {}
+  }
+  return null;
+}
+
+async function assertCommitVerificationRef(commit: string, requireServedBranchAncestor: boolean) {
+  try {
+    await execFile("git", ["rev-parse", "--verify", `${commit}^{commit}`], { cwd: process.cwd() });
+  } catch {
+    throw unprocessable("Verification commit does not exist in the served repository", {
+      code: "invalid_done_verification_ref",
+      kind: "commit",
+    });
+  }
+  if (!requireServedBranchAncestor) return;
+  const servedRef = await resolveServedBranchRef();
+  if (!servedRef) {
+    throw unprocessable("Served branch reference is unavailable for commit verification", {
+      code: "missing_served_branch_ref",
+    });
+  }
+  try {
+    await execFile("git", ["merge-base", "--is-ancestor", commit, servedRef], { cwd: process.cwd() });
+  } catch {
+    throw unprocessable("Verification commit is not reachable from the served branch head", {
+      code: "commit_not_on_served_branch",
+      commit,
+      servedRef,
+    });
+  }
+}
+
+function issueAssigneePrincipal(issue: {
+  assigneeAgentId?: string | null;
+  assigneeUserId?: string | null;
+}): ParsedExecutionState["currentParticipant"] | null {
+  if (issue.assigneeAgentId) return { type: "agent", agentId: issue.assigneeAgentId };
+  if (issue.assigneeUserId) return { type: "user", userId: issue.assigneeUserId };
+  return null;
+}
+
+function hasIndependentReviewerApproval(input: {
+  issue: {
+    assigneeAgentId?: string | null;
+    assigneeUserId?: string | null;
+    executionState?: unknown;
+  };
+  decision?: Pick<IssueExecutionDecision, "outcome"> | null;
+  actor: { actorType: "user" | "agent"; actorId: string } | null;
+}) {
+  const executionState = parseIssueExecutionState(input.issue.executionState);
+  if (!executionState) return false;
+  if (!input.actor && input.decision?.outcome === "approved") return false;
+
+  const approvedNow =
+    executionState.status === "pending"
+    && input.decision?.outcome === "approved"
+    && input.actor !== null
+    && actorMatchesExecutionParticipant(input.actor, executionState.currentParticipant ?? null);
+  const approvedEarlier =
+    executionState.status === "completed" && executionState.lastDecisionOutcome === "approved";
+  if (!approvedNow && !approvedEarlier) return false;
+
+  const executorPrincipal = executionState.returnAssignee ?? issueAssigneePrincipal(input.issue);
+  const reviewerPrincipal = approvedNow
+    ? executionState.currentParticipant
+    : executionState.currentParticipant ?? null;
+  if (!reviewerPrincipal || !executorPrincipal) return approvedEarlier;
+  return !executionPrincipalsEqual(reviewerPrincipal, executorPrincipal);
+}
+
+async function assertIssueDoneVerificationSatisfied(input: {
+  issue: {
+    id: string;
+    title?: string | null;
+    description?: string | null;
+    labels?: Array<{ name?: string | null }> | null;
+    assigneeAgentId?: string | null;
+    assigneeUserId?: string | null;
+    executionState?: unknown;
+  };
+  nextStatus: string;
+  verificationRef?: IssueVerificationRef;
+  decision?: Pick<IssueExecutionDecision, "outcome"> | null;
+  actor: { actorType: "user" | "agent"; actorId: string } | null;
+  svc: ReturnType<typeof issueService>;
+  documentsSvc: ReturnType<typeof documentService>;
+  workProductsSvc: ReturnType<typeof workProductService>;
+}) {
+  if (input.nextStatus !== "done" || !issueRequiresVerifiedDone(input.issue)) return;
+
+  const reviewerApproved = hasIndependentReviewerApproval({
+    issue: input.issue,
+    decision: input.decision ?? null,
+    actor: input.actor,
+  });
+  const verificationRef = input.verificationRef;
+  if (!verificationRef && !reviewerApproved) {
+    throw unprocessable(
+      "Issue cannot enter done without verification evidence or independent reviewer acceptance",
+      {
+        code: "issue_done_verification_required",
+        acceptedVerificationKinds: ["attachment", "document", "work_product", "url", "commit"],
+        alternatives: ["verificationRef", "approved_in_review_by_different_actor"],
+      },
+    );
+  }
+  if (!verificationRef) return;
+
+  switch (verificationRef.kind) {
+    case "attachment": {
+      const attachments = await input.svc.listAttachments(input.issue.id);
+      if (!attachments.some((attachment) => attachment.id === verificationRef.attachmentId)) {
+        throw unprocessable("Verification attachment must belong to the issue", {
+          code: "invalid_done_verification_ref",
+          kind: verificationRef.kind,
+        });
+      }
+      return;
+    }
+    case "document": {
+      const documents = await input.documentsSvc.listIssueDocuments(input.issue.id, { includeSystem: true });
+      if (!documents.some((document) => document.id === verificationRef.documentId)) {
+        throw unprocessable("Verification document must belong to the issue", {
+          code: "invalid_done_verification_ref",
+          kind: verificationRef.kind,
+        });
+      }
+      return;
+    }
+    case "work_product": {
+      const workProducts = await input.workProductsSvc.listForIssue(input.issue.id);
+      if (!workProducts.some((workProduct) => workProduct.id === verificationRef.workProductId)) {
+        throw unprocessable("Verification work product must belong to the issue", {
+          code: "invalid_done_verification_ref",
+          kind: verificationRef.kind,
+        });
+      }
+      return;
+    }
+    case "url":
+      return;
+    case "commit":
+      await assertCommitVerificationRef(verificationRef.commit, issueIsPlatformClass(input.issue));
+      return;
+  }
 }
 
 async function hasTypedGateKeeperReviewPath(input: {
@@ -6920,7 +7123,20 @@ export function issueRoutes(
       }
     }
 
+    const verificationRef = req.body.verificationRef as IssueVerificationRef | undefined;
     const nextStatus = typeof updateFields.status === "string" ? updateFields.status : existing.status;
+    await assertIssueDoneVerificationSatisfied({
+      issue: existing,
+      nextStatus,
+      verificationRef,
+      decision: transition.decision ?? null,
+      actor: actor.actorType === "user" || actor.actorType === "agent"
+        ? { actorType: actor.actorType, actorId: actor.actorId }
+        : null,
+      svc,
+      documentsSvc,
+      workProductsSvc,
+    });
     const enteringBlocked = existing.status !== "blocked" && nextStatus === "blocked";
     if (enteringBlocked) {
       const nextBlockedByIssueIds = Array.isArray(req.body.blockedByIssueIds)
@@ -7224,6 +7440,7 @@ export function issueRoutes(
       entityId: issue.id,
       details: {
         ...updateFields,
+        ...(verificationRef ? { verificationRef } : {}),
         identifier: issue.identifier,
         ...(commentBody ? { source: "comment" } : {}),
         ...(resumeRequested === true ? { resumeIntent: true, followUpRequested: true } : {}),
@@ -7422,6 +7639,7 @@ export function issueRoutes(
         userId: actor.actorType === "user" ? actor.actorId : undefined,
         runId: actor.runId,
       }, {
+        ...(verificationRef ? { metadata: verificationMetadata(verificationRef) } : {}),
         sourceTrust: await sourceTrustForActorWrite(issue, actor),
       });
       await issueReferencesSvc.syncComment(comment.id);

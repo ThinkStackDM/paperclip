@@ -48,6 +48,33 @@ describe("issue validators", () => {
     expect(parsed.comment).toBe("Done\n\n- Verified the route");
   });
 
+  it("accepts structured verification refs on issue updates", () => {
+    const parsed = updateIssueSchema.parse({
+      status: "done",
+      verificationRef: {
+        kind: "commit",
+        commit: "ee72afd22321dfaa5e3956dc2e97fc7d40542662",
+      },
+    });
+
+    expect(parsed.verificationRef).toEqual({
+      kind: "commit",
+      commit: "ee72afd22321dfaa5e3956dc2e97fc7d40542662",
+    });
+  });
+
+  it("rejects malformed verification refs on issue updates", () => {
+    const parsed = updateIssueSchema.safeParse({
+      status: "done",
+      verificationRef: {
+        kind: "commit",
+        commit: "not-a-sha",
+      },
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
   it("allows false-positive recovery resolutions to atomically restore the source issue status", () => {
     expect(
       resolveIssueRecoveryActionSchema.parse({
