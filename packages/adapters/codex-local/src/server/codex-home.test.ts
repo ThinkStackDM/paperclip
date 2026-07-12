@@ -274,6 +274,34 @@ describe("codexHomeHasUsableAuth", () => {
 });
 
 describe("seedManagedCodexHome", () => {
+  it("copies AGENTS.md from the shared source into an explicit managed home", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-codex-seed-agents-"));
+    try {
+      const sharedCodexHome = path.join(root, "shared-codex-home");
+      const agentHome = path.join(
+        root,
+        "instances",
+        "default",
+        "companies",
+        "company-1",
+        "agents",
+        "agent-7",
+        "codex-home",
+      );
+      const sharedAgents = path.join(sharedCodexHome, "AGENTS.md");
+      const agentAgents = path.join(agentHome, "AGENTS.md");
+
+      await fs.mkdir(sharedCodexHome, { recursive: true });
+      await fs.writeFile(sharedAgents, "# Codex ops layer\n\nAlways loaded.\n", "utf8");
+
+      await seedManagedCodexHome(agentHome, { CODEX_HOME: sharedCodexHome }, async () => {});
+
+      expect(await fs.readFile(agentAgents, "utf8")).toBe("# Codex ops layer\n\nAlways loaded.\n");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("symlinks auth.json from the shared source into an explicit per-agent home", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-codex-seed-"));
     try {
