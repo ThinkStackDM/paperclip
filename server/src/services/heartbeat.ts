@@ -129,6 +129,7 @@ import {
   sanitizeRuntimeServiceBaseEnv,
 } from "./workspace-runtime.js";
 import { issueService } from "./issues.js";
+import { issueThreadInteractionService } from "./issue-thread-interactions.js";
 import { visibleIssueCondition } from "./issue-visibility.js";
 import {
   ISSUE_BLOCKERS_RESOLVED_WAKE_REASON,
@@ -194,6 +195,7 @@ import {
   decideSuccessfulRunHandoff,
   findExistingFinishSuccessfulRunHandoffWake,
   findExistingRunLivenessContinuationWake,
+  LEGACY_SUCCESSFUL_RUN_HANDOFF_NOTICE_PREFIXES,
   SUCCESSFUL_RUN_HANDOFF_REQUIRED_NOTICE_BODY,
   readContinuationAttempt,
 } from "./recovery/index.js";
@@ -5337,6 +5339,8 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     }
     return cachedWorktreeRunExecutionOverride;
   };
+  let resumeQueuedRunsInFlight: Promise<void> | null = null;
+
   const getSchedulingSuppression = async () => {
     const override = await resolveWorktreeRunExecutionOverride();
     return resolveHeartbeatSchedulingSuppression(runtimeEnv, {
@@ -11624,7 +11628,8 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     for (const { run, adapterType, runtimeConfig, issueId, retryNotBefore } of candidates) {
       // Only window-exempt agents: a non-exempt agent's queue is correctly deferred while
       // its activity window is closed (it resumes at next open), so it is not stuck.
-      if (!isActivityWindowExemptAgent({ adapterType, runtimeConfig: parseObject(runtimeConfig) })) continue;
+      const parsedRuntimeConfig = parseObject(runtimeConfig);
+      if (!isActivityWindowExemptAgent({ adapterType, runtimeConfig: parsedRuntimeConfig })) continue;
       // If the agent has a RUNNING run, its queue is draining normally behind it.
       const running = await db
         .select({ id: heartbeatRuns.id })
@@ -11632,6 +11637,22 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
         .where(and(eq(heartbeatRuns.agentId, run.agentId), eq(heartbeatRuns.status, "running")))
         .limit(1);
       if (running.length > 0) continue;
+      const throttleState = getRunGateThrottleState(run.resultJson);
+      const throttleKind = readNonEmptyString(parseObject(throttleState.resultJson.runGateThrottle).kind);
+      if (throttleKind && isConcurrencyRunGateBlockKind(throttleKind)) {
+        const runGateBlock = await runGate.getRunGateBlock({
+          companyId: run.companyId,
+          agentId: run.agentId,
+          adapterType,
+          agentRuntimeConfig: parsedRuntimeConfig,
+          isManualOverride: run.triggerDetail === "manual",
+          now,
+        });
+        if (runGateBlock && isConcurrencyRunGateBlockKind(runGateBlock.kind)) {
+          await markQueuedRunDeferredByGate(run, runGateBlock, now);
+          continue;
+        }
+      }
       // A run waiting on a future retry time is correctly deferred, not stuck.
       if (retryNotBefore && new Date(retryNotBefore).getTime() > now.getTime()) continue;
       // Loop caveat: never cancel a queued continuation of an in_progress issue (regenerates).
@@ -11702,42 +11723,55 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
   }
 
   async function resumeQueuedRuns() {
-    if ((await getSchedulingSuppression()).suppressed) return;
-    const cutoff = await getWorktreeExecutionCutoff();
+    if (resumeQueuedRunsInFlight) {
+      await resumeQueuedRunsInFlight;
+      return;
+    }
 
-    const queuedRuns = await db
-      .select({
-        companyId: heartbeatRuns.companyId,
-        agentId: heartbeatRuns.agentId,
-        createdAt: heartbeatRuns.createdAt,
-        runId: heartbeatRuns.id,
-      })
-      .from(heartbeatRuns)
-      .innerJoin(companies, eq(companies.id, heartbeatRuns.companyId))
-      .where(and(
-        eq(heartbeatRuns.status, "queued"),
-        eq(companies.status, "active"),
-        cutoff ? gte(heartbeatRuns.createdAt, cutoff) : undefined,
-      ))
-      // Local: deterministic FIFO fairness for the global queued-run pump.
-      .orderBy(asc(heartbeatRuns.createdAt), asc(heartbeatRuns.id));
+    resumeQueuedRunsInFlight = (async () => {
+      if ((await getSchedulingSuppression()).suppressed) return;
+      const cutoff = await getWorktreeExecutionCutoff();
 
-    const orderedAgentIds = buildRoundRobinQueuedAgentOrder(
-      queuedRuns.map((queuedRun) => ({
-        companyId: queuedRun.companyId,
-        agentId: queuedRun.agentId,
-      })),
-    );
+      const queuedRuns = await db
+        .select({
+          companyId: heartbeatRuns.companyId,
+          agentId: heartbeatRuns.agentId,
+          createdAt: heartbeatRuns.createdAt,
+          runId: heartbeatRuns.id,
+        })
+        .from(heartbeatRuns)
+        .innerJoin(companies, eq(companies.id, heartbeatRuns.companyId))
+        .where(and(
+          eq(heartbeatRuns.status, "queued"),
+          eq(companies.status, "active"),
+          cutoff ? gte(heartbeatRuns.createdAt, cutoff) : undefined,
+        ))
+        // Local: deterministic FIFO fairness for the global queued-run pump.
+        .orderBy(asc(heartbeatRuns.createdAt), asc(heartbeatRuns.id));
 
-    while (true) {
-      let attempted = false;
-      let claimedAny = false;
-      for (const agentId of orderedAgentIds) {
-        attempted = true;
-        const claimed = await startNextQueuedRunForAgent(agentId, { maxClaims: 1 });
-        if (claimed.length > 0) claimedAny = true;
+      const orderedAgentIds = buildRoundRobinQueuedAgentOrder(
+        queuedRuns.map((queuedRun) => ({
+          companyId: queuedRun.companyId,
+          agentId: queuedRun.agentId,
+        })),
+      );
+
+      while (true) {
+        let attempted = false;
+        let claimedAny = false;
+        for (const agentId of orderedAgentIds) {
+          attempted = true;
+          const claimed = await startNextQueuedRunForAgent(agentId, { maxClaims: 1 });
+          if (claimed.length > 0) claimedAny = true;
+        }
+        if (!attempted || !claimedAny) break;
       }
-      if (!attempted || !claimedAny) break;
+    })();
+
+    try {
+      await resumeQueuedRunsInFlight;
+    } finally {
+      resumeQueuedRunsInFlight = null;
     }
   }
 
@@ -15573,6 +15607,8 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     const contextSnapshot: Record<string, unknown> = { ...(opts.contextSnapshot ?? {}) };
     const reason = opts.reason ?? null;
     const payload = opts.payload ?? null;
+    const payloadObject = parseObject(payload);
+    const wakeMutation = readNonEmptyString(payloadObject.mutation);
     const {
       contextSnapshot: enrichedContextSnapshot,
       issueIdFromPayload,
@@ -15971,6 +16007,70 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
                 reason: "worktree_execution_cutoff",
                 cutoff: worktreeExecutionCutoff.toISOString(),
                 issueId: issue.id,
+              },
+            },
+            status: "skipped",
+            requestedByActorType: opts.requestedByActorType ?? null,
+            requestedByActorId: opts.requestedByActorId ?? null,
+            idempotencyKey: opts.idempotencyKey ?? null,
+            finishedAt: new Date(),
+          });
+          return { kind: "skipped" as const };
+        }
+
+        const isSelfAuthoredAssignmentUpdateWake =
+          reason === "issue_assigned" &&
+          wakeMutation === "update" &&
+          opts.requestedByActorType === "agent" &&
+          Boolean(issue.assigneeAgentId) &&
+          opts.requestedByActorId === issue.assigneeAgentId;
+        if (isSelfAuthoredAssignmentUpdateWake) {
+          await tx.insert(agentWakeupRequests).values({
+            companyId: agent.companyId,
+            agentId,
+            source,
+            triggerDetail,
+            reason: "issue_assignment_self_echo",
+            payload: {
+              ...(payload ?? {}),
+              heartbeatSkip: {
+                reason: "Suppressed self-authored issue_assigned update wake for the current assignee.",
+                issueId: issue.id,
+                assigneeAgentId: issue.assigneeAgentId,
+                requestedByActorId: opts.requestedByActorId ?? null,
+                mutation: wakeMutation,
+              },
+            },
+            status: "skipped",
+            requestedByActorType: opts.requestedByActorType ?? null,
+            requestedByActorId: opts.requestedByActorId ?? null,
+            idempotencyKey: opts.idempotencyKey ?? null,
+            finishedAt: new Date(),
+          });
+          return { kind: "skipped" as const };
+        }
+
+        const resumeIntent =
+          enrichedContextSnapshot.resumeIntent === true ||
+          enrichedContextSnapshot.followUpRequested === true;
+        if (
+          reason === "issue_assigned" &&
+          (issue.status === "done" || issue.status === "cancelled") &&
+          !wakeCommentId &&
+          !resumeIntent
+        ) {
+          await tx.insert(agentWakeupRequests).values({
+            companyId: agent.companyId,
+            agentId,
+            source,
+            triggerDetail,
+            reason: issue.status === "cancelled" ? "issue_cancelled" : "issue_terminal_status",
+            payload: {
+              ...(payload ?? {}),
+              heartbeatSkip: {
+                reason: `Suppressed issue_assigned wake because the issue is already ${issue.status}.`,
+                issueId: issue.id,
+                currentStatus: issue.status,
               },
             },
             status: "skipped",
@@ -17440,6 +17540,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
           skipped: 0,
         };
       }
+      await resumeQueuedRuns();
       const cutoff = await getWorktreeExecutionCutoff();
 
       const allAgents = await db
