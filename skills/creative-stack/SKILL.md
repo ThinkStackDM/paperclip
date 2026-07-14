@@ -19,8 +19,8 @@ produce an asset, use the operational skills:
 ## Self-serve — $0, run on a hermes lane in your company
 | Tool / skill | What it's for |
 |---|---|
-| `image_gen` (grok-imagine) via **image-gen-ops** | logos, hero art, covers, thumbnails, mascots (~13s) |
-| `video_gen` (grok-imagine-video) via **video-gen-ops** | short B-roll / clips, ~8s 720p, follows camera direction |
+| `image_gen` (grok-imagine speed/quality) via **image-gen-ops** | logos, hero art, covers, thumbnails, mascots, clean display-text tiles; `grok-imagine-image-quality` is strong on large/medium text and multilingual tags but still not for tiny legal copy |
+| `video_gen` (grok-imagine-video) via **video-gen-ops** | short B-roll / ambience clips, ~8s 720p, follows camera direction; this is the current self-serve stable path while `grok-imagine-video-1.5` stays watchlist until text-to-video actually serves in-lane |
 | **baoyu-infographic** (Hermes) | 21-layout infographics from any text/URL/topic — image_gen-backed, $0 |
 | **baoyu-comic** (Hermes) | educational / explainer "knowledge comics" — image_gen-backed, $0 |
 | **p5js** (Hermes) | generative / motion / audio-reactive visuals → MP4 / GIF / SVG |
@@ -31,6 +31,11 @@ produce an asset, use the operational skills:
 | local FLUX (`scripts/imagegen/generate-image.sh`) | offline image gen — free but slow (~5 min), off-peak only |
 
 The Hermes skills above are installed + enabled on hermes lanes — call them directly (no install).
+
+TSBC-986 (July 2026) placement note:
+- `grok-imagine-image-quality` earned a slot for clean text tiles, multilingual tags, and medium-density packaging/signage comps.
+- It did NOT displace **og-image-rendering** for tiny, compliance-critical, or exact-copy overlays.
+- `grok-imagine-video-1.5` remains experimental in the current EU/TSBC lane because direct text-to-video requests hard-failed instead of serving clips.
 
 ## Premium — human-in-the-loop (operator runs these by hand; raise a request)
 Part of our stack but run by the human operator, who pastes your prompt and returns the output:

@@ -1038,7 +1038,7 @@ export interface AskUserQuestionsResult {
   answers: AskUserQuestionsAnswer[];
   cancelled?: true;
   cancellationReason?: string | null;
-  expirationReason?: "superseded_by_comment";
+  expirationReason?: "superseded_by_comment" | "stale_issue_state";
   commentId?: string | null;
   summaryMarkdown?: string | null;
 }

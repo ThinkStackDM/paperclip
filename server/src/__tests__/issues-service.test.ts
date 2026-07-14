@@ -6598,6 +6598,46 @@ describeEmbeddedPostgres("board action requirements", () => {
     const result = await svc.getBoardActionRequirements(companyId, [{ id: issueId }]);
     expect(result.has(issueId)).toBe(false);
   });
+
+  it("surfaces stale_issue_state board-action expiries back onto the source issue", async () => {
+    const { companyId, issueId } = await seedBoardActionIssue();
+
+    await db.insert(issueThreadInteractions).values({
+      id: randomUUID(),
+      companyId,
+      issueId,
+      kind: "request_checkbox_confirmation",
+      status: "expired",
+      continuationPolicy: "wake_assignee_on_accept",
+      title: "Approve artifact set",
+      summary: "AA review sheets expired unseen.",
+      payload: {
+        version: 1,
+        prompt: "Approve the artifact set?",
+        options: [{ id: "ship", label: "Ship" }],
+      },
+      result: {
+        version: 1,
+        outcome: "stale_issue_state",
+        reason: "Issue closed as done.",
+      },
+      createdByAgentId: "self-agent",
+      createdAt: new Date("2026-07-12T09:00:00.000Z"),
+      resolvedAt: new Date("2026-07-12T09:01:00.000Z"),
+    });
+
+    const result = await svc.getBoardActionRequirements(companyId, [{ id: issueId }]);
+    const requirement = result.get(issueId);
+
+    expect(requirement).toEqual(expect.objectContaining({
+      source: "interaction",
+      sourceKind: "request_checkbox_confirmation",
+      state: "pending_board_decision",
+    }));
+    expect(requirement?.decisionText).toContain("auto-cancelled");
+    expect(requirement?.decisionText).toContain("Approve artifact set");
+    expect(requirement?.resumeText).toContain("Issue closed as done.");
+  });
 });
 
 describeEmbeddedPostgres("issueService.assertCheckoutOwner stale checkout adoption", () => {

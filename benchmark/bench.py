@@ -30,11 +30,41 @@ from adapters import run_model
 from scoring import score_run
 
 PRINT_LOCK = threading.Lock()
+_CLAUDE_LOCK = threading.Lock()
+CLAUDE_BENCH_HALT_FLAG = Path(__file__).resolve().parent / ".claude-bench-halt"
 
 
 def log(msg):
     with PRINT_LOCK:
         print(msg, flush=True)
+
+
+def _is_claude_model(model_row):
+    adapter = str(model_row.get("adapter") or "").lower()
+    lane = str(model_row.get("lane") or "").lower()
+    model_id = str(model_row.get("id") or "").lower()
+    return adapter == "claude" or lane == "claude" or model_id.startswith("claude-")
+
+
+def _claude_halt_detail():
+    if not CLAUDE_BENCH_HALT_FLAG.exists():
+        return "claude bench halted by budget guard"
+    try:
+        tail = CLAUDE_BENCH_HALT_FLAG.read_text().strip().splitlines()[-1]
+    except Exception:
+        tail = ""
+    if tail:
+        return f"claude bench halted by budget guard ({tail})"
+    return "claude bench halted by budget guard"
+
+
+def _claude_budget_skip(model_row):
+    r = benchlib.empty_result()
+    r["model"] = model_row.get("model_arg") or model_row.get("id")
+    r["error"] = _claude_halt_detail()
+    r["skipped"] = True
+    r["skipReason"] = "claude_budget_halt"
+    return r
 
 
 def run_id_now():
@@ -43,6 +73,14 @@ def run_id_now():
 
 def now_iso():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _suite_meta(role):
+    suite_path = benchlib.ROOT / role / "suite.json"
+    return {
+        "suiteSourcePath": str(suite_path),
+        "suiteSha256": benchlib.file_sha256(suite_path),
+    }
 
 
 def select_models(cfg, only):
@@ -116,6 +154,10 @@ def execute(cells, cfg, run_dir):
     raw_dir = run_dir / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
     adapters_cfg = cfg["adapters"]
+    suite_meta_by_role = {
+        role: _suite_meta(role)
+        for role in {c["role"] for c in cells}
+    }
     # Agentic cells are heavy LIVE runs against the shared server; use the lower
     # paperclip-lane concurrency + higher per-cell timeout when any are present.
     pc = cfg.get("paperclip", {}) or {}
@@ -173,7 +215,16 @@ def execute(cells, cfg, run_dir):
         role, task, m = cell["role"], cell["task"], cell["model"]
         tag = f"{role}/{task['id']} @ {m['id']}"
         try:
-            if role in cfg.get("agentic_roles", []):
+            if _is_claude_model(m):
+                with _CLAUDE_LOCK:
+                    if CLAUDE_BENCH_HALT_FLAG.exists():
+                        raw = _claude_budget_skip(m)
+                    elif role in cfg.get("agentic_roles", []):
+                        import paperclip_lane
+                        raw = paperclip_lane.run_case(task, m, cfg, timeout)
+                    else:
+                        raw = run_model(task["prompt"], m, adapters_cfg, timeout)
+            elif role in cfg.get("agentic_roles", []):
                 import paperclip_lane
                 raw = paperclip_lane.run_case(task, m, cfg, timeout)
             else:
@@ -187,6 +238,8 @@ def execute(cells, cfg, run_dir):
         rec = {
             "role": role, "task_id": task["id"], "task_title": task.get("title"),
             "model_id": m["id"], "model_label": m["label"], "lane": m["lane"],
+            "adapterType": m.get("adapter"),
+            "effort": benchlib.model_effort_label(m),
             "ok": raw.get("ok"), "error": raw.get("error"),
             "output": raw.get("output"),
             "model_reported": raw.get("model"),
@@ -194,6 +247,12 @@ def execute(cells, cfg, run_dir):
             "totalTokens": raw.get("totalTokens"), "tokensEstimated": raw.get("tokensEstimated"),
             "costUsd": raw.get("costUsd"), "wallMs": raw.get("wallMs"),
             "stderrTail": raw.get("stderrTail"),
+            "agentFileSha256": "none",
+            "skillsBundleSha256": "none",
+            "suiteSha256": suite_meta_by_role[role]["suiteSha256"],
+            "suiteSourcePath": suite_meta_by_role[role]["suiteSourcePath"],
+            "skipped": bool(raw.get("skipped")),
+            "skipReason": raw.get("skipReason"),
         }
         rec.update(scored)
         # persist per-cell raw
@@ -206,7 +265,7 @@ def execute(cells, cfg, run_dir):
             done[0] += 1
             q = rec.get("quality")
             qs = f"q={q:.2f}" if isinstance(q, (int, float)) else "q=  — "
-            status = "ok " if rec["ok"] else "FAIL"
+            status = "SKIP" if rec.get("skipped") else ("ok " if rec["ok"] else "FAIL")
             tok = rec.get("totalTokens")
             toks = f"{tok}t" if tok else "?t"
             print(f"  [{done[0]:>3}/{total}] {status} {qs} {toks:>8} {rec.get('wallMs') or '?'}ms  {tag}"
@@ -224,9 +283,27 @@ def finalize(runs, cfg, run_dir, run_id, started):
         json.dump(runs, f, indent=2)
 
     rep = report_mod.aggregate(runs, cfg)
+    non_skipped = [r for r in runs if not r.get("skipped")]
+    present_roles = sorted({r["role"] for r in runs})
+    present_models = sorted({r["model_id"] for r in runs})
+    roster = {m["id"]: m for m in (cfg.get("models", []) + cfg.get("models_catalog", []))}
     meta = {"finished_at": now_iso(), "started_at": started,
-            "n_runs": len(runs), "n_fail": sum(1 for r in runs if not r["ok"]),
-            "run_id": run_id}
+            "n_runs": len(runs),
+            "n_fail": sum(1 for r in non_skipped if not r["ok"]),
+            "n_skipped": sum(1 for r in runs if r.get("skipped")),
+            "run_id": run_id,
+            "suiteShaByRole": {role: _suite_meta(role)["suiteSha256"] for role in present_roles},
+            "suiteSourcePathByRole": {role: _suite_meta(role)["suiteSourcePath"] for role in present_roles},
+            "modelEffortById": {
+                model_id: benchlib.model_effort_label(roster[model_id])
+                for model_id in present_models
+                if model_id in roster
+            },
+            "adapterTypeById": {
+                model_id: roster[model_id].get("adapter")
+                for model_id in present_models
+                if model_id in roster
+            }}
     rep["meta"] = meta
     with open(run_dir / "recommendations.json", "w") as f:
         json.dump(rep, f, indent=2)
@@ -279,7 +356,8 @@ def cmd_all(args, cfg):
     log(f"wrote: {run_dir}/report.md")
     log(f"       {run_dir}/recommendations.json   (machine-readable, for tiering #9)")
     _record_to_ledger(run_id, "bench")
-    log(f"elapsed {time.time()-t0:.0f}s, {meta['n_fail']}/{meta['n_runs']} failed")
+    log(f"elapsed {time.time()-t0:.0f}s, {meta['n_fail']}/{meta['n_runs']} failed"
+        + (f", {meta['n_skipped']} skipped" if meta.get("n_skipped") else ""))
 
 
 def _record_to_ledger(run_id, kind):

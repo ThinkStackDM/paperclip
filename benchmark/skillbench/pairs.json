@@ -897,6 +897,220 @@
       }
     },
     {
+      "id": "logoforge-locked-marks",
+      "skill": "candidate-skills/logoforge-locked-marks.md",
+      "task": {
+        "id": "logoforge-brand-direction-bare",
+        "prompt": "Write a concise direction note for this brand asset refresh.\n\nRequest:\n- Cashflow Compass needs a new YouTube avatar, a channel header, and a PDF one-pager.\n- Stack Lab needs an updated avatar too.\n- A teammate proposes using grok image generation to make a fresh compass-rose badge for Cashflow Compass and a simplified two-bars symbol for Stack Lab, then exporting one 1280x720 master and cropping it down for every surface.\n- The current brand packs and `~/scripts/brand-suite/brandsuite` already exist locally, but nobody has named which assets or checks are binding.\n\nWrite the direction note. Keep it practical.",
+        "rubric": {
+          "deterministic": [
+            {
+              "type": "contains_any",
+              "values": [
+                "LOGOFORGE",
+                "image-gen",
+                "not final",
+                "never becomes",
+                "governed"
+              ],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "compass rose",
+                "two-bars",
+                "two bars",
+                "drift",
+                "banned"
+              ],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "brandsuite",
+                "render-pack",
+                "validate-packs",
+                "pack",
+                "mark.svg"
+              ],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "roundMarkSvg",
+                "round-mark",
+                "circle",
+                "crop",
+                "avatar"
+              ],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "PDF",
+                "vector",
+                "mono",
+                "wordmarkMono",
+                "letterhead"
+              ],
+              "weight": 1
+            }
+          ],
+          "judge": {
+            "criteria": [
+              {
+                "name": "drift_rejection",
+                "weight": 3,
+                "guidance": "Explicitly rejects the compass rose for Cashflow Compass and the two-bars symbol for Stack Lab as banned drift marks, and routes the work back to the locked Cashflow Compass and Stack Lab mark families instead of allowing a fresh redraw."
+              },
+              {
+                "name": "pack_slot_governance",
+                "weight": 2,
+                "guidance": "Treats the brand packs and their mark slots as the canonical source, names the relevant mark asset paths or slot types, and insists that icon, round-mark, and other mark slots come from one locked recipe rather than hand-redrawn geometry."
+              },
+              {
+                "name": "surface_discipline",
+                "weight": 2,
+                "guidance": "Rejects the one-1280x720-crop-for-everything shortcut, tells the user to render exact-dimension outputs via brandsuite banner/avatar/render-pack, handles circle-crop safety for avatars, and preserves vector or pack-backed assets for the PDF surface."
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "logoforge-locked-marks-no-rerender",
+      "skill": "candidate-skills/logoforge-locked-marks.md",
+      "task": {
+        "id": "logoforge-slot-composite-bare",
+        "prompt": "Write a concise direction note for this brand-pack patch.\n\nContext:\n- Dastardly Print already has approved `icon.svg`, `round-mark.svg`, and `mark.png` assets locked in the pack.\n- A teammate says those are stale exports and wants to regenerate every slot from `mark.svg` inside today's pipeline run so the avatar, favicon, and profile header all come from one recipe.\n- The request is to ship the new assets today.\n\nWrite the direction note. Keep it practical.",
+        "rubric": {
+          "deterministic": [
+            {
+              "type": "contains_any",
+              "values": [
+                "approved",
+                "actual file",
+                "slot asset",
+                "composite",
+                "directly"
+              ],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "never re-render",
+                "do not re-render",
+                "regenerate",
+                "recipe",
+                "crop or scale only"
+              ],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "icon.svg",
+                "round-mark.svg",
+                "mark.png",
+                "avatar",
+                "favicon"
+              ],
+              "weight": 2
+            }
+          ],
+          "judge": {
+            "criteria": [
+              {
+                "name": "approved_slot_file_law",
+                "weight": 3,
+                "guidance": "Rejects the plan to regenerate slot assets from `mark.svg`, states that each shipped surface must composite the approved slot file itself, and limits changes to crop/scale or exact-size composition instead of a fresh render."
+              },
+              {
+                "name": "missing_slot_gap_handling",
+                "weight": 2,
+                "guidance": "Makes clear that if the needed approved slot asset is missing or inadequate, the answer must stop and surface a governed-slot gap rather than deriving a substitute icon or round mark from the recipe."
+              },
+              {
+                "name": "surface_specificity",
+                "weight": 2,
+                "guidance": "Routes the avatar and favicon to the approved circle-safe assets such as `round-mark.svg` or `icon.svg`, and rejects the one-recipe shortcut even under deadline pressure."
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "logoforge-locked-marks-validation-reference",
+      "skill": "candidate-skills/logoforge-locked-marks.md",
+      "task": {
+        "id": "logoforge-validation-reference-bare",
+        "prompt": "Write a concise review note on this validation setup.\n\nContext:\n- Cashflow Compass has `validation.markPngReference` pointing at `logos/mark/mark.png` inside the same workspace tree that `brandsuite validate-packs` refreshes.\n- A teammate says that is fine because the validator can compare the current mark against the newly regenerated `mark.png` on every run.\n- The operator wants to know whether the validation reference is trustworthy and what must change before they trust the gate.\n\nWrite the review note. Keep it practical.",
+        "rubric": {
+          "deterministic": [
+            {
+              "type": "contains_any",
+              "values": [
+                "sha",
+                "pinned",
+                "hash",
+                "operator-approved",
+                "reference"
+              ],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "outside",
+                "external",
+                "pipeline under test",
+                "separate",
+                "not regenerate"
+              ],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "circular",
+                "self",
+                "same pipeline",
+                "regenerated",
+                "invalid"
+              ],
+              "weight": 2
+            }
+          ],
+          "judge": {
+            "criteria": [
+              {
+                "name": "rejects_circular_validation",
+                "weight": 3,
+                "guidance": "Calls out that a reference image refreshed by `validate-packs` in the same tree is circular self-validation, so the gate is not trustworthy as configured."
+              },
+              {
+                "name": "requires_pinned_external_reference",
+                "weight": 3,
+                "guidance": "Requires `validation.markPngReference` to be a sha-pinned rasterization of the operator-approved asset generated outside the pipeline under test, not a mutable render output."
+              },
+              {
+                "name": "tells_operator_what_to_change",
+                "weight": 2,
+                "guidance": "Explains the next action clearly: replace the mutable reference, pin the artifact or sha, and only then trust pass/fail results."
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
       "id": "agentfile-cto-review",
       "kind": "agent_file",
       "skill": "candidate-skills/cto-agent-file.md",
@@ -933,6 +1147,106 @@
                 "name": "catches_default_bug",
                 "weight": 3,
                 "guidance": "Rejects, and correctly explains that staleThresholdMs defaults to 0 so cutoff==now, so EVERY still-running run (lastHeartbeatAt <= now) is permanently failed as process_lost on a clean restart before it can heartbeat. The fix is a non-zero startup grace. Penalize 'approve', and penalize a reject that misses the 0-default root cause or only suggests vague 'add error handling'."
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "hermes-scoped-wake-discipline",
+      "skill": "candidate-skills/hermes-scoped-wake-discipline.md",
+      "task": {
+        "id": "hermes-scoped-wake-discipline-bare",
+        "prompt": "Write the SINGLE consolidated Paperclip issue update for this heartbeat.\n\nContext:\n- The board says Hermes cheap lanes are burning throughput-month capacity by posting the literal scoped wake payload back into issue threads.\n- You traced the defect to the Hermes adapter prompt assembly: the local adapter builds one giant query with the scoped wake payload first and the Paperclip execution rules later, and the gateway path does not explicitly tell Hermes not to echo wake headers or comment IDs back into Paperclip.\n- In this heartbeat you patched the Hermes templates so execution guidance and anti-echo rules come first, added regression tests, and added a benchmark pair for scoped-wake discipline.\n- A live rollout plus a 48h spot-check for no new wake-payload echoes is still pending.\n\nReturn ONLY JSON: {\"status\":\"done\"|\"in_review\"|\"blocked\",\"comment\":string}.",
+        "rubric": {
+          "deterministic": [
+            {
+              "type": "json_valid",
+              "weight": 2
+            },
+            {
+              "type": "json_path_equals",
+              "path": "status",
+              "value": "in_review",
+              "weight": 3
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "payload",
+                "wake",
+                "context",
+                "echo",
+                "parrot"
+              ],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "instructions",
+                "template",
+                "local",
+                "gateway",
+                "prompt"
+              ],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "test",
+                "tests",
+                "benchmark",
+                "skillbench",
+                "regression"
+              ],
+              "weight": 2
+            },
+            {
+              "type": "contains_any",
+              "values": [
+                "48h",
+                "48-hour",
+                "spot-check",
+                "rollout",
+                "monitor"
+              ],
+              "weight": 2
+            },
+            {
+              "type": "not_contains",
+              "value": "## Paperclip Wake Payload",
+              "weight": 2
+            },
+            {
+              "type": "not_contains",
+              "value": "Query:",
+              "weight": 1
+            }
+          ],
+          "judge": {
+            "criteria": [
+              {
+                "name": "root_cause_accuracy",
+                "weight": 3,
+                "guidance": "Names the real defect precisely: Hermes was treating the scoped wake block like answer text because the local prompt put the wake payload ahead of execution guidance and the Hermes prompt lacked explicit anti-echo discipline. Penalize vague 'prompt issue' summaries that miss the ordering plus anti-echo gap."
+              },
+              {
+                "name": "actionable_shipped_work",
+                "weight": 2,
+                "guidance": "Reports concrete shipped work in this heartbeat: template/prompt fix, regression tests, and measured benchmark evidence. Penalize acknowledgement-only updates or generic 'investigating' language."
+              },
+              {
+                "name": "disposition_quality",
+                "weight": 2,
+                "guidance": "Chooses a valid waiting disposition because live rollout and the 48h no-echo spot-check are still pending, and names the monitor/reviewer/owner path instead of falsely claiming done."
+              },
+              {
+                "name": "single_update_discipline",
+                "weight": 1,
+                "guidance": "Reads like one substantive consolidated issue update, not a payload paraphrase or a sequence of acknowledgement-only comments."
               }
             ]
           }

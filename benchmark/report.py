@@ -62,7 +62,8 @@ def aggregate(runs, cfg):
         model_stats = {}
         for mid in models:
             rs = cells.get((role, mid), [])
-            ran = [r for r in rs if r.get("ok")]
+            considered = [r for r in rs if not r.get("skipped")]
+            ran = [r for r in considered if r.get("ok")]
             qualities = [r.get("quality") for r in ran]
             qpks = [r.get("qualityPer1kTokens") for r in ran]
             qpk_out = [_q_per_1k(r.get("quality"), r.get("outputTokens")) for r in ran]
@@ -70,16 +71,17 @@ def aggregate(runs, cfg):
             in_toks = [r.get("inputTokens") for r in ran]
             out_toks = [r.get("outputTokens") for r in ran]
             model_stats[mid] = {
-                "tasks": len(rs),
+                "tasks": len(considered),
                 "okRuns": len(ran),
-                "successRate": (len(ran) / len(rs)) if rs else None,
+                "successRate": (len(ran) / len(considered)) if considered else None,
                 "meanQuality": _mean(qualities),
                 "meanQualityPer1k": _mean(qpks),            # per TOTAL tokens (incl CLI overhead)
                 "meanQualityPer1kOutput": _mean(qpk_out),   # per OUTPUT tokens (marginal cost; fairer)
                 "meanTokens": _mean(toks),
                 "meanInputTokens": _mean(in_toks),
                 "meanOutputTokens": _mean(out_toks),
-                "estimatedTokens": any(r.get("tokensEstimated") for r in rs),
+                "estimatedTokens": any(r.get("tokensEstimated") for r in considered),
+                "skippedRuns": sum(1 for r in rs if r.get("skipped")),
             }
         per_role[role] = {
             "models": model_stats,
@@ -222,11 +224,12 @@ def _fmt_int(x):
 
 def to_markdown(report, run_id, meta):
     L = []
+    skip_note = f", {meta.get('n_skipped', 0)} skipped" if meta.get("n_skipped") else ""
     L.append(f"# Paperclip Model Benchmark — `{run_id}`\n")
     L.append(f"_Generated {meta.get('finished_at', '')}. "
              f"Judge: **{report['judge']}** (blind, uniform). "
              f"{meta.get('n_runs', '?')} runs, "
-             f"{meta.get('n_fail', 0)} failures._\n")
+             f"{meta.get('n_fail', 0)} failures{skip_note}._\n")
     L.append("**Models:** " + ", ".join(f"`{m['id']}`" for m in report["models"]) + "\n")
     L.append("> Quality is a 0–1 blend of deterministic checks and the blind judge. "
              "**`q/1k-out`** = quality per 1,000 **output** tokens — the primary value metric, "
@@ -333,6 +336,18 @@ def to_markdown(report, run_id, meta):
     environment = (
         f"`Paperclip benchmark harness; neutralized temp CWD; finished {meta.get('finished_at', 'unknown')}`"
     )
+    suite_hashes = meta.get("suiteShaByRole") or {}
+    suite_hash_text = ", ".join(
+        f"`{role}={suite_hashes[role]}`" for role in sorted(suite_hashes)
+    ) or "`not_preserved:no suite hashes were recorded`"
+    model_efforts = meta.get("modelEffortById") or {}
+    model_effort_text = ", ".join(
+        f"`{model}={model_efforts[model]}`" for model in sorted(model_efforts)
+    ) or "`not_preserved:no model effort map was recorded`"
+    adapter_types = meta.get("adapterTypeById") or {}
+    adapter_type_text = ", ".join(
+        f"`{model}={adapter_types[model]}`" for model in sorted(adapter_types)
+    ) or "`not_preserved:no adapter map was recorded`"
 
     L.append("## TSBC closeout gate\n")
     L.append("> If this run will feed a TSBC issue, report, catalog row, or rollout decision, "
@@ -350,10 +365,12 @@ def to_markdown(report, run_id, meta):
     L.append("- Scorer caveat: record scorer separation/calibration status and any dependency on human review")
     L.append("- Fingerprint: use `<opco-or-portfolio>:<task-surface>:<lane>:<suite-or-run-id>:<date>`, or `not_preserved:<why missing>`")
     L.append(f"- Model version(s): {compared_models}")
+    L.append(f"- Adapter type(s): {adapter_type_text}")
+    L.append(f"- Effort setting(s): {model_effort_text}")
     L.append("- Scorer/rubric version: record the exact rubric + judge version, or `not_preserved:<why missing>`")
     L.append(f"- Environment: {environment}")
     L.append(f"- Records path: {records_paths}")
-    L.append("- Suite hash: record the suite/run packet hash, or `not_preserved:<why missing>`")
+    L.append(f"- Suite hash(es): {suite_hash_text}")
     L.append("- Prompt/system hash: record the prompt/agent/system hash, or `none` / `not_preserved:<why missing>`")
     L.append("- Failure-library IDs: list linked failures, or `none` with why that absence is meaningful")
     L.append("- Any `not_preserved:*` field must explain why the artifact is missing; blank fields are not acceptable")

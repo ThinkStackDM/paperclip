@@ -12,6 +12,15 @@ Board-subscription tools (Veo/Flow/Sora) are the last resort, reserved for capab
 grok-imagine can't match. Your job is everything around generation too: the creative
 package before it, the assembly and QA after it.
 
+TSBC-986 (July 11, 2026, EU/TSBC lane) model-watch note:
+- Current production-safe self-serve path is still `grok-imagine-video`.
+- Direct `grok-imagine-video-1.5` text-to-video requests hard-failed with
+  `Text-to-video is not supported for this model.` Treat 1.5 as watchlist-only until a
+  successful served-model clip is banked in-lane.
+- Native generated audio can speed rough cuts, but it is still scratch ambience until ear
+  QA plus provenance/licensing review say otherwise; do not replace the audio-bed registry
+  path by default.
+
 ## Decision rule (in priority order)
 
 0. **If you have the `video_generate` tool (grok-imagine — the hermes `video_gen`

@@ -1,0 +1,133 @@
+{
+  "date": "2026-07-14",
+  "fire": "Tuesday",
+  "weekStart": "2026-07-13",
+  "cliVersions": {
+    "codex": "0.144.1",
+    "claude": "2.1.198 (Claude Code)",
+    "agy": "1.1.1",
+    "hermes": "v0.17.0 (2026.6.19) · upstream 7fe1cb38",
+    "hermesUpdateAvailable": "1753 commits behind"
+  },
+  "adapterModelLists": {
+    "codex_local": [
+      "gpt-5.6",
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+      "gpt-5.4",
+      "gpt-5.4-mini",
+      "gpt-5.3-codex-spark",
+      "gpt-5",
+      "o3",
+      "o4-mini",
+      "gpt-5-mini",
+      "gpt-5-nano",
+      "o3-mini",
+      "codex-mini-latest"
+    ],
+    "claude_local": [
+      "claude-opus-4-8",
+      "claude-fable-5",
+      "claude-mythos-5",
+      "claude-opus-4-7",
+      "claude-opus-4-6",
+      "claude-sonnet-4-6",
+      "claude-haiku-4-6",
+      "claude-sonnet-4-5",
+      "claude-haiku-4-5"
+    ],
+    "gemini_local": [
+      "auto",
+      "gemini-3.1-pro-preview",
+      "gemini-3.1-pro-preview-customtools",
+      "gemini-2.5-pro",
+      "gemini-2.5-flash",
+      "gemini-2.5-flash-lite",
+      "gemini-2.0-flash",
+      "gemini-2.0-flash-lite"
+    ],
+    "grok_local": [
+      "grok-build"
+    ],
+    "opencode_local": {
+      "count": 110,
+      "notables": [
+        "cloudflare-ai-gateway/anthropic/claude-fable-5",
+        "cloudflare-ai-gateway/anthropic/claude-opus-4-8",
+        "cloudflare-ai-gateway/anthropic/claude-sonnet-5",
+        "cloudflare-ai-gateway/openai/gpt-5.5",
+        "cloudflare-workers-ai/@cf/openai/gpt-oss-20b",
+        "cloudflare-workers-ai/@cf/zai-org/glm-5.2"
+      ]
+    },
+    "pi_local": [],
+    "cursor_cloud": []
+  },
+  "providerDocs": {
+    "openai": {
+      "url": "https://developers.openai.com/api/docs/models",
+      "summary": "GPT-5.6 Sol/Terra/Luna remain live in the docs and on the Codex OAuth lane; no new OpenAI subscription-lane change was detected versus 2026-07-13.",
+      "liveProbe": {
+        "model": "gpt-5.6-luna",
+        "result": "OK"
+      }
+    },
+    "anthropic": {
+      "url": "https://platform.claude.com/docs/en/about-claude/models/overview",
+      "summary": "Anthropic's overview still presents Claude Fable 5, Claude Mythos 5, and Claude Sonnet 5. On the Ireland Claude Code subscription lane, claude-sonnet-5 still returns OK, claude-mythos-5 still returns 404/no access, and claude-fable-5 now returns a 429 usage-limit error. The live claude_local adapter catalog still omits claude-sonnet-5.",
+      "liveProbes": {
+        "claude-fable-5": "429/Fable 5 usage limit on this Claude Code lane",
+        "claude-sonnet-5": "OK",
+        "claude-mythos-5": "404/no access on this Claude Code lane"
+      }
+    },
+    "google": {
+      "url": "https://ai.google.dev/gemini-api/docs/models",
+      "summary": "Google now exposes a dedicated Gemini 3 Flash Preview page with model code gemini-3-flash-preview. That ID, plus gemini-3.5-flash, gemini-3.1-flash-lite, gemini-3.1-flash-live-preview, and gemini-3.5-live-translate-preview, all return OK via agy in Ireland while the live gemini_local adapter catalog still omits every one of them.",
+      "liveProbes": {
+        "gemini-3.5-flash": "OK",
+        "gemini-3.1-flash-lite": "OK",
+        "gemini-3.1-flash-live-preview": "OK",
+        "gemini-3.5-live-translate-preview": "OK",
+        "gemini-3-flash-preview": "OK"
+      }
+    },
+    "xai": {
+      "url": "https://docs.x.ai/developers/models",
+      "summary": "xAI docs still present Grok 4.5 as the flagship model and the local Grok host still shows no EU subscription-lane auth flip.",
+      "hostProbe": "grok models -> not authenticated; default model grok-composer-2.5-fast; available build model grok-build"
+    }
+  },
+  "localCatalog": {
+    "ollama": {
+      "checkedToday": false,
+      "skipReason": "Tuesday fire; the local/Ollama catalog leg runs only on Monday fires per the operator directive.",
+      "lastMondayObservationDate": "2026-07-13",
+      "version": "0.31.1",
+      "apiVersion": "0.31.1",
+      "installedCatalog": "Unavailable on 2026-07-13: `ollama list` and `curl http://127.0.0.1:11434/api/tags` did not return within 15 seconds.",
+      "onlineWatchSummary": "Carry-forward from 2026-07-13: no local-model alert opened from the Ollama library pass. The front page still highlighted Gemma 4 (e2b/e4b/12b, updated 1 week ago) and Qwen 3.5 (0.8b/2b/4b/9b, updated 1 month ago) as the strongest storm-resilience candidates under the Monday catalog-only rule."
+    }
+  },
+  "openRadar": {
+    "grok-4.5": "Unchanged: docs list it, but no EU subscription-lane flip detected. TSBC-988 remains the parked reprobe issue.",
+    "gemini-catalog-drift": "Expanded 2026-07-14: gemini-3-flash-preview, gemini-3.5-flash, gemini-3.1-flash-lite, gemini-3.1-flash-live-preview, and gemini-3.5-live-translate-preview all return OK via agy in Ireland, but the live gemini_local adapter catalog still omits every one of them.",
+    "claude-sonnet-5-catalog-drift": "Unchanged from 2026-07-13: Anthropic docs render claude-sonnet-5 and the local Claude Code lane returns OK, but the live claude_local adapter catalog does not list it.",
+    "claude-fable-5-limit": "NEW 2026-07-14: Anthropic docs still position claude-fable-5 as widely released, but the Ireland Claude Code subscription lane now returns a 429 usage-limit error instead of OK.",
+    "claude-mythos-5": "Unchanged: docs and claude_local catalog list it, but Claude Code returns 404/no access on this lane; this still matches Anthropic's invitation-only positioning rather than a public GA flip."
+  },
+  "changesSincePrevious": [
+    "Claude Fable 5 now hard-fails on the Ireland Claude Code subscription lane with a 429 usage-limit message; yesterday's state recorded the same minimal probe as OK.",
+    "Google now exposes a dedicated Gemini 3 Flash Preview page with model code gemini-3-flash-preview, and that ID returns OK via agy in Ireland while the live gemini_local adapter catalog still omits it."
+  ],
+  "weeklyLiveness": {
+    "fireDates": [
+      "2026-07-13",
+      "2026-07-14"
+    ],
+    "firesThisWeek": 2,
+    "changesThisWeek": 2,
+    "line": "model-watch alive: 2/7 fires this week, changes: 2"
+  }
+}

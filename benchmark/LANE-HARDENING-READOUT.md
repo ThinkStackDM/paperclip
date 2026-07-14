@@ -1,5 +1,98 @@
 # TSBC Lane-Hardening Readout — 2026-06-22
 
+## 2026-07-13 consolidated v2 packet
+
+The 2026-07-12 recut below is now superseded for operator decision-making by
+the consolidated packet at:
+
+- `benchmark/results/tskb0042-drafter-lane-lock-table-20260713-v2.md`
+
+What changed in v2:
+
+- folded in the 2026-07-12 baseline recut rows instead of replacing them
+- added the [TSBC-1043](/TSBC/issues/TSBC-1043) amendments:
+  - `gemini-3.1-flash-lite` = `adopt` on `summarize-extract`
+  - `gemini-3.1-flash-lite` = `adopt` on cheap mechanical / `ops`
+  - `gemini-3.5-flash` = `keep` in content catalog only, not a promotion
+- added the [TSBC-1045](/TSBC/issues/TSBC-1045) cheaper-grok CV backup
+  comparison:
+  - keep `grok-4.20` reasoning as the `cv-review` backup
+  - reject `grok-4.3` and `grok-4.20-non-reasoning` as cheaper replacements
+- pulled the [TSBC-978](/TSBC/issues/TSBC-978) traffic read early at
+  `2026-07-13 21:51:03 Europe/Dublin`
+  (`2026-07-07 16:39:07` -> `2026-07-13 21:51:03`, elapsed `6d 5h 11m`)
+  instead of waiting for `2026-07-14 16:39:07`
+
+Headline recommendations from the v2 packet:
+
+- keep `content` on `gemini-flash-low`; fix live enforcement drift instead of
+  swapping the paper owner again
+- keep the operator-approved `book-chapter -> gpt-5.6-luna` row, but note the
+  refined rerun was only a near-tie and no Luna-primary book traffic was
+  observed in the early share window
+- keep `cv-review` primary on `gemini-flash`
+- keep `cv-review` backup on `grok-4.20` reasoning; reject both cheaper-grok
+  replacement attempts
+- keep `intake -> gpt-5.6-luna`
+- move `summarize-extract` and the `ops` cheap-mechanical candidate to
+  `gemini-3.1-flash-lite` after the served control plane exposes that model ID
+- leave `designer`, `video-hook`, and `social-post` as `monitor_only`
+
+Important apply caveat:
+
+- the served control plane was still missing the new Gemini IDs during
+  TSBC-1043 closeout, so the `flash-lite` amendments are approval-ready but not
+  instantly applicable until the served runtime is refreshed
+- the traffic pull shows the bigger risk is enforcement drift:
+  - content-family runs are still mostly on Grok Hermes fallback lanes
+  - recruitment review traffic is mostly on Codex / Claude manager lanes
+  - observed recruitment fallback traffic is still on `grok-4.3`, not the
+    documented `grok-4.20` backup
+- Hermes / Gemini subscription lanes are token-blind in `usage_json`, so some
+  rows in the v2 packet use run-count share rather than token share
+
+Use the v2 packet above for tonight's per-lane accept/reject card. The
+2026-07-12 section below remains historical evidence for how the baseline recut
+was formed.
+
+## 2026-07-12 live-lineup recut
+
+The 2026-06-22 lock reading below is now historical evidence, not the live
+portfolio lock table.
+
+Why:
+
+- the old `9/9` reading still carried retired `grok-4.1-fast` /
+  `grok-4-fast` lock assumptions
+- [TSBC-1000](/TSBC/issues/TSBC-1000) and [TSBC-1001](/TSBC/issues/TSBC-1001)
+  invalidated those slugs as live-lock evidence
+- [TSBC-1025](/TSBC/issues/TSBC-1025) showed some later lane calls were
+  `raw_base` or benchmark-owned `current` proofs rather than true live-bundle
+  proofs
+
+Live source of truth:
+
+- `benchmark/results/tskb0042-drafter-lane-lock-table-20260712.md`
+
+Current hard locks from that recut:
+
+- `content` -> `gemini-flash-low` `current+all`
+- `book-chapter` -> `gpt-5.6-luna` (operator-enforced 2026-07-12 move; refined
+  live-bundle rerun caveat still applies)
+- `cv-review` primary -> `gemini-flash` agentic `current+all`
+- `cv-review` backup -> `grok-4.20 + current cv-review skills bundle`
+- `intake` -> `gpt-5.6-luna`
+- `summarize-extract` -> `gpt-5.6-luna`
+
+Rows downgraded to `monitor_only` until [TSBC-978](/TSBC/issues/TSBC-978)
+lands on `2026-07-14 16:39:07 Europe/Dublin` or a targeted same-batch rerun is
+commissioned:
+
+- `designer`
+- `video-hook`
+- `social-post`
+- `ops`
+
 **Status:** BASE matrix = decision-grade (9 tasks × 6 cheap models, ≥5 samples). WITH-SKILLS = 18/24 cells decision-grade (claude-haiku + grok lanes complete; **gpt-5.4-mini with-skills still filling, n≈2–3 → preliminary, marked ⚠**). gemini lanes are excluded from the SINGLE-SHOT with-skills drill (agy can't do large single-shot prompts — see [[tsbc-bootcamp-vision]]); gemini base numbers are sound. **NEW 2026-06-22: gemini with-skills now measured AGENTICALLY** (`variants_agentic.py`, production-faithful frame) for cv-review / book-chapter / content — see §2b. This closes the gemini with-skills gap for the decision-relevant lanes.
 
 ## 1) Base leaderboard — best cheap model per task (bare model, no skills)
@@ -40,7 +133,7 @@ The live fleet runs Gemini AGENTICALLY (thiaaaa-59 lanes B/C): skills mounted as
 2. **agy print mode occasionally DERAILS** (off-task/empty answer at high wall-time → 0.0–0.65). It's role×variant-specific: **flash-medium derails on book-chapter (~1/5); flash-low derails on cv-review-with-skills (~2/7).** Pick the variant that's clean on the target role. The live antigravity_local adapter has run-recovery/retry the bench lacks, so production derail impact is likely lower — but lane choice should still favor the clean variant.
 3. **Skills are ~neutral agentically** for these roles (ΔSkills −0.01..+0.04) — same as the claude/grok single-shot finding. The agent-file carries the lift; mounting the full skill set adds little and can raise derail risk (flash-low cv-review).
 
-## 3) Lane-hardening implications
+## 3) Historical lane-hardening implications (2026-06-22)
 - **cv-review (portfolio weak spot):** ✅ **LOCKABLE as gemini-flash (medium), agentic.** Agentic AF+skills 0.960 / AF-only 0.969 (n=6–7) clear the 0.906 bar by ~0.06, with **zero derails** — the weak spot closes with a FAST lane, **no need to escalate to a stronger non-fast model.** Do NOT use gemini-flash-low (derails to 0.778 with skills). Skills neutral — the cv-review agent-file does the work.
 - **content (Media drafter):** bare put gpt-5.4-mini (0.899)/claude-haiku (0.896) ahead of gemini-flash-low bare (0.876) — but **in the real AGENTIC frame gemini-flash-low+skills = 0.915 and gemini-flash = 0.905** (n=6–7), edging the bare cheap-lane leaders. → **The Media-Drafter=flash pick is MORE defensible than the bare leaderboard implied** — measured the way Gemini actually runs, it's competitive-to-best. gpt-5.4-mini+skills / claude-haiku remain valid alternatives if flash quota is tight.
 - **book-chapter (Books drafter):** ✅ **LOCK Books-Drafter = gemini-flash-low.** Agentic AF+skills 0.955 (n=5) exactly matches the bare 0.955 → the lane holds in the production frame. Do NOT swap to flash-medium (0.81–0.86, derail-prone here). grok-4-fast (0.950) is the strong non-gemini fallback.

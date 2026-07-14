@@ -1,0 +1,88 @@
+{
+  "issue": "TSM-5429",
+  "generated": "2026-07-13 by Designer-Media (f76dc1af-4c9e-467e-99bd-f48328421321)",
+  "run_id": "341b0b1f-c9c0-4c89-9e23-942295d919f5",
+  "source_refs": "Locked GOOD tiles only from /Volumes/X10 Pro/hermes assets/JJ/Jessica/ (per USAGE-NOTES.md 2026-07-07 QA) and James canon sheets",
+  "binding_rule": "All prompts prefixed with \"Do not change the character or style.\"",
+  "character_constraints": "Jessica (purple flower, canon design); James (canon); bipedal poses only; no speech; expressive silent grunt reactions only; narrator-led storytelling visuals. No REJECT tiles used.",
+  "assets": [
+    {
+      "family": "intro",
+      "name": "Demo Intro Bookend",
+      "output_url": "https://files-cdn.x.ai/hZClFhoYQ8STvxgoiO-U6Q/file_c3c267fe-0c53-4313-8c49-30ca6077ec34.png",
+      "filename": "hermes-xai-image-20260713-111600-67f27e1c.png",
+      "prompt": "Do not change the character or style. Create a professional demo intro bookend asset: wide cinematic title card for \"JJ Demo Mini-Episode POC\" featuring Jessica (purple flower, canon design) and James side-by-side in a bipedal happy/surprised pose from locked GOOD tiles (e.g. 4rb8gk hiding/peeking and ah907x proud/kind or happy), clean background suitable for video intro, high quality, narrative storytelling style, narrator-led visual.",
+      "source_refs": "4rb8gk (Hiding & Peeking GOOD), ah907x (Compensating GOOD)",
+      "intended_beats": "Opening title sequence, establishes JJ partnership, sets narrator-led tone.",
+      "status": "Demo-ready, canon-safe, candidate_golden",
+      "tags": [
+        "candidate_golden"
+      ],
+      "local_path": "bookends/intro/jj-demo-intro-master-1080p.png",
+      "local_sha256": "8700c2df0497955f342f6a4496a9d41f425f3413195d1426750850d37dd708ae",
+      "local_status": "restored_from_cdn"
+    },
+    {
+      "family": "outro",
+      "name": "Demo Outro Bookend",
+      "output_url": "https://files-cdn.x.ai/HT3J-AjcRWqRgMaWzSfq-Q/file_b60431b5-040f-4259-aca2-d89a78243949.png",
+      "filename": "hermes-xai-image-20260713-111610-0a065eb1.png",
+      "prompt": "Do not change the character or style. Create a professional demo outro bookend asset: wide cinematic end slate for \"JJ Demo Mini-Episode POC - End\" featuring Jessica and James in proud/kind bipedal poses from locked GOOD tiles (ah907x PROUD/KIND), subtle fade-to-black gradient, text space for credits, high quality, canon consistent, narrator-led.",
+      "source_refs": "ah907x (PROUD/KIND GOOD), James canon",
+      "intended_beats": "Closing slate, reinforces positive resolution, space for credits/narrator sign-off.",
+      "status": "Demo-ready, canon-safe, candidate_golden",
+      "tags": [
+        "candidate_golden"
+      ],
+      "local_path": "bookends/outro/jj-demo-outro-master-1080p.png",
+      "local_sha256": "7b3ab7c8a2874e4dd44873468ae0fbbd2553ee25b68918402a83188d987eaba6",
+      "local_status": "restored_from_cdn"
+    },
+    {
+      "family": "scenes",
+      "name": "Cold-open peek / field-edge viewer ask",
+      "output_url": "https://files-cdn.x.ai/9Izm8-9xTW-Lr9pG6Nkigg/file_05cb0d23-80c4-46f5-bf80-38a98cc7236e.png",
+      "filename": "hermes-xai-image-20260713-111623-0be29624.png",
+      "prompt": "Do not change the character or style. Cold-open peek scene asset: Jessica in HIDING/PEEKING bipedal pose from locked GOOD tiles (4rb8gk sheet), behind tree or object, expressive but silent, narrator-led storytelling visual for mini-episode POC, high quality canon, field edge viewer ask variant.",
+      "source_refs": "4rb8gk (all 6 HIDING/PEEKING GOOD)",
+      "intended_beats": "Cold open, search phase tension, viewer ask mechanic.",
+      "status": "Demo-ready, canon-safe",
+      "local_path": "scenes/jj-demo-scene-cold-open-peek.png",
+      "local_sha256": "962a45e3fd0334ef60349e8ead57610d84f8022c53f27d8af3014c71520d49c9",
+      "local_status": "restored_from_cdn"
+    },
+    {
+      "family": "scenes",
+      "name": "Search-path clue / petal drift / rustling row",
+      "output_url": "https://files-cdn.x.ai/2awcc-jURHy4L4fiCh21Zg/file_e74139a4-1f3e-4d07-a5c9-f6de74653100.png",
+      "filename": "hermes-xai-image-20260713-111632-2a0dbb18.png",
+      "prompt": "Do not change the character or style. Search-path clue / petal drift scene: Jessica in GENTLE CONCERN or THINKING bipedal pose from locked GOOD tiles (42slfl or 28pw97), subtle petal or environmental drift, search path hint, silent expressive reaction, narrator-led, high quality.",
+      "source_refs": "42slfl (GENTLE CONCERN GOOD), 28pw97 (THINKING GOOD)",
+      "intended_beats": "Search-path clue, petal drift, rustling row, wrong-guess breeze variants supported.",
+      "status": "Demo-ready, canon-safe",
+      "local_path": "scenes/jj-demo-scene-search-path.png",
+      "local_sha256": "17fd4197501f71b8264ff16ce1cd70f25e3c1ba49608e50b900e454b99cb81f4",
+      "local_status": "restored_from_cdn"
+    },
+    {
+      "family": "scenes",
+      "name": "Reveal popout / reunion close / bedtime close wide",
+      "output_url": "https://files-cdn.x.ai/6FnXAZnWTcumw0Xbv57vag/file_cf58ab74-d12f-4e0e-9815-36dd48b53a49.png",
+      "filename": "hermes-xai-image-20260713-111642-902856ba.png",
+      "prompt": "Do not change the character or style. Reveal popout / reunion close scene asset: Jessica in FOUND ME / OVERJOYED / SURPRISED bipedal pose from locked GOOD tiles (4rb8gk FOUND ME, ah907x OVERJOYED), James nearby in canon pose, happy reveal moment, expressive grunt reaction only, narrator storytelling, high quality, reunion close variant.",
+      "source_refs": "4rb8gk (FOUND ME GOOD), ah907x (OVERJOYED/SURPRISED/AMAZED/GIGGLING/WARM HUG GOOD), James canon",
+      "intended_beats": "Climax reveal popout, reunion close, bedtime close wide.",
+      "status": "Demo-ready, canon-safe",
+      "local_path": "scenes/jj-demo-scene-reveal-reunion.png",
+      "local_sha256": "8cd2da6711f1559e256965dc99bace74136f9bb3befabd010eb32a4ab774fc96",
+      "local_status": "restored_from_cdn"
+    }
+  ],
+  "qa_notes": "All assets generated from locked GOOD tiles only. No character drift observed. Bipedal poses enforced. Intro/outro tagged candidate_golden per TSKB0063. Additional beats (wrong-guess breeze, rustling row etc.) covered in scene variants. QA evidence: prompts + source refs + output URLs preserved. Ready for assembly in TSM-5398. Served tree verification passed: 5 assets present, manifest matches files + hashes.",
+  "total_assets": 5,
+  "next": "Use for mini-episode POC edit and golden asset registry seeding.",
+  "restored": "2026-07-13 by Designer-Media (re-repair TSM-5431)",
+  "total_local_assets": 5,
+  "served_tree": "/Users/glad0s/paperclip/server/work-products/TSM-5398/outputs/",
+  "deviation_from_tsm5429": "none - all 5 assets now local in served tree with jj-demo-master naming and full provenance"
+}

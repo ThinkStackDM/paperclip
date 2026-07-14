@@ -107,10 +107,20 @@ def run_cell(role, task, model_row, af_key, sk_key, af_bodies, sk_bodies, adapte
     out_tok = raw.get("outputTokens")
     quality = scored.get("quality")
     qpk = (quality / (out_tok / 1000.0)) if (quality is not None and out_tok) else None
+    suite_path = ROOT / role / "suite.json"
+    agent_file_sha = benchlib.sha256_text(af_bodies[af_key]) if af_bodies[af_key] else "none"
+    skills_bundle_sha = benchlib.sha256_text(sk_bodies[sk_key]) if sk_bodies[sk_key] else "none"
     rec = {"role": role, "task": task["id"], "model": model_row["id"],
            "agentFile": af_key, "skills": sk_key, "quality": quality,
            "inputTokens": raw.get("inputTokens"), "outputTokens": out_tok,
-           "qPer1kOut": qpk, "ok": bool(raw.get("ok"))}
+           "qPer1kOut": qpk, "ok": bool(raw.get("ok")),
+           "adapterType": model_row.get("adapter"),
+           "effort": benchlib.model_effort_label(model_row),
+           "model_reported": raw.get("model"),
+           "agentFileSha256": agent_file_sha,
+           "skillsBundleSha256": skills_bundle_sha,
+           "suiteSha256": benchlib.file_sha256(suite_path),
+           "suiteSourcePath": str(suite_path)}
     with PRINT_LOCK:
         print(f"  {role:<10} {model_row['id']:<12} af={af_key:<7} skills={sk_key:<4} "
               f"q={_q(quality)} q/1k={_q(qpk)} {task['id']}", flush=True)

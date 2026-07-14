@@ -1,0 +1,36 @@
+{
+  "date": "2026-07-12",
+  "cli": {
+    "codex": "0.144.1",
+    "claude": "2.1.198 (Claude Code)",
+    "agy": "1.1.1",
+    "hermes": "v0.17.0 (2026.6.19) · upstream 7b5ba205 (update available: 1621 commits behind)",
+    "ollama": "0.31.1"
+  },
+  "adapters": {
+    "index": ["acpx_local", "antigravity_local", "claude_local", "codex_local", "cursor", "cursor_cloud", "gemini_local", "grok_local", "hermes_gateway", "hermes_local", "http", "openclaw_gateway", "opencode_local", "paperclip_shell_handler", "pi_local", "process"],
+    "notes": {
+      "codex_local": "GPT-5.6 family (sol/terra/luna) support confirmed in config notes; fastMode supported on GPT-5.6+",
+      "grok_local": "defaults to grok-build; use 'grok models' for host auth/models",
+      "claude_local": "effort levels low/medium/high",
+      "gemini_local": "model auto or explicit",
+      "hermes_local": "model/provider configurable, subscription lanes only"
+    }
+  },
+  "local": {
+    "ollama": "0.31.1 (Monday-only catalog check; no pull)"
+  },
+  "online": {
+    "xai": "docs reachable; grok-4.5 announced per radar but no EU availability flip detected",
+    "openai": "GPT-5.6 Luna and family confirmed live (matches 2026-07-11 radar); no new models or EU changes",
+    "anthropic": "docs reachable",
+    "google": "docs reachable; no new Gemini EU flips noted"
+  },
+  "radar": {
+    "grok-4.5": "announced, NOT yet available in EU (unchanged)",
+    "GPT-5.6 family": "CONFIRMED live on Codex OAuth (unchanged)",
+    "removals/pricing": "none detected"
+  },
+  "eu_availability": "no flips detected",
+  "changes": false
+}

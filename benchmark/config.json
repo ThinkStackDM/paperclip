@@ -9,6 +9,13 @@
       "lane": "claude"
     },
     {
+      "id": "claude-sonnet-5",
+      "adapter": "claude",
+      "model_arg": "claude-sonnet-5",
+      "label": "Claude Sonnet 5",
+      "lane": "claude"
+    },
+    {
       "id": "codex-gpt-5.4",
       "adapter": "codex",
       "model_arg": "gpt-5.4",
@@ -79,7 +86,7 @@
       "lane": "claude"
     }
   ],
-  "_models_catalog_comment": "Validated within-family variants (confirmed callable via their CLI 2026-06-14 unless noted below). NOT in the default sweep \u2014 `bench.py all` runs `models` above. Opt in per run: `bench.py all --models claude-haiku,gpt-5.4-mini,gemini-flash,grok-4-fast`. These are the 'lower model' candidates for the cheap-model-+-skill gap-closing strategy. GPT-5.6 family availability was re-confirmed on 2026-07-11 from the EU via Codex OAuth after upgrading codex-cli to 0.144.1. gpt-5.3-codex-spark IS a valid model (same as Paperclip's spark lane, invoked --model gpt-5.3-codex-spark with reasoning_effort=high) but is DAILY RATE-LIMITED \u2014 sweeps including it fail with a usage-limit error while exhausted (resets ~mid-afternoon). Genuinely NOT supported on this ChatGPT account (400 invalid_request, never works): plain gpt-5.3, gpt-5.3-codex, gpt-5-codex.",
+  "_models_catalog_comment": "Validated within-family variants (confirmed callable via their CLI 2026-06-14 unless noted below). `bench.py all` runs the active `models` roster above; as of 2026-07-11 that includes the new codex mini tier (`gpt-5.4-mini`) and the Claude cheap-lane probe (`claude-sonnet-5`). Opt in per run for catalog-only variants such as `claude-haiku`, `gemini-flash`, or `grok-4-fast`. GPT-5.6 family availability was re-confirmed on 2026-07-11 from the EU via Codex OAuth after upgrading codex-cli to 0.144.1. gpt-5.3-codex-spark IS a valid model (same as Paperclip's spark lane, invoked --model gpt-5.3-codex-spark with reasoning_effort=high) but is DAILY RATE-LIMITED \u2014 sweeps including it fail with a usage-limit error while exhausted (resets ~mid-afternoon). Genuinely NOT supported on this ChatGPT account (400 invalid_request, never works): plain gpt-5.3, gpt-5.3-codex, gpt-5-codex.",
   "models_catalog": [
     {
       "id": "claude-sonnet",
@@ -114,6 +121,20 @@
       "adapter": "claude",
       "model_arg": "claude-opus-4-7",
       "label": "Claude Opus 4.7",
+      "lane": "claude"
+    },
+    {
+      "id": "claude-opus-4-8",
+      "adapter": "claude",
+      "model_arg": "claude-opus-4-8",
+      "label": "Claude Opus 4.8",
+      "lane": "claude"
+    },
+    {
+      "id": "claude-haiku-4-5",
+      "adapter": "claude",
+      "model_arg": "claude-haiku-4-5",
+      "label": "Claude Haiku 4.5",
       "lane": "claude"
     },
     {
@@ -190,6 +211,22 @@
       "model_arg": "Gemini 3.1 Pro (Low)",
       "label": "Gemini 3.1 Pro (Low)",
       "lane": "antigravity"
+    },
+    {
+      "id": "gemini-3.5-flash",
+      "adapter": "antigravity",
+      "model_arg": "gemini-3.5-flash",
+      "label": "Gemini 3.5 Flash",
+      "lane": "antigravity",
+      "note": "Stable Gemini Flash ID probe-verified on the EU agy lane 2026-07-13"
+    },
+    {
+      "id": "gemini-3.1-flash-lite",
+      "adapter": "antigravity",
+      "model_arg": "gemini-3.1-flash-lite",
+      "label": "Gemini 3.1 Flash Lite",
+      "lane": "antigravity",
+      "note": "Stable Flash Lite ID probe-verified on the EU agy lane 2026-07-13"
     },
     {
       "id": "gemini-flash",
@@ -271,7 +308,7 @@
       "gpt-5.6-sol": "9cde1342-a63e-48e5-ae32-769778cd5408",
       "gpt-5.6-terra": "9dc76a01-420e-440f-a76e-2c0d097acf7d",
       "gpt-5.6-luna": "aaecdcd0-dc5b-41d1-a6fd-0ff7a56776a0",
-      "claude-opus-4.7": "53a4e9d3-81b1-4d86-8f87-e19447412f0e"
+      "claude-sonnet-5": "53a4e9d3-81b1-4d86-8f87-e19447412f0e"
     },
     "_isolation_comment": "Bench runs in a DEDICATED ISOLATED company (Agentic Bench, e212ce50) with NO CEO/routines/active agents, so nothing in the company acts on bench fixtures mid-run (TSMC's GLaD0S + cleanup machinery was the interference that quiet-TSMC couldn't stop). reportsTo for the 4 agents = paused Bench-Manager b610338d."
   },

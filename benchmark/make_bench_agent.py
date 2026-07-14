@@ -5,6 +5,7 @@ Bench company, cloning the grok-4.3 bench agent's setup (skills, toolsets, runti
 manager) so only adapterType + model differ — keeping the agentic comparison fair.
 
   python3 make_bench_agent.py "Bench-claude-opus" claude_local claude-opus-4-8
+  python3 make_bench_agent.py "Bench-claude-sonnet-5" claude_local claude-sonnet-5
   python3 make_bench_agent.py --dry-run ...
 
 Talks to the local board (127.0.0.1:3100, localhost-trusted, same as board-api.sh).

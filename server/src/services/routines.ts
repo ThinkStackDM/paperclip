@@ -17,6 +17,7 @@ import {
   issueInboxArchives,
   issueReadStates,
   issueRelations,
+  issueThreadInteractions,
   issues,
   pluginManagedResources,
   plugins,
@@ -67,6 +68,7 @@ import { secretService } from "./secrets.js";
 import { getSecretProvider } from "../secrets/provider-registry.js";
 import { parseCron, validateCron } from "./cron.js";
 import { heartbeatService } from "./heartbeat.js";
+import { issueThreadInteractionService } from "./issue-thread-interactions.js";
 import {
   instanceSettingsService,
   isTruthyRuntimeEnvValue,
@@ -79,6 +81,7 @@ import { classifyNonActionableWebhookPayload, type NonActionableWebhookPayloadKi
 import type { PluginWorkerManager } from "./plugin-worker-manager.js";
 
 const OPEN_ISSUE_STATUSES = ["backlog", "todo", "in_progress", "in_review", "blocked"];
+const LIVE_SUPERSEDING_ROUTINE_EXECUTION_STATUSES = ["backlog", "todo", "in_progress", "in_review"];
 const LIVE_HEARTBEAT_RUN_STATUSES = ["queued", "running", "scheduled_retry"];
 const TERMINAL_HEARTBEAT_RUN_STATUSES = ["succeeded", "failed", "cancelled", "timed_out"];
 const TERMINAL_ISSUE_STATUSES = new Set(["done", "cancelled"]);
@@ -139,7 +142,10 @@ type RoutineTriggerRow = typeof routineTriggers.$inferSelect;
 
 const ROUTINE_DESCRIPTION_DOCUMENT_KEY = "description" as const;
 const ROUTINE_ISSUE_MODE_ENV_KEY = "PAPERCLIP_ROUTINE_ISSUE_MODE";
+const ROUTINE_PARENT_LIFECYCLE_BINDING_ENV_KEY = "PAPERCLIP_ROUTINE_PARENT_LIFECYCLE_BINDING";
 const ROUTINE_ISSUE_MODE_REUSE_TERMINAL = "reuse_terminal";
+const ROUTINE_HEALTH_ISSUE_ORIGIN_KIND = "routine_health";
+const ROUTINE_HEALTH_STREAK_THRESHOLD = 3;
 const ROUTINE_ISSUE_MODE_ALIASES = new Set([
   ROUTINE_ISSUE_MODE_REUSE_TERMINAL,
   "terminal_reuse",
@@ -194,6 +200,25 @@ function readPlainRoutineEnvValue(env: RoutineRow["env"], key: string): string |
 function routineReusesTerminalExecutionIssue(routine: RoutineRow): boolean {
   const raw = readPlainRoutineEnvValue(routine.env, ROUTINE_ISSUE_MODE_ENV_KEY);
   return raw ? ROUTINE_ISSUE_MODE_ALIASES.has(raw.trim().toLowerCase()) : false;
+}
+
+function routineBindsToParentLifecycle(routine: RoutineRow): boolean {
+  const raw = readPlainRoutineEnvValue(routine.env, ROUTINE_PARENT_LIFECYCLE_BINDING_ENV_KEY);
+  return raw ? isTruthyRuntimeEnvValue(raw) : false;
+}
+
+function isTerminalParentFailureReason(reason: string | null | undefined) {
+  return typeof reason === "string" && /^parent_issue_terminal_(done|cancelled)$/i.test(reason);
+}
+
+function isDeadScheduledRunLike(run: {
+  source: string;
+  status: string;
+  failureReason: string | null;
+}) {
+  if (run.source !== "schedule") return false;
+  if (run.status === "failed") return true;
+  return run.status === "skipped" && isTerminalParentFailureReason(run.failureReason);
 }
 
 // THIAAAAAA-203 self-heal helpers: detect the specific failure modes that occur
@@ -710,12 +735,171 @@ export function routineService(
   } = {},
 ) {
   const issueSvc = issueService(db);
+  const issueInteractionSvc = issueThreadInteractionService(db);
   const secretsSvc = secretService(db);
   const instanceSettings = instanceSettingsService(db);
   const runtimeEnv = deps.runtimeEnv ?? process.env;
   const heartbeat = deps.heartbeat ?? heartbeatService(db, {
     pluginWorkerManager: deps.pluginWorkerManager,
   });
+
+  async function listRecentScheduleRunsForHealth(routineId: string, limit = ROUTINE_HEALTH_STREAK_THRESHOLD) {
+    return db
+      .select({
+        id: routineRuns.id,
+        source: routineRuns.source,
+        status: routineRuns.status,
+        failureReason: routineRuns.failureReason,
+        triggeredAt: routineRuns.triggeredAt,
+        completedAt: routineRuns.completedAt,
+        createdAt: routineRuns.createdAt,
+      })
+      .from(routineRuns)
+      .where(eq(routineRuns.routineId, routineId))
+      .orderBy(desc(routineRuns.triggeredAt), desc(routineRuns.createdAt))
+      .limit(limit);
+  }
+
+  async function findOpenRoutineHealthIssue(companyId: string, routineId: string) {
+    return db
+      .select()
+      .from(issues)
+      .where(and(
+        eq(issues.companyId, companyId),
+        eq(issues.originKind, ROUTINE_HEALTH_ISSUE_ORIGIN_KIND),
+        eq(issues.originId, routineId),
+        not(inArray(issues.status, ["done", "cancelled"])),
+      ))
+      .orderBy(desc(issues.updatedAt), desc(issues.createdAt))
+      .limit(1)
+      .then((rows) => rows[0] ?? null);
+  }
+
+  function buildRoutineHealthIssueTitle(routine: typeof routines.$inferSelect, boardActionRequired: boolean) {
+    const base = `Routine health: ${routine.title}`;
+    return boardActionRequired ? `BOARD ACTION REQUIRED: ${base}` : base;
+  }
+
+  function buildRoutineHealthIssueDescription(routine: typeof routines.$inferSelect) {
+    return [
+      "Paperclip-generated routine health issue.",
+      "",
+      `Routine id: ${routine.id}`,
+      `Routine title: ${routine.title}`,
+      "Escalation: scheduled dead-fire detection",
+      "Resolution: clear the routine kill condition, then rerun or wait for the next scheduled fire.",
+    ].join("\n");
+  }
+
+  function buildRoutineHealthDigestComment(input: {
+    routine: typeof routines.$inferSelect;
+    streak: number;
+    recentRuns: Array<{
+      triggeredAt: Date | null;
+      status: string;
+      failureReason: string | null;
+    }>;
+  }) {
+    const lines = input.recentRuns.map((run, index) => {
+      const when = (run.triggeredAt ?? null)?.toISOString?.() ?? "unknown";
+      const suffix = run.failureReason ? ` (${run.failureReason})` : "";
+      return `${index + 1}. ${when} — ${run.status}${suffix}`;
+    });
+    return [
+      `Routine dead-fire digest: scheduled streak ${input.streak}/${ROUTINE_HEALTH_STREAK_THRESHOLD} for \`${input.routine.title}\`.`,
+      "",
+      ...lines,
+    ].join("\n");
+  }
+
+  async function surfaceRoutineDeadFire(input: {
+    routine: typeof routines.$inferSelect;
+    run: typeof routineRuns.$inferSelect;
+  }) {
+    if (!isDeadScheduledRunLike(input.run)) return;
+
+    const recentRuns = await listRecentScheduleRunsForHealth(input.routine.id);
+    const streakRuns: typeof recentRuns = [];
+    for (const run of recentRuns) {
+      if (!isDeadScheduledRunLike(run)) break;
+      streakRuns.push(run);
+    }
+    if (streakRuns.length === 0) return;
+
+    const boardActionRequired = streakRuns.length >= ROUTINE_HEALTH_STREAK_THRESHOLD;
+    let issue = await findOpenRoutineHealthIssue(input.routine.companyId, input.routine.id);
+    if (!issue) {
+      issue = await issueSvc.create(input.routine.companyId, {
+        projectId: input.routine.projectId,
+        goalId: input.routine.goalId,
+        title: buildRoutineHealthIssueTitle(input.routine, boardActionRequired),
+        description: buildRoutineHealthIssueDescription(input.routine),
+        status: boardActionRequired ? "in_review" : "todo",
+        priority: "high",
+        assigneeAgentId: input.routine.assigneeAgentId,
+        responsibleUserId: input.routine.responsibleUserId ?? null,
+        trustExplicitResponsibleUserId: true,
+        originKind: ROUTINE_HEALTH_ISSUE_ORIGIN_KIND,
+        originId: input.routine.id,
+      });
+      if (issue.assigneeAgentId) {
+        await queueIssueAssignmentWakeup({
+          heartbeat,
+          issue,
+          reason: "issue_assigned",
+          mutation: "create",
+          contextSource: "routine.health",
+          requestedByActorType: "system",
+          rethrowOnError: false,
+        });
+      }
+    } else if (issue.title !== buildRoutineHealthIssueTitle(input.routine, boardActionRequired) || (boardActionRequired && issue.status !== "in_review")) {
+      issue = await issueSvc.update(issue.id, {
+        title: buildRoutineHealthIssueTitle(input.routine, boardActionRequired),
+        status: boardActionRequired ? "in_review" : issue.status,
+      }) ?? issue;
+    }
+
+    const digestComment = buildRoutineHealthDigestComment({
+      routine: input.routine,
+      streak: streakRuns.length,
+      recentRuns: streakRuns,
+    });
+    const latestComments = await issueSvc.listComments(issue.id, { limit: 1, order: "desc" });
+    if (latestComments[0]?.body !== digestComment) {
+      await issueSvc.addComment(issue.id, digestComment, {}, { authorType: "system" });
+    }
+
+    if (!boardActionRequired) return;
+
+    const existingInteraction = await db
+      .select({ id: issueThreadInteractions.id })
+      .from(issueThreadInteractions)
+      .where(and(
+        eq(issueThreadInteractions.issueId, issue.id),
+        eq(issueThreadInteractions.kind, "request_confirmation"),
+        eq(issueThreadInteractions.status, "pending"),
+      ))
+      .limit(1)
+      .then((rows) => rows[0] ?? null);
+    if (existingInteraction) return;
+
+    await issueInteractionSvc.create(
+      { id: issue.id, companyId: issue.companyId },
+      {
+        kind: "request_confirmation",
+        continuationPolicy: "wake_assignee",
+        idempotencyKey: `routine-health:${input.routine.id}:dead-fire`,
+        title: "Routine dead-fire streak review",
+        summary: "ASK: review the dead routine streak. WHY: three consecutive scheduled fires died. ACTION: confirm the remediation path.",
+        payload: {
+          version: 1,
+          prompt: `Review the routine-health issue for ${input.routine.title} and confirm the remediation path.`,
+        },
+      },
+      {},
+    );
+  }
 
   async function getRoutineById(id: string) {
     return db
@@ -1799,7 +1983,8 @@ export function routineService(
         .then((rows) => rows[0] ?? null);
       if (!routine || routine.status !== "active") continue;
 
-      // Must be superseded by a newer fire of the same routine.
+      // Must be superseded by a newer visible execution path of the same routine.
+      // Failed/stuck blocked fires are not replacements for a manual catch-up.
       const newerFire = await db
         .select({ id: issues.id })
         .from(issues)
@@ -1808,6 +1993,8 @@ export function routineService(
             eq(issues.originKind, "routine_execution"),
             eq(issues.originId, iss.originId),
             gt(issues.createdAt, iss.createdAt),
+            inArray(issues.status, LIVE_SUPERSEDING_ROUTINE_EXECUTION_STATUSES),
+            isNull(issues.hiddenAt),
           ),
         )
         .limit(1)
@@ -2304,7 +2491,7 @@ export function routineService(
         ? nextCronTickInTimeZone(input.trigger.cronExpression, input.trigger.timezone, triggeredAt)
         : undefined;
 
-      if (input.source === "schedule" && input.routine.parentIssueId) {
+      if (input.source === "schedule" && input.routine.parentIssueId && routineBindsToParentLifecycle(input.routine)) {
         const parentIssue = await txDb
           .select({ status: issues.status })
           .from(issues)
@@ -2384,7 +2571,7 @@ export function routineService(
               reusableIssue.parentId,
               txDb,
             );
-            if (reusableParentTerminalStatus) {
+            if (reusableParentTerminalStatus && routineBindsToParentLifecycle(input.routine)) {
               const updated = await finalizeRun(createdRun.id, {
                 status: "skipped",
                 completedAt: triggeredAt,
@@ -2610,6 +2797,11 @@ export function routineService(
         status: run.status,
       });
     }
+
+    await surfaceRoutineDeadFire({
+      routine: input.routine,
+      run,
+    });
 
     return run;
   }

@@ -224,3 +224,9 @@ PR #2218 (`feat/external-adapter-phase1`) adds external adapter support. See roo
 ## Design system
 
 `DESIGN.md` at the repo root is the source of truth for UI design decisions. The token-only rule applies to all `ui/` changes: every color, spacing, radius, type, shadow, and motion value in `ui/src/components/**` and `ui/src/pages/**` comes from the token layer in `ui/src/index.css` — no hex, raw px, arbitrary Tailwind bracket values, or raw `font-size`/`fontSize` declarations in components, outside the documented allowlist in `ui/src/index.css`. Run `pnpm check:token-gates` (`scripts/check-token-gates.mjs`) before committing UI changes — it fails on any violation not covered by that allowlist.
+
+## LOCAL OPERATIONS RULE — directive parameters override minimal-change instincts (Gate G8)
+
+This section is local to the ThinkStack served tree (not upstream).
+
+"Smallest relevant verification" and minimal-diff instincts apply to HOW you verify — never to WHAT you deliver. If the issue states explicit parameters (named wake paths to cover, a periodic mechanism to add, byte-identical operations, evidence formats, acceptance-criteria lists), those are acceptance criteria: deliver every one, or surface the conflict on the issue and get a decision BEFORE narrowing. Any shipped deviation must be labelled DEVIATION in the closeout and approved. Silent scope-narrowing is a malformed close (TSKB0055 Gate G8) and gets reopened.

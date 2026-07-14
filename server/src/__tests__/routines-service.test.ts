@@ -1,5 +1,5 @@
 import { createHmac, randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   activityLog,
@@ -12,12 +12,14 @@ import {
   documentRevisions,
   documents,
   executionWorkspaces,
+  goals,
   heartbeatRuns,
   issueComments,
   instanceSettings,
   issueInboxArchives,
   issueReadStates,
   issueRelations,
+  issueThreadInteractions,
   issues,
   projectWorkspaces,
   projects,
@@ -78,11 +80,13 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     await db.delete(companySecrets);
     await db.delete(heartbeatRuns);
     await db.delete(issueComments);
+    await db.delete(issueThreadInteractions);
     await db.delete(issueRelations);
     await db.delete(issues);
     await db.delete(executionWorkspaces);
     await db.delete(projectWorkspaces);
     await db.delete(projects);
+    await db.delete(goals);
     await db.delete(agents);
     await db.delete(companies);
     await db.delete(instanceSettings);
@@ -259,6 +263,37 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     expect(row?.status).toBe("blocked");
   });
 
+  it("does not treat a newer blocked fire as a superseding live execution", async () => {
+    const { companyId, routine, svc } = await seedFixture();
+    const failedFire = await insertRoutineFire({
+      companyId,
+      routineId: routine.id,
+      status: "blocked",
+      createdAt: new Date("2026-03-19T00:00:00Z"),
+      n: 1,
+    });
+    const catchUpFire = await insertRoutineFire({
+      companyId,
+      routineId: routine.id,
+      status: "blocked",
+      createdAt: new Date("2026-03-19T01:00:00Z"),
+      n: 2,
+    });
+
+    const result = await svc.cancelSupersededRoutineExecutionIssues();
+    expect(result.cancelled).toBe(0);
+
+    const rows = await db
+      .select({ id: issues.id, status: issues.status })
+      .from(issues)
+      .where(inArray(issues.id, [failedFire, catchUpFire]))
+      .orderBy(asc(issues.createdAt));
+    expect(rows).toEqual([
+      { id: failedFire, status: "blocked" },
+      { id: catchUpFire, status: "blocked" },
+    ]);
+  });
+
   it("leaves a superseded blocked fire that still carries an active first-class blocker", async () => {
     const { companyId, routine, svc } = await seedFixture();
     const stale = await insertRoutineFire({ companyId, routineId: routine.id, status: "blocked", createdAt: new Date("2026-03-19T00:00:00Z"), n: 1 });
@@ -292,6 +327,16 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
         enableWorktreeRunExecution: true,
         worktreeRunExecutionActivatedAt: cutoff.toISOString(),
         worktreeRunExecutionActivationInstanceId: instanceId,
+      },
+    }).onConflictDoUpdate({
+      target: instanceSettings.singletonKey,
+      set: {
+        general: {},
+        experimental: {
+          enableWorktreeRunExecution: true,
+          worktreeRunExecutionActivatedAt: cutoff.toISOString(),
+          worktreeRunExecutionActivationInstanceId: instanceId,
+        },
       },
     });
   }
@@ -784,9 +829,9 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     expect(run.status).toBe("issue_created");
     expect(run.linkedIssueId).toBeTruthy();
     expect(wakeups).toEqual([
-      {
+      expect.objectContaining({
         agentId,
-        opts: {
+        opts: expect.objectContaining({
           source: "assignment",
           triggerDetail: "system",
           reason: "issue_assigned",
@@ -794,8 +839,8 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
           requestedByActorType: undefined,
           requestedByActorId: null,
           contextSnapshot: { issueId: run.linkedIssueId, source: "routine.dispatch" },
-        },
-      },
+        }),
+      }),
     ]);
   });
 
@@ -2595,7 +2640,7 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     expect(refreshedTrigger?.lastResult).toMatch(/reused/i);
   });
 
-  it("skips scheduled terminal-issue reuse when the routine parent issue is already terminal", async () => {
+  it("ignores terminal routine parents by default and reuses the terminal execution issue", async () => {
     const { companyId, routine, svc, wakeups } = await seedFixture({ wakeup: async () => null });
     const parentIssueId = randomUUID();
     await db.insert(issues).values({
@@ -2663,9 +2708,10 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
       .where(eq(issues.id, terminalIssueId))
       .then((rows) => rows[0] ?? null);
     expect(routineIssue).toMatchObject({
-      status: "done",
+      status: "todo",
       executionRunId: null,
     });
+    expect(routineIssue?.originRunId).toBeTruthy();
 
     const latestRun = await db
       .select()
@@ -2674,14 +2720,15 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
       .orderBy(routineRuns.createdAt)
       .then((rows) => rows.at(-1) ?? null);
     expect(latestRun).toMatchObject({
-      status: "skipped",
-      linkedIssueId: null,
-      failureReason: "parent_issue_terminal_done",
+      status: "issue_reused",
+      linkedIssueId: terminalIssueId,
+      failureReason: null,
     });
-    expect(wakeups).toHaveLength(0);
+    expect(routineIssue?.originRunId).toBe(latestRun?.id);
+    expect(wakeups).toHaveLength(1);
   });
 
-  it("skips scheduled terminal-issue reuse when the reusable issue's parent is already terminal", async () => {
+  it("reuses the terminal execution issue by default even when its parent is already done", async () => {
     const { companyId, routine, svc, wakeups } = await seedFixture({ wakeup: async () => null });
     const parentIssueId = randomUUID();
     await db.insert(issues).values({
@@ -2748,9 +2795,10 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
       .where(eq(issues.id, terminalIssueId))
       .then((rows) => rows[0] ?? null);
     expect(routineIssue).toMatchObject({
-      status: "done",
+      status: "todo",
       executionRunId: null,
     });
+    expect(routineIssue?.originRunId).toBeTruthy();
 
     const latestRun = await db
       .select()
@@ -2759,11 +2807,97 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
       .orderBy(routineRuns.createdAt)
       .then((rows) => rows.at(-1) ?? null);
     expect(latestRun).toMatchObject({
-      status: "skipped",
-      linkedIssueId: null,
-      failureReason: "parent_issue_terminal_done",
+      status: "issue_reused",
+      linkedIssueId: terminalIssueId,
+      failureReason: null,
     });
-    expect(wakeups).toHaveLength(0);
+    expect(wakeups).toHaveLength(1);
+  });
+
+  it("escalates consecutive parent-terminal dead fires onto a routine-health issue when lifecycle binding is enabled", async () => {
+    const { companyId, routine, svc, wakeups } = await seedFixture({ wakeup: async () => null });
+    const parentIssueId = randomUUID();
+    await db.insert(issues).values({
+      id: parentIssueId,
+      companyId,
+      title: "Completed parent",
+      status: "done",
+      priority: "medium",
+      completedAt: new Date("2026-01-01T00:00:00.000Z"),
+    });
+    await svc.update(
+      routine.id,
+      {
+        parentIssueId,
+        env: {
+          PAPERCLIP_ROUTINE_PARENT_LIFECYCLE_BINDING: { type: "plain", value: "true" },
+        },
+      },
+      {},
+    );
+    const { trigger } = await svc.createTrigger(
+      routine.id,
+      {
+        kind: "schedule",
+        label: "daily",
+        cronExpression: "0 0 * * *",
+        timezone: "UTC",
+      },
+      {},
+    );
+
+    for (const day of ["2020-01-01T00:00:00.000Z", "2020-01-02T00:00:00.000Z", "2020-01-03T00:00:00.000Z"]) {
+      await db
+        .update(routineTriggers)
+        .set({ nextRunAt: new Date(day) })
+        .where(eq(routineTriggers.id, trigger.id));
+      const result = await svc.tickScheduledTriggers(new Date("2026-01-04T00:00:00.000Z"));
+      expect(result.triggered).toBe(1);
+    }
+
+    const runs = await db
+      .select({
+        status: routineRuns.status,
+        failureReason: routineRuns.failureReason,
+      })
+      .from(routineRuns)
+      .where(eq(routineRuns.routineId, routine.id))
+      .orderBy(routineRuns.createdAt);
+    expect(runs).toHaveLength(3);
+    expect(runs.every((run) => run.status === "skipped" && run.failureReason === "parent_issue_terminal_done")).toBe(true);
+
+    const healthIssue = await db
+      .select()
+      .from(issues)
+      .where(eq(issues.originKind, "routine_health"))
+      .then((rows) => rows[0] ?? null);
+    expect(healthIssue).toMatchObject({
+      originId: routine.id,
+      status: "in_review",
+    });
+    expect(healthIssue?.title).toContain("BOARD ACTION REQUIRED:");
+
+    const comments = await db
+      .select({ body: issueComments.body })
+      .from(issueComments)
+      .where(eq(issueComments.issueId, healthIssue!.id));
+    expect(comments.at(-1)?.body).toContain("scheduled streak 3/3");
+    expect(comments.at(-1)?.body).toContain("parent_issue_terminal_done");
+
+    const interactions = await db
+      .select({
+        kind: issueThreadInteractions.kind,
+        status: issueThreadInteractions.status,
+        summary: issueThreadInteractions.summary,
+      })
+      .from(issueThreadInteractions)
+      .where(eq(issueThreadInteractions.issueId, healthIssue!.id));
+    expect(interactions).toContainEqual(expect.objectContaining({
+      kind: "request_confirmation",
+      status: "pending",
+    }));
+    expect(interactions[0]?.summary).toContain("three consecutive scheduled fires died");
+    expect(wakeups).toHaveLength(1);
   });
 
   it("creates a scheduled execution issue when the project goal pointer is stale", async () => {
@@ -2779,10 +2913,19 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
       {},
     );
     const pastDue = new Date("2020-01-01T00:00:00.000Z");
+    const staleGoalId = randomUUID();
+
+    await db.insert(goals).values({
+      id: staleGoalId,
+      companyId,
+      title: "Replacement project goal",
+      level: "task",
+      status: "active",
+    });
 
     await db
       .update(projects)
-      .set({ goalId: randomUUID() })
+      .set({ goalId: staleGoalId })
       .where(eq(projects.id, projectId));
     await db
       .update(routineTriggers)
@@ -2810,7 +2953,7 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
       .where(eq(issues.companyId, companyId))
       .then((rows) => rows[0] ?? null);
     expect(routineIssue).toBeTruthy();
-    expect(routineIssue?.goalId).toBeNull();
+    expect(routineIssue?.goalId).toBe(staleGoalId);
     expect(routineIssue?.originRunId).toBe(run?.id ?? null);
   });
 

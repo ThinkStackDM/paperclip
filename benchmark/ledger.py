@@ -39,6 +39,7 @@ LEDGER_DIR = benchlib.ROOT / "ledger"
 LEDGER_PATH = LEDGER_DIR / "results.jsonl"
 DEFAULT_DAYS = 30
 DEFAULT_MIN_RESULTS = 3
+_BENCH_METADATA_KINDS = {"model_eval", "config_variant", "agentic_config_variant", "task_probe"}
 
 
 def _now_iso():
@@ -57,6 +58,99 @@ def _model_class(model_id):
     return model_id
 
 
+def _mean(values):
+    values = [value for value in values if value is not None]
+    return statistics.mean(values) if values else None
+
+
+def _suite_path_for_role(role):
+    return benchlib.ROOT / role / "suite.json"
+
+
+def _suite_hash_for_role(role):
+    return benchlib.file_sha256(_suite_path_for_role(role))
+
+
+def _catalog_by_model_id():
+    cfg = benchlib.load_config()
+    return {m["id"]: m for m in (cfg.get("models", []) + cfg.get("models_catalog", []))}
+
+
+_VARIANT_HASH_CACHE = {}
+
+
+def _variant_hash_fallbacks(role, agent_file, skills):
+    key = (role, agent_file, skills)
+    cached = _VARIANT_HASH_CACHE.get(key)
+    if cached is not None:
+        return cached
+    variants_cfg = json.load(open(benchlib.ROOT / "variants.json")).get("roles", {})
+    rc = variants_cfg.get(role)
+    if not rc:
+        result = {"agent_file_sha256": "none", "skills_bundle_sha256": "none"}
+        _VARIANT_HASH_CACHE[key] = result
+        return result
+    import variants
+
+    af_bodies, skill_bodies = variants.resolve_role(role, rc)
+    agent_body = af_bodies.get(agent_file, "")
+    skills_body = skill_bodies.get(skills, "")
+    result = {
+        "agent_file_sha256": benchlib.sha256_text(agent_body) if agent_body else "none",
+        "skills_bundle_sha256": benchlib.sha256_text(skills_body) if skills_body else "none",
+    }
+    _VARIANT_HASH_CACHE[key] = result
+    return result
+
+
+def _single_record_value(records, keys, label, fallback=None):
+    values = sorted({
+        str(record.get(key)).strip()
+        for record in records
+        for key in keys
+        if str(record.get(key) or "").strip()
+    })
+    if len(values) > 1:
+        raise ValueError(f"{label} mismatch across aggregated records: {values}")
+    if values:
+        return values[0]
+    if fallback is not None:
+        return fallback
+    raise ValueError(f"missing {label}")
+
+
+def _reported_model_fields(records, model_id):
+    values = sorted({
+        str(record.get("model_reported")).strip()
+        for record in records
+        if str(record.get("model_reported") or "").strip()
+    })
+    if not values:
+        return {"model_reported": model_id, "reported_models": [model_id]}
+    return {
+        "model_reported": values[0] if len(values) == 1 else "multiple:" + ",".join(values),
+        "reported_models": values,
+    }
+
+
+def _is_missing_metadata_value(value):
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return not value.strip()
+    return False
+
+
+def _validate_bench_metadata(record):
+    required = ("model_reported", "adapter_type", "effort", "skills_bundle_sha256", "suite_sha256")
+    missing = [field for field in required if _is_missing_metadata_value(record.get(field))]
+    if missing:
+        raise ValueError(
+            f"bench ledger row missing reproducibility metadata for {record.get('kind')} "
+            f"{record.get('test_class')} {record.get('model')}: {', '.join(missing)}"
+        )
+
+
 # --------------------------------------------------------------------------
 # append (flock-guarded so 7 companies can write concurrently)
 # --------------------------------------------------------------------------
@@ -67,6 +161,8 @@ def append_records(records):
         fcntl.flock(f, fcntl.LOCK_EX)
         try:
             for r in records:
+                if r.get("kind") in _BENCH_METADATA_KINDS:
+                    _validate_bench_metadata(r)
                 f.write(json.dumps(r, separators=(",", ":")) + "\n")
             f.flush()
             os.fsync(f.fileno())
@@ -96,31 +192,85 @@ def read_all():
 # --------------------------------------------------------------------------
 
 def record_bench_run(run_id, company=None):
-    """Ingest a #15 model-eval run's recommendations.json -> one record per (role, model)."""
+    """Ingest a #15 model-eval run's runs.json -> one record per (role, model)."""
     company = company or _company()
-    rec_path = benchlib.RESULTS_DIR / run_id / "recommendations.json"
-    if not rec_path.exists():
-        raise FileNotFoundError(f"no recommendations.json for {run_id}")
-    rep = json.load(open(rec_path))
+    run_dir = benchlib.RESULTS_DIR / run_id
+    runs_path = run_dir / "runs.json"
+    if not runs_path.exists():
+        raise FileNotFoundError(f"no runs.json for {run_id}")
+    rep_path = run_dir / "recommendations.json"
+    rep = json.load(open(rep_path)) if rep_path.exists() else {}
+    runs = json.load(open(runs_path))
     judge = rep.get("judge")
     ts = (rep.get("meta") or {}).get("finished_at") or _now_iso()
+    roster = _catalog_by_model_id()
     out = []
-    for role, rd in rep.get("roles", {}).items():
-        for model_id, s in rd.get("models", {}).items():
-            if s.get("meanQuality") is None:
-                continue
-            out.append({
-                "ts": ts, "company": company, "kind": "model_eval",
-                "test_class": role, "model": model_id, "model_class": _model_class(model_id),
-                "metrics": {
-                    "quality": _r(s.get("meanQuality")),
-                    "qPer1kOut": _r(s.get("meanQualityPer1kOutput")),
-                    "meanOutputTokens": _r(s.get("meanOutputTokens"), 0),
-                    "meanInputTokens": _r(s.get("meanInputTokens"), 0),
-                },
-                "n_tasks": s.get("tasks"), "run_id": run_id, "judge": judge,
-                "skill": None, "source": "bench.py",
-            })
+    grouped = {}
+    for record in runs:
+        grouped.setdefault((record["role"], record["model_id"]), []).append(record)
+    for (role, model_id), records in sorted(grouped.items()):
+        considered = [record for record in records if not record.get("skipped")]
+        ran = [record for record in considered if record.get("ok") and record.get("quality") is not None]
+        if not ran:
+            continue
+        model_row = roster.get(model_id, {"id": model_id})
+        metadata_records = considered or records
+        reported_fields = _reported_model_fields(metadata_records, model_id)
+        out.append({
+            "ts": ts,
+            "company": company,
+            "kind": "model_eval",
+            "test_class": role,
+            "model": model_id,
+            **reported_fields,
+            "model_class": _model_class(model_id),
+            "adapter_type": _single_record_value(
+                metadata_records,
+                ("adapterType", "adapter_type"),
+                "adapter_type",
+                fallback=str(model_row.get("adapter") or "").strip() or None,
+            ),
+            "effort": _single_record_value(
+                metadata_records,
+                ("effort",),
+                "effort",
+                fallback=benchlib.model_effort_label(model_row),
+            ),
+            "agent_file_sha256": _single_record_value(
+                metadata_records,
+                ("agentFileSha256", "agent_file_sha256"),
+                "agent_file_sha256",
+                fallback="none",
+            ),
+            "skills_bundle_sha256": _single_record_value(
+                metadata_records,
+                ("skillsBundleSha256", "skills_bundle_sha256"),
+                "skills_bundle_sha256",
+                fallback="none",
+            ),
+            "suite_sha256": _single_record_value(
+                metadata_records,
+                ("suiteSha256", "suite_sha256"),
+                "suite_sha256",
+                fallback=_suite_hash_for_role(role),
+            ),
+            "metrics": {
+                "quality": _r(_mean([record.get("quality") for record in ran])),
+                "qPer1kOut": _r(_mean([
+                    (record.get("quality") / (record.get("outputTokens") / 1000.0))
+                    for record in ran
+                    if record.get("quality") is not None and record.get("outputTokens")
+                ])),
+                "meanOutputTokens": _r(_mean([record.get("outputTokens") for record in ran]), 0),
+                "meanInputTokens": _r(_mean([record.get("inputTokens") for record in ran]), 0),
+                "successRate": _r((len(ran) / len(considered)) if considered else 0.0),
+            },
+            "n_tasks": len(considered),
+            "run_id": run_id,
+            "judge": judge,
+            "skill": None,
+            "source": "bench.py",
+        })
     return append_records(out), len(out)
 
 
@@ -158,33 +308,70 @@ def record_skill_run(run_id, company=None):
 
 
 def record_variants_run(run_id, company=None):
-    """Ingest a #17 config-variant run's cells.json -> one record per (role, model, agent_file, skills) cell.
+    """Ingest a #17 config-variant run's records.json -> one record per (role, model, agent_file, skills) cell.
     Namespaced test_class 'variant:<role>:<af>-<skills>' so these never pollute the bare base-model
     leaderboard (test_class=<role>). The base matrix already supplies bare:none (the floor); this layer
     captures the agent-file / skills configs on top, so the drill can fill the with-skills decision grid."""
     company = company or _company()
     run_dir = benchlib.RESULTS_DIR / run_id
-    cells_path = run_dir / "cells.json"
-    if not cells_path.exists():
-        raise FileNotFoundError(f"no cells.json for {run_id}")
-    cells = json.load(open(cells_path))
+    records_path = run_dir / "records.json"
+    if not records_path.exists():
+        raise FileNotFoundError(f"no records.json for {run_id}")
+    records = json.load(open(records_path))
     ts = _now_iso()
+    roster = _catalog_by_model_id()
     out = []
-    for key, c in cells.items():
-        parts = key.split("|")  # "role|model|af|skills"
-        if len(parts) != 4 or c.get("quality") is None:
+    grouped = {}
+    for record in records:
+        grouped.setdefault((record["role"], record["model"], record["agentFile"], record["skills"]), []).append(record)
+    for (role, model_id, af, skills), cell_records in sorted(grouped.items()):
+        valid = [record for record in cell_records if record.get("ok") and record.get("quality") is not None]
+        if not valid:
             continue
-        role, model_id, af, skills = parts
+        model_row = roster.get(model_id, {"id": model_id})
+        hash_fallbacks = _variant_hash_fallbacks(role, af, skills)
+        reported_fields = _reported_model_fields(cell_records, model_id)
         out.append({
             "ts": ts, "company": company, "kind": "config_variant",
             "test_class": f"variant:{role}:{af}-{skills}", "model": model_id,
+            **reported_fields,
             "model_class": _model_class(model_id),
+            "adapter_type": _single_record_value(
+                cell_records,
+                ("adapterType", "adapter_type"),
+                "adapter_type",
+                fallback=str(model_row.get("adapter") or "").strip() or None,
+            ),
+            "effort": _single_record_value(
+                cell_records,
+                ("effort",),
+                "effort",
+                fallback=benchlib.model_effort_label(model_row),
+            ),
+            "agent_file_sha256": _single_record_value(
+                cell_records,
+                ("agentFileSha256", "agent_file_sha256"),
+                "agent_file_sha256",
+                fallback=hash_fallbacks["agent_file_sha256"],
+            ),
+            "skills_bundle_sha256": _single_record_value(
+                cell_records,
+                ("skillsBundleSha256", "skills_bundle_sha256"),
+                "skills_bundle_sha256",
+                fallback=hash_fallbacks["skills_bundle_sha256"],
+            ),
+            "suite_sha256": _single_record_value(
+                cell_records,
+                ("suiteSha256", "suite_sha256"),
+                "suite_sha256",
+                fallback=_suite_hash_for_role(role),
+            ),
             "metrics": {
-                "quality": _r(c.get("quality")),
-                "qPer1kOut": _r(c.get("qPer1kOut")),
-                "meanOutputTokens": _r(c.get("outputTokens"), 0),
+                "quality": _r(_mean([record.get("quality") for record in valid])),
+                "qPer1kOut": _r(_mean([record.get("qPer1kOut") for record in valid])),
+                "meanOutputTokens": _r(_mean([record.get("outputTokens") for record in valid]), 0),
             },
-            "n_tasks": c.get("n"), "run_id": run_id, "judge": None,
+            "n_tasks": len(valid), "run_id": run_id, "judge": None,
             "variant": {"role": role, "agentFile": af, "skills": skills},
             "skill": None, "source": "variants.py",
         })
@@ -192,7 +379,7 @@ def record_variants_run(run_id, company=None):
 
 
 def record_agentic_variants_run(run_id, company=None):
-    """Ingest a variants_agentic.py run's cells.json -> one record per (role, model, af, skills) cell,
+    """Ingest a variants_agentic.py run's records.json -> one record per (role, model, af, skills) cell,
     namespaced test_class 'agentic-variant:<role>:<af>-<skills>'. This is the AGENTIC frame for lanes
     (gemini/antigravity) that cannot answer the single-shot ~65k concatenated-skills prompt: skills are
     mounted as files and the agent reads them on demand (mirrors the live antigravity_local adapter).
@@ -200,27 +387,64 @@ def record_agentic_variants_run(run_id, company=None):
     leaderboard — single-shot vs agentic are different methodologies and must be compared separately."""
     company = company or _company()
     run_dir = benchlib.RESULTS_DIR / run_id
-    cells_path = run_dir / "cells.json"
-    if not cells_path.exists():
-        raise FileNotFoundError(f"no cells.json for {run_id}")
-    cells = json.load(open(cells_path))
+    records_path = run_dir / "records.json"
+    if not records_path.exists():
+        raise FileNotFoundError(f"no records.json for {run_id}")
+    records = json.load(open(records_path))
     ts = _now_iso()
+    roster = _catalog_by_model_id()
     out = []
-    for key, c in cells.items():
-        parts = key.split("|")  # "role|model|af|skills"
-        if len(parts) != 4 or c.get("quality") is None:
+    grouped = {}
+    for record in records:
+        grouped.setdefault((record["role"], record["model"], record["agentFile"], record["skills"]), []).append(record)
+    for (role, model_id, af, skills), cell_records in sorted(grouped.items()):
+        valid = [record for record in cell_records if record.get("ok") and record.get("quality") is not None]
+        if not valid:
             continue
-        role, model_id, af, skills = parts
+        model_row = roster.get(model_id, {"id": model_id})
+        hash_fallbacks = _variant_hash_fallbacks(role, af, skills)
+        reported_fields = _reported_model_fields(cell_records, model_id)
         out.append({
             "ts": ts, "company": company, "kind": "agentic_config_variant",
             "test_class": f"agentic-variant:{role}:{af}-{skills}", "model": model_id,
+            **reported_fields,
             "model_class": _model_class(model_id),
+            "adapter_type": _single_record_value(
+                cell_records,
+                ("adapterType", "adapter_type"),
+                "adapter_type",
+                fallback=str(model_row.get("adapter") or "").strip() or None,
+            ),
+            "effort": _single_record_value(
+                cell_records,
+                ("effort",),
+                "effort",
+                fallback=benchlib.model_effort_label(model_row),
+            ),
+            "agent_file_sha256": _single_record_value(
+                cell_records,
+                ("agentFileSha256", "agent_file_sha256"),
+                "agent_file_sha256",
+                fallback=hash_fallbacks["agent_file_sha256"],
+            ),
+            "skills_bundle_sha256": _single_record_value(
+                cell_records,
+                ("skillsBundleSha256", "skills_bundle_sha256"),
+                "skills_bundle_sha256",
+                fallback=hash_fallbacks["skills_bundle_sha256"],
+            ),
+            "suite_sha256": _single_record_value(
+                cell_records,
+                ("suiteSha256", "suite_sha256"),
+                "suite_sha256",
+                fallback=_suite_hash_for_role(role),
+            ),
             "metrics": {
-                "quality": _r(c.get("quality")),
-                "qPer1kOut": _r(c.get("qPer1kOut")),
-                "meanOutputTokens": _r(c.get("outputTokens"), 0),
+                "quality": _r(_mean([record.get("quality") for record in valid])),
+                "qPer1kOut": _r(_mean([record.get("qPer1kOut") for record in valid])),
+                "meanOutputTokens": _r(_mean([record.get("outputTokens") for record in valid]), 0),
             },
-            "n_tasks": c.get("n"), "run_id": run_id, "judge": None,
+            "n_tasks": len(valid), "run_id": run_id, "judge": None,
             "variant": {"role": role, "agentFile": af, "skills": skills},
             "frame": "agentic", "skill": None, "source": "variants_agentic.py",
         })
@@ -290,6 +514,30 @@ def query(test_class, model, days=DEFAULT_DAYS, min_results=DEFAULT_MIN_RESULTS)
     if hits:
         kind = hits[0].get("kind")
         result["kind"] = kind
+        if kind in _BENCH_METADATA_KINDS:
+            eras = []
+            by_era = {}
+            for hit in hits:
+                suite_sha = hit.get("suite_sha256")
+                effort = hit.get("effort")
+                if _is_missing_metadata_value(suite_sha) or _is_missing_metadata_value(effort):
+                    continue
+                by_era.setdefault((suite_sha, effort), []).append(hit)
+            for (suite_sha, effort), era_hits in sorted(by_era.items()):
+                eras.append({
+                    "suite_sha256": suite_sha,
+                    "effort": effort,
+                    "n": len(era_hits),
+                    "latest": max(hit["ts"] for hit in era_hits),
+                })
+            if eras:
+                result["comparisonClass"] = "same_era" if len(eras) == 1 else "cross_era"
+                result["comparisonEras"] = eras
+                if len(eras) > 1:
+                    result["comparisonNote"] = (
+                        "Multiple suite/effort eras are pooled here. Treat the aggregate as "
+                        "directional unless you isolate one era."
+                    )
         if kind == "skill_eval":
             result["aggregate"] = _agg(hits, "lift")
             result["aggregate"].update({"verdict_pool": _verdict_pool(hits)})

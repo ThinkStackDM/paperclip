@@ -1,5 +1,11 @@
 # Portfolio Drafter-Lane Charter — LOCKED 2026-06-23
 
+> Superseded as the live lock table on 2026-07-12.
+> Use `benchmark/results/tskb0042-drafter-lane-lock-table-20260712.md` for the
+> current portfolio drafter locks. The table below is retained as the historical
+> 2026-06-23 charter and still includes retired-fast-era assumptions that are no
+> longer valid as live routing locks.
+
 The decision-grade model→task assignments for drafter / single-lane work across all OpCos,
 from the TSBC benchmark matrix (base + with-skills, 5+ samples/cell; cv-review via the agentic
 skill-eval). Quality weighted against **output-token / quota cost**. This is the standard — apply it.

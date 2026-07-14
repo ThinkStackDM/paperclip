@@ -57,6 +57,7 @@ export interface IssueCapabilityRoutingInput {
   title?: string | null;
   description?: string | null;
   labels?: Array<string | { name?: string | null }> | null;
+  originKind?: string | null;
 }
 
 export interface IssueToolRequirements {
@@ -85,26 +86,35 @@ export function inferIssueToolRequirements(input: IssueCapabilityRoutingInput): 
   const title = normalizeText(input.title);
   const description = normalizeText(input.description);
   const body = `${title}\n${description}`;
+  const explicitOnlyForRoutineDispatch = normalizeText(input.originKind) === "routine_execution";
   const labelNames = (input.labels ?? [])
     .map((label) => typeof label === "string" ? label : label?.name ?? "")
     .map((label) => label.trim())
     .filter((label) => label.length > 0);
 
-  if (/\bimage[_ -]?gen\b/.test(body)) {
+  if (/\b(?:requires|needs|toolset|required[-_\s]?skill)[:\s_-]+image[_ -]?gen\b/.test(body)) {
     addSignal(toolSignals, "image_gen", "keyword:image_gen");
   }
-  if (/\bvideo[_ -]?gen\b/.test(body)) {
+  if (/\b(?:requires|needs|toolset|required[-_\s]?skill)[:\s_-]+video[_ -]?gen\b/.test(body)) {
     addSignal(toolSignals, "video_gen", "keyword:video_gen");
   }
-  if (/\b(?:grok-imagine|designer[-_\s]?media)\b/.test(body)) {
-    addSignal(toolSignals, "image_gen", "keyword:media_specialist");
-    addSignal(toolSignals, "video_gen", "keyword:media_specialist");
-  }
-  if (/\b(?:generate|create|render|edit)\s+(?:an?\s+)?image\b/.test(body)) {
-    addSignal(toolSignals, "image_gen", "keyword:generate_image");
-  }
-  if (/\b(?:generate|create|render|edit)\s+(?:an?\s+)?video\b/.test(body)) {
-    addSignal(toolSignals, "video_gen", "keyword:generate_video");
+  if (!explicitOnlyForRoutineDispatch) {
+    if (/\bimage[_ -]?gen\b/.test(body)) {
+      addSignal(toolSignals, "image_gen", "keyword:image_gen");
+    }
+    if (/\bvideo[_ -]?gen\b/.test(body)) {
+      addSignal(toolSignals, "video_gen", "keyword:video_gen");
+    }
+    if (/\b(?:grok-imagine|designer[-_\s]?media)\b/.test(body)) {
+      addSignal(toolSignals, "image_gen", "keyword:media_specialist");
+      addSignal(toolSignals, "video_gen", "keyword:media_specialist");
+    }
+    if (/\b(?:generate|create|render|edit)\s+(?:an?\s+)?image\b/.test(body)) {
+      addSignal(toolSignals, "image_gen", "keyword:generate_image");
+    }
+    if (/\b(?:generate|create|render|edit)\s+(?:an?\s+)?video\b/.test(body)) {
+      addSignal(toolSignals, "video_gen", "keyword:generate_video");
+    }
   }
 
   for (const labelName of labelNames) {

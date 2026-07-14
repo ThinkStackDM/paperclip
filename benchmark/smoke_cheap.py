@@ -12,7 +12,7 @@ from adapters import run_model
 PROMPT = "Write a single one-sentence tagline for a free weekly budget planner. Return ONLY the tagline."
 
 # the cheap roster (+ a couple mid-tier for reference); skip rate-limited spark
-WANT = ["claude-haiku", "claude-sonnet", "gpt-5.4-mini", "gemini-flash",
+WANT = ["claude-haiku", "claude-sonnet-5", "gpt-5.4-mini", "gemini-flash",
         "gemini-flash-lite", "grok-4-fast", "grok-4.1-fast", "grok-3-mini"]
 
 cfg = benchlib.load_config()

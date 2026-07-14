@@ -14,7 +14,9 @@ Lanes:
 """
 
 import json
+import os
 import re
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -51,10 +53,12 @@ def run_model(prompt, model_row, adapters_cfg, timeout_sec):
         return r
     adapter = model_row["adapter"]
     extra = list((adapters_cfg.get(adapter) or {}).get("extra_args", []))
+    effort = benchlib.model_effort_label(model_row)
+    if effort != "cli_default" and adapter == "claude":
+        extra += ["--effort", effort]
     # per-model reasoning effort (matches how Paperclip's codex adapter runs spark:
-    # `-c model_reasoning_effort="high"`). Optional; only codex consumes it today.
-    effort = model_row.get("reasoning_effort")
-    if effort and adapter == "codex":
+    # `-c model_reasoning_effort="high"`).
+    if effort != "cli_default" and adapter == "codex":
         extra += ["-c", f'model_reasoning_effort="{effort}"']
     fn = {
         "claude": _run_claude,
@@ -67,17 +71,14 @@ def run_model(prompt, model_row, adapters_cfg, timeout_sec):
         r = benchlib.empty_result()
         r["error"] = f"unknown adapter {adapter!r}"
         return r
-    return fn(prompt, model_row.get("model_arg"), extra, timeout_sec)
+    return fn(prompt, model_row.get("model_arg"), extra, timeout_sec, effort=effort)
 
 
 # --------------------------------------------------------------------------
 
 def _exec(cmd, timeout_sec, cwd, stdin=None, env=None):
     """Run argv (no shell), return (returncode, stdout, stderr, wall_ms, timed_out)."""
-    run_env = None
-    if env:
-        import os
-        run_env = {**os.environ, **env}
+    run_env = {**os.environ, **env} if env else None
     t0 = time.time()
     try:
         proc = subprocess.run(
@@ -106,7 +107,7 @@ def _tail(s, n=600):
 # claude
 # --------------------------------------------------------------------------
 
-def _run_claude(prompt, model_arg, extra, timeout_sec):
+def _run_claude(prompt, model_arg, extra, timeout_sec, effort=None):
     r = benchlib.empty_result()
     with tempfile.TemporaryDirectory(prefix="bench-claude-") as cwd:
         # Pass the prompt on STDIN, not as a `-p <arg>`: the claude CLI exits 1 on large
@@ -142,7 +143,18 @@ def _run_claude(prompt, model_arg, extra, timeout_sec):
             r["totalTokens"] = (r["inputTokens"] or 0) + (outp or 0)
         r["costUsd"] = j.get("total_cost_usd")
         mu = j.get("modelUsage") or {}
-        r["model"] = j.get("model") or (next(iter(mu)) if mu else model_arg)
+        reported_model = j.get("model")
+        if not reported_model:
+            # Claude can emit auxiliary modelUsage entries (for example a tiny
+            # Haiku meter) alongside the requested model while leaving the
+            # top-level `model` field blank. Prefer the explicitly requested
+            # model when it is present in modelUsage instead of taking the
+            # first map key.
+            if model_arg and model_arg in mu:
+                reported_model = model_arg
+            elif len(mu) == 1:
+                reported_model = next(iter(mu))
+        r["model"] = reported_model or model_arg
         r["ok"] = bool(r["output"]) and not r["error"]
         return r
 
@@ -151,7 +163,7 @@ def _run_claude(prompt, model_arg, extra, timeout_sec):
 # codex
 # --------------------------------------------------------------------------
 
-def _run_codex(prompt, model_arg, extra, timeout_sec):
+def _run_codex(prompt, model_arg, extra, timeout_sec, effort=None):
     r = benchlib.empty_result()
     with tempfile.TemporaryDirectory(prefix="bench-codex-") as cwd:
         last = Path(cwd) / "_last.txt"
@@ -238,7 +250,7 @@ def _codex_model(events):
 # antigravity (agy) — Google's supported replacement for the retired gemini CLI
 # --------------------------------------------------------------------------
 
-def _run_antigravity(prompt, model_arg, extra, timeout_sec):
+def _run_antigravity(prompt, model_arg, extra, timeout_sec, effort=None):
     """Antigravity (`agy`) CLI. Selects a model by its display-name string, e.g.
     'Gemini 3.5 Flash (Medium)'. Print mode returns plain text only (no usage JSON),
     so tokens are ESTIMATED and flagged. Runs in a neutralized temp CWD. agy is a heavy
@@ -330,7 +342,7 @@ def run_antigravity_agentic(prompt, model_arg, extra, timeout_sec, cwd, skip_per
 # gemini
 # --------------------------------------------------------------------------
 
-def _run_gemini(prompt, model_arg, extra, timeout_sec):
+def _run_gemini(prompt, model_arg, extra, timeout_sec, effort=None):
     r = benchlib.empty_result()
     with tempfile.TemporaryDirectory(prefix="bench-gemini-") as cwd:
         cmd = ["gemini", "-p", prompt, "-o", "json"]
@@ -394,64 +406,99 @@ def _gemini_usage(stats):
 # --------------------------------------------------------------------------
 
 _SESS_ID_RE = re.compile(r"\b(\d{8}_\d{6}_[0-9a-f]{4,})\b")
+_HERMES_REASONING_RE = re.compile(r"(^\s*reasoning_effort:\s*).*$", re.MULTILINE)
 
 
-def _hermes_session_ids():
+def _hermes_session_ids(env=None):
     try:
         proc = subprocess.run(["hermes", "sessions", "list"],
-                              capture_output=True, text=True, timeout=30)
+                              capture_output=True, text=True, timeout=30,
+                              env={**os.environ, **env} if env else None)
     except Exception:
         return []
     return _SESS_ID_RE.findall(proc.stdout)
 
 
-def _run_hermes(prompt, model_arg, extra, timeout_sec):
+def _prepare_hermes_home(reasoning_effort):
+    src = Path.home() / ".hermes"
+    tmp_home = tempfile.TemporaryDirectory(prefix="bench-hermes-home-")
+    dst = Path(tmp_home.name)
+    for name in ("config.yaml", "auth.json", ".env"):
+        src_path = src / name
+        if src_path.exists():
+            shutil.copy2(src_path, dst / name)
+    auth_dir = src / "auth"
+    if auth_dir.exists():
+        shutil.copytree(auth_dir, dst / "auth")
+    cfg_path = dst / "config.yaml"
+    cfg = cfg_path.read_text()
+    patched, n = _HERMES_REASONING_RE.subn(rf"\1{reasoning_effort}", cfg, count=1)
+    if n != 1:
+        marker = "agent:\n"
+        if marker not in cfg:
+            tmp_home.cleanup()
+            raise RuntimeError("could not locate Hermes agent config block for reasoning_effort override")
+        patched = cfg.replace(marker, marker + f"  reasoning_effort: {reasoning_effort}\n", 1)
+    cfg_path.write_text(patched)
+    return tmp_home
+
+
+def _run_hermes(prompt, model_arg, extra, timeout_sec, effort=None):
     r = benchlib.empty_result()
+    hermes_home = None
+    env = None
+    if effort and effort != "cli_default":
+        hermes_home = _prepare_hermes_home(effort)
+        env = {"HERMES_HOME": hermes_home.name}
     # serialize snapshot+run so the new-session diff is unambiguous (see _HERMES_LOCK)
-    with _HERMES_LOCK:
-        before = set(_hermes_session_ids())
-        with tempfile.TemporaryDirectory(prefix="bench-hermes-") as cwd:
-            cmd = ["hermes", "-z", prompt]
-            if model_arg:
-                cmd += ["-m", model_arg]
-            cmd += list(extra)
-            r["cmd"] = ["hermes", "-z", "<prompt>"] + (["-m", model_arg] if model_arg else [])
-            rc, out, err, wall, timed_out = _exec(cmd, timeout_sec, cwd)
-            r["wallMs"] = wall
-            r["stderrTail"] = _tail(err)
-            r["output"] = (out or "").strip()
-            if timed_out:
-                r["error"] = "timeout"
-            elif rc not in (0, None) and not r["output"]:
-                r["error"] = f"hermes: rc={rc}"
-        after = _hermes_session_ids()
-        new_ids = sorted([s for s in after if s not in before], reverse=True)  # newest first
+    try:
+        with _HERMES_LOCK:
+            before = set(_hermes_session_ids(env))
+            with tempfile.TemporaryDirectory(prefix="bench-hermes-") as cwd:
+                cmd = ["hermes", "-z", prompt]
+                if model_arg:
+                    cmd += ["-m", model_arg]
+                cmd += list(extra)
+                r["cmd"] = ["hermes", "-z", "<prompt>"] + (["-m", model_arg] if model_arg else [])
+                rc, out, err, wall, timed_out = _exec(cmd, timeout_sec, cwd, env=env)
+                r["wallMs"] = wall
+                r["stderrTail"] = _tail(err)
+                r["output"] = (out or "").strip()
+                if timed_out:
+                    r["error"] = "timeout"
+                elif rc not in (0, None) and not r["output"]:
+                    r["error"] = f"hermes: rc={rc}"
+            after = _hermes_session_ids(env)
+            new_ids = sorted([s for s in after if s not in before], reverse=True)  # newest first
 
-    # identify the run's session (export can happen outside the lock — id is fixed now)
-    sess_model = inp = outp = None
-    fallback = None
-    for sid in new_ids:
-        m, i, o = _hermes_export_session(sid)
-        if fallback is None and (i is not None or o is not None):
-            fallback = (m, i, o)
-        if model_arg and m and _model_matches(model_arg, m):
-            sess_model, inp, outp = m, i, o
-            break
-    if inp is None and outp is None and fallback:  # no model match -> best new session
-        sess_model, inp, outp = fallback
+        # identify the run's session (export can happen outside the lock — id is fixed now)
+        sess_model = inp = outp = None
+        fallback = None
+        for sid in new_ids:
+            m, i, o = _hermes_export_session(sid, env=env)
+            if fallback is None and (i is not None or o is not None):
+                fallback = (m, i, o)
+            if model_arg and m and _model_matches(model_arg, m):
+                sess_model, inp, outp = m, i, o
+                break
+        if inp is None and outp is None and fallback:  # no model match -> best new session
+            sess_model, inp, outp = fallback
 
-    r["model"] = sess_model or model_arg
-    if inp is None and outp is None:
-        # last resort: estimate so cross-lane efficiency still has a number (flagged)
-        r["inputTokens"] = benchlib.estimate_tokens(prompt)
-        r["outputTokens"] = benchlib.estimate_tokens(r["output"])
-        r["tokensEstimated"] = True
-    else:
-        r["inputTokens"] = inp
-        r["outputTokens"] = outp
-    r["totalTokens"] = (r["inputTokens"] or 0) + (r["outputTokens"] or 0) or None
-    r["ok"] = bool(r["output"]) and not r["error"]
-    return r
+        r["model"] = sess_model or model_arg
+        if inp is None and outp is None:
+            # last resort: estimate so cross-lane efficiency still has a number (flagged)
+            r["inputTokens"] = benchlib.estimate_tokens(prompt)
+            r["outputTokens"] = benchlib.estimate_tokens(r["output"])
+            r["tokensEstimated"] = True
+        else:
+            r["inputTokens"] = inp
+            r["outputTokens"] = outp
+        r["totalTokens"] = (r["inputTokens"] or 0) + (r["outputTokens"] or 0) or None
+        r["ok"] = bool(r["output"]) and not r["error"]
+        return r
+    finally:
+        if hermes_home is not None:
+            hermes_home.cleanup()
 
 
 def _model_matches(want, got):
@@ -464,12 +511,13 @@ def _model_matches(want, got):
     return stem in got
 
 
-def _hermes_export_session(sess_id):
+def _hermes_export_session(sess_id, env=None):
     """Export one session as JSONL; return (model_seen, input_tokens, output_tokens)."""
     try:
         proc = subprocess.run(
             ["hermes", "sessions", "export", "--session-id", sess_id, "-"],
             capture_output=True, text=True, timeout=60,
+            env={**os.environ, **env} if env else None,
         )
     except Exception:
         return None, None, None

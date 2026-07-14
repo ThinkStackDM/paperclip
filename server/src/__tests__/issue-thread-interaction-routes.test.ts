@@ -447,6 +447,26 @@ describe.sequential("issue thread interaction routes", () => {
     );
   });
 
+  it("fails loudly when creating an operator-facing interaction on a terminal issue", async () => {
+    mockIssueService.getById.mockResolvedValue(createIssue({ status: "done" }));
+    const app = await createApp();
+
+    const res = await request(app)
+      .post("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/interactions")
+      .send({
+        kind: "request_confirmation",
+        continuationPolicy: "wake_assignee",
+        payload: {
+          version: 1,
+          prompt: "Approve the rollout?",
+        },
+      });
+
+    expect(res.status).toBe(409);
+    expect(res.body.error).toContain("Operator-facing interactions require a live issue");
+    expect(mockInteractionService.create).not.toHaveBeenCalled();
+  });
+
   it("accepts suggested tasks and wakes created assignees plus the current assignee", async () => {
     const app = await createApp();
 

@@ -30,6 +30,7 @@ import {
   issueReadStates,
   issueThreadInteractions,
   issues,
+  routines,
   labels,
   projectWorkspaces,
   projects,
@@ -80,7 +81,7 @@ import {
 } from "./execution-workspace-policy.js";
 import { mergeExecutionWorkspaceConfig } from "./execution-workspaces.js";
 import { buildInitialIssueMonitorFields, normalizeIssueExecutionPolicy } from "./issue-execution-policy.js";
-import { instanceSettingsService } from "./instance-settings.js";
+import { instanceSettingsService, isTruthyRuntimeEnvValue } from "./instance-settings.js";
 import { redactCurrentUserText } from "../log-redaction.js";
 import { redactSensitiveText } from "../redaction.js";
 import { resolveIssueGoalId, resolveNextIssueGoalId } from "./issue-goal-fallback.js";
@@ -141,6 +142,7 @@ const ISSUE_COMMENT_RUN_LOG_DERIVATION_MAX_PARALLEL_READS = 8;
 const DELETED_ISSUE_COMMENT_BODY = "";
 const EXTERNAL_BLOCKER_MIRROR_ORIGIN_KIND = "external_blocker_mirror";
 const EXTERNAL_BLOCKER_MIRROR_SYNC_METADATA = Symbol("external_blocker_mirror_sync");
+const ROUTINE_PARENT_LIFECYCLE_BINDING_ENV_KEY = "PAPERCLIP_ROUTINE_PARENT_LIFECYCLE_BINDING";
 
 type ExternalBlockerMirrorRemoteIssue = {
   id: string;
@@ -250,6 +252,12 @@ function applyStatusSideEffects(
     patch.cancelledAt = new Date();
   }
   return patch;
+}
+
+function routineBindsToParentLifecycle(env: unknown) {
+  if (!env || typeof env !== "object") return false;
+  const value = (env as Record<string, { value?: unknown } | undefined>)[ROUTINE_PARENT_LIFECYCLE_BINDING_ENV_KEY]?.value;
+  return typeof value === "string" ? isTruthyRuntimeEnvValue(value) : false;
 }
 
 function workspaceWorktreeRequiresProjectDetails() {
@@ -3119,6 +3127,23 @@ function boardActionDecisionTextFromApproval() {
   return "Approve, reject, or request revision on this linked approval.";
 }
 
+function boardActionDecisionTextFromStaleInteraction(input: {
+  kind: string;
+  title: string | null;
+  summary: string | null;
+}) {
+  const interactionLabel = [input.title, input.summary].find((value) => value && value.trim().length > 0)?.trim();
+  const interactionName = interactionLabel ? ` interaction "${interactionLabel}"` : " interaction";
+  return `Review the auto-cancelled${interactionName} and decide whether it still needs to be recreated on a live issue.`;
+}
+
+function boardActionResumeTextFromStaleInteraction(reason: string | null) {
+  if (reason) {
+    return `Reopen the issue or recreate the interaction on a live issue if the decision is still needed (auto-cancel reason: ${reason}).`;
+  }
+  return "Reopen the issue or recreate the interaction on a live issue if the decision is still needed.";
+}
+
 function isBoardActionInteraction(
   interaction: { kind: string; issueId: string; title: string | null; summary: string | null },
   issueRow: { assigneeUserId?: string | null },
@@ -3134,6 +3159,25 @@ function isBoardActionInteraction(
   return true;
 }
 
+function isStaleIssueStateBoardActionInteraction(input: {
+  interaction: { kind: string; title: string | null; summary: string | null; result: unknown };
+  issue: { assigneeUserId?: string | null };
+}) {
+  if (!isBoardActionInteraction(input.interaction, input.issue)) {
+    return false;
+  }
+  const result = parseObject(input.interaction.result);
+  if (input.interaction.kind === "ask_user_questions") {
+    return result.expirationReason === "stale_issue_state";
+  }
+  return result.outcome === "stale_issue_state";
+}
+
+function staleIssueStateBoardActionReason(interaction: { result: unknown }) {
+  const result = parseObject(interaction.result);
+  return typeof result.reason === "string" && result.reason.trim().length > 0 ? result.reason.trim() : null;
+}
+
 async function listIssueBoardActionRequirementMap(
   dbOrTx: any,
   companyId: string,
@@ -3143,7 +3187,7 @@ async function listIssueBoardActionRequirementMap(
   const issueIds = [...new Set(issueRows.map((row) => row.id))];
   if (issueIds.length === 0) return result;
   const issueById = new Map(issueRows.map((row) => [row.id, row]));
-  const [pendingInteractions, pendingApprovals, latestUserCommentRows] = await Promise.all([
+  const [pendingInteractions, pendingApprovals, latestUserCommentRows, staleIssueStateInteractions] = await Promise.all([
     dbOrTx
       .select({
         id: issueThreadInteractions.id,
@@ -3189,6 +3233,24 @@ async function listIssueBoardActionRequirementMap(
         sql`${issueComments.authorUserId} is not null`,
       ))
       .groupBy(issueComments.issueId),
+    dbOrTx
+      .select({
+        id: issueThreadInteractions.id,
+        issueId: issueThreadInteractions.issueId,
+        kind: issueThreadInteractions.kind,
+        title: issueThreadInteractions.title,
+        summary: issueThreadInteractions.summary,
+        result: issueThreadInteractions.result,
+        createdAt: issueThreadInteractions.createdAt,
+        resolvedAt: issueThreadInteractions.resolvedAt,
+      })
+      .from(issueThreadInteractions)
+      .where(and(
+        eq(issueThreadInteractions.companyId, companyId),
+        inArray(issueThreadInteractions.status, ["expired", "cancelled"]),
+        inArray(issueThreadInteractions.issueId, issueIds),
+      ))
+      .orderBy(desc(issueThreadInteractions.resolvedAt), desc(issueThreadInteractions.createdAt)),
   ]);
   const latestUserCommentAtByIssue = new Map<string, Date>(
     latestUserCommentRows.map((row: { issueId: string; latestCreatedAt: Date }) => [row.issueId, row.latestCreatedAt]),
@@ -3291,6 +3353,31 @@ async function listIssueBoardActionRequirementMap(
       createdAt: approval.createdAt,
       decisionText: boardActionDecisionTextFromApproval(),
       resumeText: "The issue can continue after this approval is decided.",
+    });
+  }
+
+  for (const interaction of staleIssueStateInteractions) {
+    const issue = issueById.get(interaction.issueId);
+    if (
+      !issue
+      || result.has(interaction.issueId)
+      || !isStaleIssueStateBoardActionInteraction({ interaction, issue })
+    ) {
+      continue;
+    }
+
+    const reason = staleIssueStateBoardActionReason(interaction);
+    result.set(interaction.issueId, {
+      source: "interaction",
+      kind: "interaction",
+      state: "pending_board_decision",
+      sourceId: interaction.id,
+      sourceKind: interaction.kind,
+      title: interaction.title,
+      summary: interaction.summary,
+      createdAt: interaction.resolvedAt ?? interaction.createdAt,
+      decisionText: boardActionDecisionTextFromStaleInteraction(interaction),
+      resumeText: boardActionResumeTextFromStaleInteraction(reason),
     });
   }
 

@@ -338,6 +338,19 @@ export function setIssueExecutionPolicyMonitorScheduledBy(
   };
 }
 
+export function hasScheduledExternalBlockMonitor(policy: unknown): boolean {
+  const normalized = normalizeIssueExecutionPolicy(policy ?? null);
+  const monitor = normalized?.monitor ?? null;
+  return Boolean(
+    monitor &&
+    monitor.kind === "external_service" &&
+    typeof monitor.notes === "string" &&
+    monitor.notes.trim().length > 0 &&
+    typeof monitor.nextCheckAt === "string" &&
+    monitor.nextCheckAt.trim().length > 0,
+  );
+}
+
 export function normalizeIssueExecutionPolicy(input: unknown): IssueExecutionPolicy | null {
   if (input == null) return null;
   const parsed = issueExecutionPolicySchema.safeParse(input);

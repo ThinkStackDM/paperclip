@@ -9,6 +9,7 @@ that mirrors Paperclip's usage_json ({inputTokens, outputTokens, model, costUsd}
 so downstream tooling (agent-scorecard, tiering #9) speaks the same dialect.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -151,6 +152,19 @@ def load_suite(role):
 
 def load_all_suites(roles):
     return {role: load_suite(role) for role in roles}
+
+
+def sha256_text(value):
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def file_sha256(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def model_effort_label(model_row):
+    effort = str(model_row.get("effort") or model_row.get("reasoning_effort") or "").strip()
+    return effort or "cli_default"
 
 
 # --------------------------------------------------------------------------

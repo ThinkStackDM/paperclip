@@ -90,6 +90,7 @@ def build_agentic_prompt(af_body, staged_names, task_prompt):
 
 
 def run_cell_agentic(role, task, model_row, af_key, sk_key, af_bodies, skills_dir,
+                     skills_bundle_body,
                      adapters_cfg, timeout, halt):
     """One agentic cell. Stages skills (if sk=all) into a temp cwd, runs agy agentically there,
     scores on the bare rubric. Sets the halt Event on a quota/auth failure so the run stops."""
@@ -109,10 +110,20 @@ def run_cell_agentic(role, task, model_row, af_key, sk_key, af_bodies, skills_di
     out_tok = raw.get("outputTokens")
     quality = scored.get("quality")
     qpk = (quality / (out_tok / 1000.0)) if (quality is not None and out_tok) else None
+    suite_path = ROOT / role / "suite.json"
+    agent_file_sha = benchlib.sha256_text(af_bodies[af_key]) if af_bodies[af_key] else "none"
+    skills_bundle_sha = benchlib.sha256_text(skills_bundle_body) if sk_key == "all" and skills_bundle_body else "none"
     rec = {"role": role, "task": task["id"], "model": model_row["id"],
            "agentFile": af_key, "skills": sk_key, "quality": quality,
            "inputTokens": raw.get("inputTokens"), "outputTokens": out_tok,
            "qPer1kOut": qpk, "ok": bool(raw.get("ok")),
+           "adapterType": model_row.get("adapter"),
+           "effort": benchlib.model_effort_label(model_row),
+           "model_reported": raw.get("model"),
+           "agentFileSha256": agent_file_sha,
+           "skillsBundleSha256": skills_bundle_sha,
+           "suiteSha256": benchlib.file_sha256(suite_path),
+           "suiteSourcePath": str(suite_path),
            "stagedSkills": len(staged), "promptChars": len(prompt),
            "wallMs": raw.get("wallMs"), "error": raw.get("error"),
            # keep a truncated output sample so derails/flakes (occasional agy 0.0s) are debuggable
@@ -205,6 +216,7 @@ def main():
     plan = []
     bodies = {}
     skills_dirs = {}
+    skills_bundles = {}
     for role in want_roles:
         suite = json.load(open(ROOT / role / "suite.json"))
         tasks = suite["tasks"]
@@ -213,6 +225,7 @@ def main():
         af, _sk = variants.resolve_role(role, vcfg[role])
         bodies[role] = af
         skills_dirs[role] = vcfg[role].get("skillsDir", "")
+        skills_bundles[role] = variants.load_skill_bundle(skills_dirs[role]) if skills_dirs[role] else ""
         for t in tasks:
             for m in models:
                 for af_key, sk_key in grid:
@@ -257,6 +270,7 @@ def main():
         role, t, m, af_key, sk_key = cell
         try:
             r = run_cell_agentic(role, t, m, af_key, sk_key, bodies[role], skills_dirs[role],
+                                 skills_bundles[role],
                                  adapters_cfg, timeout, halt)
         except Exception as e:
             r = {"role": role, "task": t["id"], "model": m["id"], "agentFile": af_key,

@@ -25,6 +25,27 @@ python3 bench.py report run-<ts>          # re-render report from a finished run
 
 No pip deps — pure stdlib Python 3.
 
+Active roster note (2026-07-11): the default `models` matrix now includes
+`gpt-5.4-mini` and `claude-sonnet-5`. If `benchmark/.claude-bench-halt` exists,
+the harness skips remaining Claude cells cleanly instead of scoring a budget stop
+as a model failure.
+
+## Verdict classes
+
+TSBC now treats benchmark evidence as one of three provenance classes:
+
+- `raw_base`: neutralized `bench.py` / `missing_chapter_bench.py` style runs.
+- `benchmark_current`: prompt-packet runs that inject `current` agent files and
+  skills from `variants.json` or explicit probe overrides.
+- `live_agentic`: a real Paperclip agent run with a named instructions bundle
+  and runtime skill materialization.
+
+Do not flatten these together in a recommendation memo. A `raw_base` score is
+valid for model capability, but not by itself for a production-lane claim.
+Model-watch follow-ups that could move a live lane must run the refinement loop
+in [`benchmark/model-watch/TSKB0056-model-watch-runbook.md`](./model-watch/TSKB0056-model-watch-runbook.md)
+and record both raw and refined scores.
+
 ## What it measures
 
 Each model is invoked through its own CLI in a **fresh, empty temp working
@@ -180,6 +201,44 @@ python3 skillbench.py --keep-threshold 0.03
 - Reports lift AND the extra tokens the skill costs (a small lift may not justify a big skill).
 - This is the keep/kill gate for the skill-creator eval loop: iterate the SKILL.md, keep it
   only if it beats baseline.
+
+## Post-bench refinement loop
+
+When a raw model score is strong enough to matter, do not jump straight from the
+base sweep to keep/reject. Run a bounded refinement pass on the exact decision
+surface:
+
+1. raw base score (`bench.py`)
+2. production-facing probe with the current instruction file and no skills
+3. production-facing probe with the current instruction file and the live
+   runtime skills bundle
+4. one focused tweak only if the lane is still weak
+
+Use `tsbc_task_probe.py` for that pass. It now accepts explicit
+`--current-agent-file-path`, `--skills-dir-path`, and `--effort` overrides and
+records the source paths plus agent/skills/suite hashes in `summary.json`,
+`report.md`, raw records, and the shared ledger rows, so the issue closeout can
+prove what context and effort were actually measured.
+
+Do not publish a live-lane adoption verdict without:
+
+- raw score
+- refined score
+- same-batch challenger and incumbent rows
+- source paths and hashes for the refined context
+
+## Era-comparison rule
+
+Bench rows are only like-for-like when the suite hash and effort match.
+
+- Same model name + different `suiteSha256` = different benchmark era.
+- Same model name + same suite hash but different `effort` = different runtime posture.
+- Same model name + same suite/effort but different skill bundle = different
+  production packet.
+
+When any of those differ, label the read `cross-era` / `directional` instead of
+claiming a direct overwrite. The lock tables should pin the live row as
+`model + effort + bundle`, not just a model label.
 
 ## Caveats
 

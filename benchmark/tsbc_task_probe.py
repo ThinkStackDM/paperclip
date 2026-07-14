@@ -7,6 +7,7 @@ running a whole role sweep or mutating the benchmark suites.
 """
 
 import argparse
+import hashlib
 import json
 import statistics
 import time
@@ -17,7 +18,7 @@ import benchlib
 import ledger
 from adapters import run_model
 from scoring import score_run
-from variants import build_prompt, resolve_role
+from variants import build_prompt, load_skill_bundle, resolve_role
 
 
 def now_run_id():
@@ -59,6 +60,27 @@ def resolve_judge(cfg, judge_id):
     return {"id": row["id"], "adapter": row["adapter"], "model_arg": row.get("model_arg")}
 
 
+def apply_effort_override(models, effort):
+    if not effort:
+        return models
+    supported = {"claude", "codex", "hermes"}
+    unsupported = sorted(m["id"] for m in models if m.get("adapter") not in supported)
+    if unsupported:
+        raise SystemExit(
+            "--effort only supports claude/codex/hermes adapters; unsupported models: "
+            + ", ".join(unsupported)
+        )
+    patched = []
+    for model in models:
+        row = dict(model)
+        if row["adapter"] == "claude":
+            row["effort"] = effort
+        else:
+            row["reasoning_effort"] = effort
+        patched.append(row)
+    return patched
+
+
 def select_tasks(role, task_ids):
     suite = benchlib.load_suite(role)
     want = [x.strip() for x in task_ids.split(",") if x.strip()]
@@ -80,16 +102,59 @@ def power_workers(default=1):
     return min(default, cap) if cap is not None else default
 
 
-def prompt_parts(role, agent_file, skills):
+def sha256_text(value):
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def suite_meta(role):
+    suite_path = benchlib.ROOT / role / "suite.json"
+    return {
+        "suiteSourcePath": str(suite_path),
+        "suiteSha256": benchlib.file_sha256(suite_path),
+    }
+
+
+def prompt_parts(role, agent_file, skills, current_agent_file_path=None, skills_dir_path=None):
     rc = json.load(open(benchlib.ROOT / "variants.json"))["roles"].get(role)
-    if not rc:
-        raise SystemExit(f"role {role!r} missing from variants.json")
-    af_bodies, skill_bodies = resolve_role(role, rc)
+    source_meta = {
+        "agentFileSourcePath": None,
+        "skillsSourcePath": None,
+        "agentFileSourceKind": "none",
+        "skillsSourceKind": "none",
+    }
+    af_bodies = {"bare": "", "minimal": "", "current": ""}
+    skill_bodies = {"none": "", "all": ""}
+    if rc:
+        af_bodies, skill_bodies = resolve_role(role, rc)
+        source_meta.update({
+            "agentFileSourcePath": rc.get("currentAgentFile"),
+            "skillsSourcePath": rc.get("skillsDir"),
+            "agentFileSourceKind": "variants_json",
+            "skillsSourceKind": "variants_json",
+        })
+    if current_agent_file_path:
+        af_bodies["current"] = Path(current_agent_file_path).read_text()
+        source_meta["agentFileSourcePath"] = current_agent_file_path
+        source_meta["agentFileSourceKind"] = "override"
+    if skills_dir_path:
+        skill_bodies["all"] = load_skill_bundle(skills_dir_path)
+        source_meta["skillsSourcePath"] = skills_dir_path
+        source_meta["skillsSourceKind"] = "override"
+    if not rc and agent_file in {"minimal", "current"} and not current_agent_file_path:
+        raise SystemExit(f"role {role!r} has no variants.json entry; use --agent-file bare or pass --current-agent-file-path")
+    if not rc and skills == "all" and not skills_dir_path:
+        raise SystemExit(f"role {role!r} has no variants.json entry; use --skills none or pass --skills-dir-path")
     if agent_file not in af_bodies:
         raise SystemExit(f"unknown agent-file mode {agent_file!r}")
     if skills not in skill_bodies:
         raise SystemExit(f"unknown skills mode {skills!r}")
-    return af_bodies[agent_file], skill_bodies[skills]
+    agent_body = af_bodies[agent_file]
+    skills_body = skill_bodies[skills]
+    source_meta.update({
+        "agentFileSha256": sha256_text(agent_body) if agent_body else "none",
+        "skillsBundleSha256": sha256_text(skills_body) if skills_body else "none",
+    })
+    return agent_body, skills_body, source_meta
 
 
 def qpk(quality, output_tokens):
@@ -111,15 +176,18 @@ def median(xs):
 def aggregate(records):
     by = {}
     for r in records:
-        by.setdefault((r["model"], r["task_id"]), []).append(r)
+        by.setdefault((r["model"], r.get("effort"), r["task_id"]), []).append(r)
     rows = []
-    for (model, task_id), rs in sorted(by.items()):
+    for (model, effort, task_id), rs in sorted(by.items()):
         qualities = [r.get("quality") for r in rs if r.get("quality") is not None]
         outputs = [r.get("outputTokens") for r in rs if r.get("outputTokens") is not None]
         inputs = [r.get("inputTokens") for r in rs if r.get("inputTokens") is not None]
         row = {
             "model": model,
+            "effort": effort or "cli_default",
             "task_id": task_id,
+            "adapterType": rs[0].get("adapterType"),
+            "reportedModels": sorted({r.get("model_reported") for r in rs if r.get("model_reported")}),
             "samples": len(rs),
             "okCount": sum(1 for r in rs if r.get("ok")),
             "meanQuality": mean(qualities),
@@ -137,11 +205,12 @@ def aggregate(records):
 def overall_summary(rows):
     by = {}
     for row in rows:
-        by.setdefault(row["model"], []).append(row)
+        by.setdefault((row["model"], row.get("effort")), []).append(row)
     out = []
-    for model, rs in sorted(by.items()):
+    for (model, effort), rs in sorted(by.items()):
         out.append({
             "model": model,
+            "effort": effort or "cli_default",
             "tasks": len(rs),
             "samples": sum(r["samples"] for r in rs),
             "okCount": sum(r["okCount"] for r in rs),
@@ -172,27 +241,36 @@ def write_report(out_dir, meta, per_task, overall):
         f"- Models: `{', '.join(meta['models'])}`",
         f"- Reps: `{meta['reps']}`",
         f"- Judge: `{meta['judge']}`",
+        f"- Effort override: `{meta['effortOverride']}`",
+        f"- Agent-file source: `{meta['agentFileSourcePath'] or 'none'}` ({meta['agentFileSourceKind']})",
+        f"- Skills source: `{meta['skillsSourcePath'] or 'none'}` ({meta['skillsSourceKind']})",
+        f"- Suite source: `{meta['suiteSourcePath']}`",
+        f"- Agent-file sha256: `{meta['agentFileSha256']}`",
+        f"- Skills bundle sha256: `{meta['skillsBundleSha256']}`",
+        f"- Suite sha256: `{meta['suiteSha256']}`",
+        f"- Probe context sha256: `{meta['probeContextSha256']}`",
+        f"- Prompt packet sha256: `{meta['promptPacketSha256']}`",
         "",
         "## Overall",
         "",
-        "| model | tasks | samples | ok | meanQ | minQ | meanOut | meanIn | q/1k-out |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| model | effort | tasks | samples | ok | meanQ | minQ | meanOut | meanIn | q/1k-out |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in overall:
         lines.append(
-            "| {model} | {tasks} | {samples} | {okCount} | {meanQuality:.3f} | {minQuality:.3f} | "
+            "| {model} | {effort} | {tasks} | {samples} | {okCount} | {meanQuality:.3f} | {minQuality:.3f} | "
             "{meanOutputTokens:.1f} | {meanInputTokens:.1f} | {meanQPer1kOut:.3f} |".format(**row)
         )
     lines.extend([
         "",
         "## Per Task",
         "",
-        "| model | task | samples | ok | meanQ | minQ | meanOut | meanIn | q/1k-out |",
-        "|---|---|---:|---:|---:|---:|---:|---:|---:|",
+        "| model | effort | task | samples | ok | meanQ | minQ | meanOut | meanIn | q/1k-out |",
+        "|---|---|---|---:|---:|---:|---:|---:|---:|---:|",
     ])
     for row in per_task:
         lines.append(
-            "| {model} | {task_id} | {samples} | {okCount} | {meanQuality:.3f} | {minQuality:.3f} | "
+            "| {model} | {effort} | {task_id} | {samples} | {okCount} | {meanQuality:.3f} | {minQuality:.3f} | "
             "{meanOutputTokens:.1f} | {meanInputTokens:.1f} | {meanQPer1kOut:.3f} |".format(**row)
         )
     lines.extend([
@@ -215,8 +293,8 @@ def write_report(out_dir, meta, per_task, overall):
         "- Scorer/rubric version: record the exact rubric + judge version, or `not_preserved:<why missing>`.",
         f"- Environment: {environment}",
         f"- Records path: {records_paths}",
-        "- Suite hash: record the suite/run packet hash, or `not_preserved:<why missing>`.",
-        "- Prompt/system hash: record the prompt/agent/system hash, or `none` / `not_preserved:<why missing>`.",
+        f"- Suite hash: `{meta['suiteSha256']}` (`{meta['suiteSourcePath']}`)",
+        f"- Prompt/system hash: `{meta['promptPacketSha256']}` (agent `{meta['agentFileSha256']}`, skills `{meta['skillsBundleSha256']}`)",
         "- Failure-library IDs: list created/referenced IDs, or `none` with why that absence is meaningful.",
         "- Any `not_preserved:*` field must explain why the artifact is missing; blank fields are not acceptable.",
         "- Next gate: `catalog_only` / `create_candidate_pack` / `run_opco_live_proof` / `adopt` / `reject` / `rerun` / `supersede`",
@@ -230,13 +308,24 @@ def append_probe_rows(meta, per_task):
     ts = now_iso()
     records = []
     for row in per_task:
+        reported_models = row.get("reportedModels") or []
         records.append({
             "ts": ts,
             "company": ledger._company(),
             "kind": "task_probe",
-            "test_class": f"probe:{meta['role']}:{row['task_id']}:{meta['agentFile']}-{meta['skills']}",
+            "test_class": (
+                f"probe:{meta['role']}:{row['task_id']}:{meta['agentFile']}-{meta['skills']}:"
+                f"{row['effort']}:{meta['probeContextSha256'][:12]}"
+            ),
             "model": row["model"],
+            "model_reported": reported_models[0] if len(reported_models) == 1 else None,
+            "reported_models": reported_models,
             "model_class": ledger._model_class(row["model"]),
+            "adapter_type": row.get("adapterType"),
+            "effort": row.get("effort"),
+            "agent_file_sha256": meta["agentFileSha256"],
+            "skills_bundle_sha256": meta["skillsBundleSha256"],
+            "suite_sha256": meta["suiteSha256"],
             "metrics": {
                 "quality": ledger._r(row["meanQuality"]),
                 "qPer1kOut": ledger._r(row["meanQPer1kOut"]),
@@ -249,7 +338,12 @@ def append_probe_rows(meta, per_task):
             "run_id": meta["run_id"],
             "judge": meta["judge"],
             "variant": {"role": meta["role"], "agentFile": meta["agentFile"], "skills": meta["skills"]},
-            "probe": {"taskIds": meta["taskIds"], "reps": meta["reps"]},
+            "probe": {
+                "taskIds": meta["taskIds"],
+                "reps": meta["reps"],
+                "suiteSourcePath": meta["suiteSourcePath"],
+                "probeContextSha256": meta["probeContextSha256"],
+            },
             "skill": None,
             "source": "tsbc_task_probe.py",
         })
@@ -266,15 +360,28 @@ def main():
     ap.add_argument("--reps", type=int, default=5)
     ap.add_argument("--agent-file", choices=["bare", "minimal", "current"], default="minimal")
     ap.add_argument("--skills", choices=["none", "all"], default="none")
+    ap.add_argument("--current-agent-file-path", default=None,
+                    help="override variants.json currentAgentFile with an explicit path")
+    ap.add_argument("--skills-dir-path", default=None,
+                    help="override variants.json skillsDir with an explicit runtime skills directory")
+    ap.add_argument("--effort", default=None,
+                    help="override reasoning effort for every selected model (claude/codex/hermes)")
     ap.add_argument("--judge-model", default=None, help="override config judge by model id")
     ap.add_argument("--label", default=None, help="freeform report label")
     args = ap.parse_args()
 
     cfg = benchlib.load_config(args.config)
     cfg["judge"] = resolve_judge(cfg, args.judge_model)
-    models = resolve_models(cfg, args.models)
+    models = apply_effort_override(resolve_models(cfg, args.models), args.effort)
     tasks = select_tasks(args.role, args.task_ids)
-    af_body, skills_body = prompt_parts(args.role, args.agent_file, args.skills)
+    suite_info = suite_meta(args.role)
+    af_body, skills_body, source_meta = prompt_parts(
+        args.role,
+        args.agent_file,
+        args.skills,
+        current_agent_file_path=args.current_agent_file_path,
+        skills_dir_path=args.skills_dir_path,
+    )
 
     workers = power_workers(default=1)
     run_id = now_run_id()
@@ -293,14 +400,41 @@ def main():
         "agentFile": args.agent_file,
         "skills": args.skills,
         "judge": cfg["judge"].get("id"),
+        "effortOverride": args.effort or "cli_default",
         "startedAt": now_iso(),
         "workers": workers,
+        **source_meta,
+        **suite_info,
     }
+    meta["probeContextSha256"] = sha256_text(json.dumps({
+        "role": args.role,
+        "taskIds": meta["taskIds"],
+        "agentFile": args.agent_file,
+        "skills": args.skills,
+        "agentFileSha256": meta["agentFileSha256"],
+        "skillsBundleSha256": meta["skillsBundleSha256"],
+        "suiteSha256": meta["suiteSha256"],
+    }, sort_keys=True))
+    meta["promptPacketSha256"] = sha256_text(json.dumps({
+        "role": args.role,
+        "taskIds": meta["taskIds"],
+        "models": meta["models"],
+        "modelEfforts": {m["id"]: benchlib.model_effort_label(m) for m in models},
+        "agentFile": args.agent_file,
+        "skills": args.skills,
+        "agentFileSha256": meta["agentFileSha256"],
+        "skillsBundleSha256": meta["skillsBundleSha256"],
+        "suiteSha256": meta["suiteSha256"],
+    }, sort_keys=True))
     print(f"=== TSBC Task Probe · {run_id} ===", flush=True)
     print(f"role   : {args.role}", flush=True)
     print(f"tasks  : {', '.join(meta['taskIds'])}", flush=True)
     print(f"models : {', '.join(meta['models'])}", flush=True)
     print(f"cell   : {args.agent_file}+{args.skills}", flush=True)
+    print(f"effort : {meta['effortOverride']}", flush=True)
+    print(f"agent  : {meta['agentFileSourcePath'] or 'none'}", flush=True)
+    print(f"skills : {meta['skillsSourcePath'] or 'none'}", flush=True)
+    print(f"suite  : {meta['suiteSourcePath']}", flush=True)
     print(f"judge  : {meta['judge']}", flush=True)
     print(f"reps   : {args.reps}", flush=True)
     print(f"power  : {workers} worker(s)", flush=True)
@@ -341,6 +475,8 @@ def main():
                     "task_title": task.get("title"),
                     "model": model["id"],
                     "lane": model["lane"],
+                    "adapterType": model["adapter"],
+                    "effort": benchlib.model_effort_label(model),
                     "agentFile": args.agent_file,
                     "skills": args.skills,
                     "judge": cfg["judge"].get("id"),
@@ -353,6 +489,9 @@ def main():
                     "totalTokens": raw.get("totalTokens"),
                     "tokensEstimated": raw.get("tokensEstimated"),
                     "costUsd": raw.get("costUsd"),
+                    "agentFileSha256": meta["agentFileSha256"],
+                    "skillsBundleSha256": meta["skillsBundleSha256"],
+                    "suiteSha256": meta["suiteSha256"],
                     "wallMs": raw.get("wallMs"),
                     "stderrTail": raw.get("stderrTail"),
                 }
@@ -382,7 +521,7 @@ def main():
     print("\n" + "=" * 60, flush=True)
     for row in overall:
         print(
-            f"{row['model']}: meanQ={row['meanQuality']:.3f} minQ={row['minQuality']:.3f} "
+            f"{row['model']} ({row['effort']}): meanQ={row['meanQuality']:.3f} minQ={row['minQuality']:.3f} "
             f"ok={row['okCount']}/{row['samples']} meanOut={row['meanOutputTokens']:.1f}",
             flush=True,
         )

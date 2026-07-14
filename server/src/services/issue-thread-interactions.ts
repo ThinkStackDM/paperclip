@@ -144,6 +144,12 @@ function isOperatorFacingInteractionKind(kind: string) {
     || kind === "ask_user_questions";
 }
 
+function operatorFacingInteractionRequiresLiveIssue(kind: string) {
+  return kind === "request_confirmation"
+    || kind === "request_checkbox_confirmation"
+    || kind === "ask_user_questions";
+}
+
 function isIssueThreadInteractionIdempotencyConflict(error: unknown): boolean {
   if (typeof error !== "object" || error === null) return false;
   const err = error as { code?: string; constraint?: string; constraint_name?: string };
@@ -1183,11 +1189,30 @@ export function issueThreadInteractionService(db: Db) {
     },
 
     create: async (
-      issue: { id: string; companyId: string },
+      issue: { id: string; companyId: string; status?: string | null },
       input: CreateIssueThreadInteraction,
       actor: InteractionActor,
     ) => {
       const data = normalizeCreateInteractionInput(createIssueThreadInteractionSchema.parse(input));
+
+      if (operatorFacingInteractionRequiresLiveIssue(data.kind)) {
+        const issueStatus = await db
+          .select({ status: issues.status })
+          .from(issues)
+          .where(and(
+            eq(issues.companyId, issue.companyId),
+            eq(issues.id, issue.id),
+          ))
+          .then((rows) => rows[0]?.status ?? null);
+        if (!issueStatus) {
+          throw notFound("Issue not found");
+        }
+        if (isTerminalIssueStatus(issueStatus)) {
+          throw unprocessable(
+            `Cannot create ${data.kind} on a ${issueStatus} issue. Reopen the issue to a live status first.`,
+          );
+        }
+      }
 
       if (data.idempotencyKey) {
         const existing = await getIdempotentInteraction({
@@ -1230,6 +1255,13 @@ export function issueThreadInteractionService(db: Db) {
         if (!sourceRun || sourceRun.companyId !== issue.companyId) {
           throw unprocessable("sourceRunId must belong to the same company");
         }
+      }
+
+      if (operatorFacingInteractionRequiresLiveIssue(data.kind) && isTerminalIssueStatus(issue.status)) {
+        throw conflict(
+          "Operator-facing interactions require a live issue. Reopen the issue or move it out of done/cancelled before creating a board/user interaction.",
+          { issueId: issue.id, issueStatus: issue.status },
+        );
       }
 
       if (
@@ -1975,6 +2007,7 @@ export function issueThreadInteractionService(db: Db) {
                   answers: [],
                   cancelled: true as const,
                   cancellationReason: reason,
+                  expirationReason: "stale_issue_state" as const,
                   summaryMarkdown: null,
                 },
               }

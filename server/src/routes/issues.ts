@@ -196,6 +196,7 @@ import { externalObjectService } from "../services/external-objects.js";
 const MAX_ISSUE_COMMENT_LIMIT = 500;
 const execFile = promisify(execFileCb);
 const DONE_VERIFICATION_LABEL_HINTS = ["directive", "register-class", "platform"];
+const DIRECTIVE_REVIEW_LABEL_HINTS = ["directive", "register-class", "platform"];
 const updateIssueRouteSchema = updateIssueSchema.extend({
   boardActionRequired: z.never().optional(),
   interrupt: z.boolean().optional(),
@@ -347,6 +348,38 @@ function issueIsPlatformClass(issue: {
   const labels = issueLabelNames(issue).map((label) => label.toLowerCase());
   if (labels.some((name) => name === "platform" || name.includes("platform"))) return true;
   return `${issue.title ?? ""}\n${issue.description ?? ""}`.toLowerCase().includes("platform");
+}
+
+function issueNeedsDirectiveReviewPolicy(issue: {
+  title?: string | null;
+  description?: string | null;
+  labels?: Array<{ name?: string | null }> | null;
+}) {
+  const labels = issueLabelNames(issue).map((label) => label.toLowerCase());
+  if (labels.some((name) => DIRECTIVE_REVIEW_LABEL_HINTS.some((hint) => name === hint || name.includes(hint)))) {
+    return true;
+  }
+  const haystack = `${issue.title ?? ""}\n${issue.description ?? ""}`.toLowerCase();
+  return (
+    haystack.includes("operator directive") ||
+    haystack.includes("directive-class") ||
+    haystack.includes("register class") ||
+    haystack.includes("register-class") ||
+    haystack.includes("platform-class")
+  );
+}
+
+function hasExternalBlockMonitor(policy: IssueRouteSnapshot["executionPolicy"] | NormalizedExecutionPolicy | null | undefined) {
+  const normalized = normalizeIssueExecutionPolicy(policy ?? null);
+  const monitor = normalized?.monitor ?? null;
+  return Boolean(
+    monitor &&
+    monitor.kind === "external_service" &&
+    typeof monitor.notes === "string" &&
+    monitor.notes.trim().length > 0 &&
+    typeof monitor.nextCheckAt === "string" &&
+    monitor.nextCheckAt.trim().length > 0,
+  );
 }
 
 function verificationMetadata(ref: IssueVerificationRef): IssueCommentMetadata {
@@ -10154,6 +10187,19 @@ export function issueRoutes(
       if (await assertLowTrustControlPlaneDenied(req, res, issue.companyId, issue)) return;
     } else {
       assertBoard(req);
+    }
+
+    if (
+      isClosedIssueStatus(issue.status)
+      && (
+        req.body.kind === "request_confirmation"
+        || req.body.kind === "request_checkbox_confirmation"
+        || req.body.kind === "ask_user_questions"
+      )
+    ) {
+      throw conflict(
+        "Operator-facing interactions require a live issue. Reopen the issue or move it out of done/cancelled before creating a board/user interaction.",
+      );
     }
 
     const actor = getActorInfo(req);

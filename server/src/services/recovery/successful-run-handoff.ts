@@ -7,10 +7,13 @@ import { withRecoveryModelProfileHint } from "./model-profile-hint.js";
 export const FINISH_SUCCESSFUL_RUN_HANDOFF_REASON = "finish_successful_run_handoff";
 export const SUCCESSFUL_RUN_MISSING_STATE_REASON = "successful_run_missing_state";
 export const DEFAULT_MAX_SUCCESSFUL_RUN_HANDOFF_ATTEMPTS = 1;
+export const DEFAULT_MAX_SUCCESSFUL_RUN_HANDOFF_REQUIRED_NOTICES_PER_ISSUE = 3;
 export const SUCCESSFUL_RUN_HANDOFF_REQUIRED_NOTICE_BODY =
   "Paperclip needs a disposition before this issue can continue.";
 export const SUCCESSFUL_RUN_HANDOFF_EXHAUSTED_NOTICE_BODY =
   "Paperclip could not resolve this issue's missing disposition automatically. The issue is blocked on a recovery owner.";
+export const SUCCESSFUL_RUN_HANDOFF_REPEATED_NOTICE_ESCALATION_BODY =
+  "Paperclip paused automatic successful-run disposition recovery after repeated identical missing-disposition notices. Board action is now required.";
 export const LEGACY_SUCCESSFUL_RUN_HANDOFF_NOTICE_PREFIXES = [
   "## This issue still needs a next step",
   "## Successful run missing issue disposition",
@@ -171,6 +174,26 @@ export function isSuccessfulRunHandoffRequiredNoticeBody(body: string) {
     LEGACY_SUCCESSFUL_RUN_HANDOFF_NOTICE_PREFIXES.some((prefix) => trimmed.startsWith(prefix));
 }
 
+export function shouldEscalateRepeatedSuccessfulRunHandoff(input: {
+  existingRequiredNoticeCount: number;
+  maxRequiredNoticeCount?: number;
+}) {
+  const noticeCount = Math.max(0, Number(input.existingRequiredNoticeCount) || 0);
+  const threshold = Math.max(
+    1,
+    Number(input.maxRequiredNoticeCount) || DEFAULT_MAX_SUCCESSFUL_RUN_HANDOFF_REQUIRED_NOTICES_PER_ISSUE,
+  );
+  return noticeCount >= threshold - 1;
+}
+
+export function ensureBoardActionRequiredIssueTitle(title: string | null | undefined) {
+  const trimmed = typeof title === "string" ? title.trim() : "";
+  if (trimmed.toUpperCase().startsWith("BOARD ACTION REQUIRED:")) {
+    return trimmed;
+  }
+  return `BOARD ACTION REQUIRED: ${trimmed || "Issue requires disposition review"}`;
+}
+
 export function buildSuccessfulRunHandoffRequiredNotice(input: {
   issue: NoticeIssue;
   run: NoticeRun;
@@ -257,6 +280,54 @@ export function buildSuccessfulRunHandoffExhaustedNotice(input: {
             keyValueRow("Latest handoff run status", input.latestHandoffRunStatus),
             keyValueRow("Normalized cause", SUCCESSFUL_RUN_MISSING_STATE_REASON),
             keyValueRow("Missing disposition", input.missingDisposition),
+          ],
+        },
+      ],
+    },
+  };
+}
+
+export function buildRepeatedSuccessfulRunHandoffEscalationNotice(input: {
+  issue: NoticeIssue;
+  run: NoticeRun;
+  agent: NoticeAgent;
+  noticeCount: number;
+  threshold?: number;
+}): SuccessfulRunHandoffNotice {
+  const noticeCount = Math.max(0, Number(input.noticeCount) || 0);
+  const threshold = Math.max(
+    1,
+    Number(input.threshold) || DEFAULT_MAX_SUCCESSFUL_RUN_HANDOFF_REQUIRED_NOTICES_PER_ISSUE,
+  );
+  return {
+    body: SUCCESSFUL_RUN_HANDOFF_REPEATED_NOTICE_ESCALATION_BODY,
+    presentation: systemNoticePresentation({
+      tone: "danger",
+      title: "Board action required: repeated missing disposition",
+    }),
+    metadata: {
+      version: 1,
+      sourceRunId: input.run.id,
+      sections: [
+        {
+          title: "Why Paperclip stopped retrying",
+          rows: [
+            issueLinkRow("Source issue", input.issue),
+            agentLinkRow("Assignee", input.agent),
+            keyValueRow("Repeated notice count", String(noticeCount)),
+            keyValueRow("Escalation threshold", String(threshold)),
+          ],
+        },
+        {
+          title: "Required board action",
+          rows: [
+            runLinkRow("Latest source run", input.run),
+            keyValueRow("Normalized cause", SUCCESSFUL_RUN_MISSING_STATE_REASON),
+            keyValueRow("Missing disposition", "clear_next_step"),
+            keyValueRow(
+              "Next action",
+              "record one valid issue disposition or assign a recovery owner before resuming automation",
+            ),
           ],
         },
       ],

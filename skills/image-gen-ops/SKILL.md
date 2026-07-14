@@ -24,9 +24,14 @@ description: How to produce image assets for issues. Use whenever an issue needs
      ```
    - If the brief is exacting, `vision_analyze` the file first and regenerate if off-brief.
    - Comment the exact prompt used and confirm the attachment, then set the disposition.
-   - Text-in-image is bimodal: grok-imagine renders structured/infographic text cleanly
-     but garbles small text inside photoreal scenes — for hero shots treat embedded text
-     as decorative and overlay real copy in the layout layer.
+   - Text-in-image is still bimodal, but `grok-imagine-image-quality` moved the line:
+     it is strong on clean display copy, multilingual tags, and medium-density packaging
+     / signage, yet it still breaks on true fine print, legal copy, and dense compliance
+     blocks. For mandatory exact typography, keep using `og-image-rendering` or overlay
+     real copy in the layout layer.
+   - When you request `grok-imagine-image-quality`, record the ACTUAL served `model`
+     metadata in the issue. TSBC-986 (July 2026) saw some requests come back as
+     `grok-imagine-image`, so do not label the asset by requested slug alone.
 
    - **Exception:** if the brief *explicitly* requires Nano Banana (Gemini) or OpenAI
      image — capabilities grok-imagine lacks — do NOT force grok-imagine; escalate to the
