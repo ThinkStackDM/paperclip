@@ -645,6 +645,92 @@ describeEmbeddedPostgres("heartbeat stale queued-run invalidation", () => {
     );
   });
 
+  it("supersedes an older queued same-issue wake when a fresh issue assignment arrives for a todo issue", async () => {
+    const { companyId, agentId } = await seedCompanyAndAgent();
+    const issueId = randomUUID();
+    await db.insert(issues).values({
+      id: issueId,
+      companyId,
+      title: "Reused issue needs a fresh assignment wake",
+      status: "todo",
+      priority: "high",
+      assigneeAgentId: agentId,
+    });
+
+    const { runId: staleRunId, wakeupRequestId: staleWakeupRequestId } = await seedQueuedRun({
+      companyId,
+      agentId,
+      issueId,
+      wakeReason: "issue_terminal_status",
+      invocationSource: "automation",
+    });
+
+    const replacementRun = await heartbeat.wakeup(agentId, {
+      source: "automation",
+      triggerDetail: "system",
+      reason: "issue_assigned",
+      payload: { issueId },
+    });
+
+    expect(replacementRun?.id).toBeTruthy();
+    expect(replacementRun?.id).not.toBe(staleRunId);
+
+    await waitForCondition(async () => {
+      const run = await db
+        .select({ status: heartbeatRuns.status })
+        .from(heartbeatRuns)
+        .where(eq(heartbeatRuns.id, staleRunId))
+        .then((rows) => rows[0] ?? null);
+      return run?.status === "cancelled";
+    });
+
+    const [staleRun, staleWakeup, freshRun] = await Promise.all([
+      db
+        .select({
+          status: heartbeatRuns.status,
+          errorCode: heartbeatRuns.errorCode,
+          resultJson: heartbeatRuns.resultJson,
+        })
+        .from(heartbeatRuns)
+        .where(eq(heartbeatRuns.id, staleRunId))
+        .then((rows) => rows[0] ?? null),
+      db
+        .select({
+          status: agentWakeupRequests.status,
+          error: agentWakeupRequests.error,
+        })
+        .from(agentWakeupRequests)
+        .where(eq(agentWakeupRequests.id, staleWakeupRequestId))
+        .then((rows) => rows[0] ?? null),
+      db
+        .select({
+          id: heartbeatRuns.id,
+          status: heartbeatRuns.status,
+          contextSnapshot: heartbeatRuns.contextSnapshot,
+        })
+        .from(heartbeatRuns)
+        .where(eq(heartbeatRuns.id, replacementRun!.id))
+        .then((rows) => rows[0] ?? null),
+    ]);
+
+    expect(staleRun?.status).toBe("cancelled");
+    expect(staleRun?.errorCode).toBe("superseded_by_fresh_issue_assignment");
+    expect(staleRun?.resultJson).toMatchObject({
+      supersededByWakeReason: "issue_assigned",
+      supersededRunWakeReason: "issue_terminal_status",
+      currentIssueStatus: "todo",
+    });
+    expect(staleWakeup?.status).toBe("cancelled");
+    expect(staleWakeup?.error).toContain("fresh issue_assigned wake");
+    expect(freshRun).toMatchObject({
+      id: replacementRun?.id,
+      contextSnapshot: {
+        issueId,
+        wakeReason: "issue_assigned",
+      },
+    });
+  });
+
   it("skips wakes before queueing when per-agent daily cost cap is reached", async () => {
     const { companyId, agentId } = await seedCompanyAndAgent({
       heartbeatConfig: {
