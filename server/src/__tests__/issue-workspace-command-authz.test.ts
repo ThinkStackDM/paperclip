@@ -288,6 +288,28 @@ describe("issue workspace command authorization", () => {
     expect(mockIssueService.create).not.toHaveBeenCalled();
   });
 
+  it("allows the normal create-issue route to succeed for a board actor", async () => {
+    const app = await createApp({
+      type: "board",
+      source: "local_implicit",
+      userId: "board-user",
+      companyIds: ["company-1"],
+      memberships: [{ companyId: "company-1", membershipRole: "owner", status: "active" }],
+      isInstanceAdmin: true,
+    });
+
+    const res = await request(app)
+      .post("/api/companies/company-1/issues")
+      .send({
+        title: "Smoke route",
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.id).toBe("issue-1");
+    expect(res.body.title).toBe("Workspace authz");
+    expect(mockIssueService.create).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects agent callers that patch assignee adapter workspace teardown commands", async () => {
     mockIssueService.getById.mockResolvedValue(makeIssue());
     const app = await createApp({

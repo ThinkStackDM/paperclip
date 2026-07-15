@@ -1254,7 +1254,7 @@ export function agentRoutes(
     adapterConfig: Record<string, unknown>;
     constraintAdapterConfig?: Record<string, unknown>;
   }): Promise<Record<string, unknown>> {
-    const normalizedAdapterConfig = await secretsSvc.normalizeAdapterConfigForPersistence(
+    let normalizedAdapterConfig = await secretsSvc.normalizeAdapterConfigForPersistence(
       input.companyId,
       input.adapterConfig,
       {
@@ -1262,6 +1262,17 @@ export function agentRoutes(
         adapterType: input.adapterType ?? null,
       },
     );
+    const desiredSkillEntries = readPaperclipSkillSyncPreference(normalizedAdapterConfig).desiredSkillEntries;
+    if ((input.adapterType ?? null) && desiredSkillEntries.length > 0) {
+      normalizedAdapterConfig = (
+        await resolveDesiredSkillAssignment(
+          input.companyId,
+          input.adapterType!,
+          normalizedAdapterConfig,
+          desiredSkillEntries,
+        )
+      ).adapterConfig;
+    }
     await assertAdapterConfigConstraints(
       input.adapterType,
       input.constraintAdapterConfig
@@ -1682,6 +1693,9 @@ export function agentRoutes(
       };
     }
 
+    const existingDesiredSkillKeys = new Set(
+      readPaperclipSkillSyncPreference(adapterConfig).desiredSkills,
+    );
     const requestedNativeHermesSkillKeys = new Set<string>();
     let requestedCompanySkillEntries = requestedDesiredSkills;
 
@@ -1720,6 +1734,15 @@ export function agentRoutes(
       await companySkills.resolveRequestedSkillEntries(companyId, requestedCompanySkillEntries, {
         tolerateUnknownReferences: options.tolerateUnknownDesiredSkills,
       });
+    const toleratedUnresolvedDesiredSkillKeys = options.tolerateUnknownDesiredSkills
+      ? unresolvedDesiredSkillKeys.filter((key) => existingDesiredSkillKeys.has(key))
+      : [];
+    const rejectedUnresolvedDesiredSkillKeys = options.tolerateUnknownDesiredSkills
+      ? unresolvedDesiredSkillKeys.filter((key) => !existingDesiredSkillKeys.has(key))
+      : unresolvedDesiredSkillKeys;
+    if (rejectedUnresolvedDesiredSkillKeys.length > 0) {
+      throw unprocessable(`Unknown skill(s): ${rejectedUnresolvedDesiredSkillKeys.join(", ")}.`);
+    }
     // Runtime materialization + version selection only ever consider skills that
     // actually resolve to the company library; stale keys can't be materialized.
     const runtimeSkillEntries = await companySkills.listRuntimeSkillEntries(companyId, {
@@ -1733,7 +1756,7 @@ export function agentRoutes(
     // visible (and explicitly removable) instead of vanishing on the next save.
     const desiredSkillEntries: AgentDesiredSkillEntry[] = [
       ...resolvedDesiredSkillEntries,
-      ...unresolvedDesiredSkillKeys.map((key) => ({ key, versionId: null })),
+      ...toleratedUnresolvedDesiredSkillKeys.map((key) => ({ key, versionId: null })),
       // Local: hermes-native skills (present on the CLI itself, not in the
       // company library) stay in the desired set without a company version.
       ...Array.from(requestedNativeHermesSkillKeys, (key) => ({ key, versionId: null })),

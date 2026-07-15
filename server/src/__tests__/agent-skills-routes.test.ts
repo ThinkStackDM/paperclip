@@ -278,11 +278,15 @@ describe.sequential("agent skill routes", () => {
     );
     mockCompanySkillService.resolveRequestedSkillEntries.mockImplementation(
       async (_companyId: string, requested: Array<{ key: string; versionId?: string | null }>) => ({
-        resolved: requested.map((entry) => ({
-          key: entry.key === "paperclip" ? "paperclipai/paperclip/paperclip" : entry.key,
-          versionId: entry.versionId ?? null,
-        })),
-        unresolved: [],
+        resolved: requested
+          .filter((entry) => entry.key === "paperclip" || entry.key === "paperclipai/paperclip/paperclip")
+          .map((entry) => ({
+            key: entry.key === "paperclip" ? "paperclipai/paperclip/paperclip" : entry.key,
+            versionId: entry.versionId ?? null,
+          })),
+        unresolved: requested
+          .filter((entry) => entry.key !== "paperclip" && entry.key !== "paperclipai/paperclip/paperclip")
+          .map((entry) => entry.key),
       }),
     );
     mockAdapter.listSkills.mockResolvedValue({
@@ -546,7 +550,14 @@ describe.sequential("agent skill routes", () => {
   });
 
   it("preserves stale desired keys instead of 422-ing when syncing (PAP-13222)", async () => {
-    mockAgentService.getById.mockResolvedValue(makeAgent("acpx_local"));
+    mockAgentService.getById.mockResolvedValue({
+      ...makeAgent("acpx_local"),
+      adapterConfig: {
+        paperclipSkillSync: {
+          desiredSkills: ["stale/removed/skill"],
+        },
+      },
+    });
     // The agent already carries a stale desired key that no longer resolves to a
     // company-library skill. Toggling a resolvable skill must still succeed and
     // keep the stale key so it stays visible/removable in the UI.
@@ -794,6 +805,29 @@ describe.sequential("agent skill routes", () => {
           paperclipSkillSync: {
             desiredSkills: ["pixel-art"],
           },
+        },
+      }));
+
+    expect(res.status, JSON.stringify(res.body)).toBe(422);
+    expect(res.body.error).toContain("Unknown skill(s): pixel-art.");
+    expect(mockAgentService.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects unrelated adapterConfig patches while stale desired skills remain unresolved", async () => {
+    mockAgentService.getById.mockResolvedValue({
+      ...makeAgent("claude_local"),
+      adapterConfig: {
+        paperclipSkillSync: {
+          desiredSkills: ["pixel-art"],
+        },
+      },
+    });
+
+    const res = await requestApp(await createApp(), (baseUrl) => request(baseUrl)
+      .patch("/api/agents/11111111-1111-4111-8111-111111111111?companyId=company-1")
+      .send({
+        adapterConfig: {
+          cwd: "/tmp/agent",
         },
       }));
 
