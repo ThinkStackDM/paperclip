@@ -168,6 +168,23 @@ function resolveManagedCodexHomeDir(companyId: string): string {
   return path.join(defaultPaperclipInstanceDir(), "companies", companyId, "codex-home");
 }
 
+function resolveDefaultExecutionCwd(input: {
+  configuredCwd: string;
+  workspaceCwd: string;
+  companyWorkProductsDir: string;
+}): { cwd: string; reason: "workspace" | "configured" | "company_work_products" } {
+  if (input.workspaceCwd) {
+    return { cwd: input.workspaceCwd, reason: "workspace" };
+  }
+  if (input.configuredCwd) {
+    return { cwd: input.configuredCwd, reason: "configured" };
+  }
+  return {
+    cwd: input.companyWorkProductsDir || process.cwd(),
+    reason: input.companyWorkProductsDir ? "company_work_products" : "configured",
+  };
+}
+
 // Walk up from startDir looking for `node_modules/.bin/<binName>`. This matches
 // npm/pnpm binary hoisting in packaged installs while preserving monorepo dev.
 export async function findAncestorBin(startDir: string, binName: string): Promise<string | null> {
@@ -925,7 +942,13 @@ async function buildRuntime(input: {
   const configuredCwd = asString(config.cwd, "");
   const useConfiguredInsteadOfAgentHome = workspaceSource === "agent_home" && configuredCwd.length > 0;
   const effectiveWorkspaceCwd = useConfiguredInsteadOfAgentHome ? "" : workspaceCwd;
-  const cwd = effectiveWorkspaceCwd || configuredCwd || process.cwd();
+  const paperclipEnv = buildPaperclipEnv(agent);
+  const defaultCwdResolution = resolveDefaultExecutionCwd({
+    workspaceCwd: effectiveWorkspaceCwd,
+    configuredCwd,
+    companyWorkProductsDir: paperclipEnv.PAPERCLIP_WORK_PRODUCTS_DIR ?? "",
+  });
+  const cwd = defaultCwdResolution.cwd;
   const executionTarget = readAdapterExecutionTarget({
     executionTarget: input.ctx.executionTarget,
     legacyRemoteExecution: input.ctx.executionTransport?.remoteExecution,
@@ -965,7 +988,10 @@ async function buildRuntime(input: {
   const envConfig = parseObject(config.env);
   const hasExplicitApiKey =
     typeof envConfig.PAPERCLIP_API_KEY === "string" && envConfig.PAPERCLIP_API_KEY.trim().length > 0;
-  const env: Record<string, string> = { ...buildPaperclipEnv(agent), PAPERCLIP_RUN_ID: runId };
+  const env: Record<string, string> = { ...paperclipEnv, PAPERCLIP_RUN_ID: runId };
+  const defaultCwdCommandNote = defaultCwdResolution.reason === "company_work_products"
+    ? `No execution workspace or explicit cwd was available, so ACPX defaulted to the company work-products root ${path.resolve(cwd)}.`
+    : null;
   const wakeTaskId =
     (typeof context.taskId === "string" && context.taskId.trim()) ||
     (typeof context.issueId === "string" && context.issueId.trim()) ||
@@ -1024,6 +1050,9 @@ async function buildRuntime(input: {
   let skillPromptInstructions = "";
   let skillsIdentity: Record<string, unknown> = { mode: "unsupported" };
   const skillCommandNotes: string[] = [];
+  if (defaultCwdCommandNote) {
+    skillCommandNotes.push(defaultCwdCommandNote);
+  }
   let paperclipClaudeSettings: PaperclipClaudeSettingsResult | null = null;
   if (acpxAgent === "claude") {
     const preparedSkills = await prepareClaudeSkillRuntime({

@@ -1,13 +1,13 @@
 {
-  "date": "2026-07-14",
-  "fire": "Tuesday",
+  "date": "2026-07-15",
+  "fire": "Wednesday",
   "weekStart": "2026-07-13",
   "cliVersions": {
     "codex": "0.144.1",
     "claude": "2.1.198 (Claude Code)",
-    "agy": "1.1.1",
-    "hermes": "v0.17.0 (2026.6.19) · upstream 7fe1cb38",
-    "hermesUpdateAvailable": "1753 commits behind"
+    "agy": "1.1.2",
+    "hermes": "v0.17.0 (2026.6.19) \u00b7 upstream 46e87b14",
+    "hermesUpdateAvailable": "1892 commits behind"
   },
   "adapterModelLists": {
     "codex_local": [
@@ -29,6 +29,7 @@
     "claude_local": [
       "claude-opus-4-8",
       "claude-fable-5",
+      "claude-sonnet-5",
       "claude-mythos-5",
       "claude-opus-4-7",
       "claude-opus-4-6",
@@ -39,8 +40,12 @@
     ],
     "gemini_local": [
       "auto",
+      "gemini-3.5-flash",
+      "gemini-3.5-live-translate-preview",
       "gemini-3.1-pro-preview",
       "gemini-3.1-pro-preview-customtools",
+      "gemini-3.1-flash-lite",
+      "gemini-3.1-flash-live-preview",
       "gemini-2.5-pro",
       "gemini-2.5-flash",
       "gemini-2.5-flash-lite",
@@ -67,7 +72,7 @@
   "providerDocs": {
     "openai": {
       "url": "https://developers.openai.com/api/docs/models",
-      "summary": "GPT-5.6 Sol/Terra/Luna remain live in the docs and on the Codex OAuth lane; no new OpenAI subscription-lane change was detected versus 2026-07-13.",
+      "summary": "GPT-5.6 Sol/Terra/Luna remain live in the docs and on the Codex OAuth lane; no new OpenAI subscription-lane change was detected versus 2026-07-14.",
       "liveProbe": {
         "model": "gpt-5.6-luna",
         "result": "OK"
@@ -75,34 +80,34 @@
     },
     "anthropic": {
       "url": "https://platform.claude.com/docs/en/about-claude/models/overview",
-      "summary": "Anthropic's overview still presents Claude Fable 5, Claude Mythos 5, and Claude Sonnet 5. On the Ireland Claude Code subscription lane, claude-sonnet-5 still returns OK, claude-mythos-5 still returns 404/no access, and claude-fable-5 now returns a 429 usage-limit error. The live claude_local adapter catalog still omits claude-sonnet-5.",
+      "summary": "Anthropic's overview still presents Claude Fable 5, Claude Mythos 5, and Claude Sonnet 5. On the Ireland Claude Code subscription lane, claude-fable-5 now returns OK again, claude-sonnet-5 still returns OK, and claude-mythos-5 still returns 404/no access. The live claude_local adapter catalog now includes claude-sonnet-5.",
       "liveProbes": {
-        "claude-fable-5": "429/Fable 5 usage limit on this Claude Code lane",
+        "claude-fable-5": "OK",
         "claude-sonnet-5": "OK",
         "claude-mythos-5": "404/no access on this Claude Code lane"
       }
     },
     "google": {
       "url": "https://ai.google.dev/gemini-api/docs/models",
-      "summary": "Google now exposes a dedicated Gemini 3 Flash Preview page with model code gemini-3-flash-preview. That ID, plus gemini-3.5-flash, gemini-3.1-flash-lite, gemini-3.1-flash-live-preview, and gemini-3.5-live-translate-preview, all return OK via agy in Ireland while the live gemini_local adapter catalog still omits every one of them.",
+      "summary": "Google still exposes gemini-3.5-flash, gemini-3.1-flash-lite, gemini-3.1-flash-live-preview, gemini-3.5-live-translate-preview, and gemini-3-flash-preview in the public model docs. The live gemini_local adapter catalog now lists every one of those except gemini-3-flash-preview, but agy 1.1.2 no longer accepts several raw docs model IDs and instead exposes alias-based model names via `agy models`.",
       "liveProbes": {
-        "gemini-3.5-flash": "OK",
+        "gemini-3.5-flash": "CLI gate: raw doc ID invalid on agy 1.1.2; alias `Gemini 3.5 Flash (Medium)` returns OK",
         "gemini-3.1-flash-lite": "OK",
-        "gemini-3.1-flash-live-preview": "OK",
-        "gemini-3.5-live-translate-preview": "OK",
-        "gemini-3-flash-preview": "OK"
+        "gemini-3.1-flash-live-preview": "CLI gate: raw doc ID invalid on agy 1.1.2",
+        "gemini-3.5-live-translate-preview": "CLI gate: raw doc ID invalid on agy 1.1.2",
+        "gemini-3-flash-preview": "CLI gate: raw doc ID invalid on agy 1.1.2"
       }
     },
     "xai": {
       "url": "https://docs.x.ai/developers/models",
-      "summary": "xAI docs still present Grok 4.5 as the flagship model and the local Grok host still shows no EU subscription-lane auth flip.",
-      "hostProbe": "grok models -> not authenticated; default model grok-composer-2.5-fast; available build model grok-build"
+      "summary": "xAI docs still present Grok 4.5 and the broader Grok 4.20 family. The local Grok host remains unauthenticated for subscription-lane probing; its unauthenticated surface now defaults to grok-4.5 and lists grok-composer-2.5-fast, but no EU auth flip was confirmed from Ireland.",
+      "hostProbe": "grok models -> not authenticated; default model grok-4.5; available model grok-composer-2.5-fast"
     }
   },
   "localCatalog": {
     "ollama": {
       "checkedToday": false,
-      "skipReason": "Tuesday fire; the local/Ollama catalog leg runs only on Monday fires per the operator directive.",
+      "skipReason": "Wednesday fire; the local/Ollama catalog leg runs only on Monday fires per the operator directive.",
       "lastMondayObservationDate": "2026-07-13",
       "version": "0.31.1",
       "apiVersion": "0.31.1",
@@ -111,23 +116,26 @@
     }
   },
   "openRadar": {
-    "grok-4.5": "Unchanged: docs list it, but no EU subscription-lane flip detected. TSBC-988 remains the parked reprobe issue.",
-    "gemini-catalog-drift": "Expanded 2026-07-14: gemini-3-flash-preview, gemini-3.5-flash, gemini-3.1-flash-lite, gemini-3.1-flash-live-preview, and gemini-3.5-live-translate-preview all return OK via agy in Ireland, but the live gemini_local adapter catalog still omits every one of them.",
-    "claude-sonnet-5-catalog-drift": "Unchanged from 2026-07-13: Anthropic docs render claude-sonnet-5 and the local Claude Code lane returns OK, but the live claude_local adapter catalog does not list it.",
-    "claude-fable-5-limit": "NEW 2026-07-14: Anthropic docs still position claude-fable-5 as widely released, but the Ireland Claude Code subscription lane now returns a 429 usage-limit error instead of OK.",
+    "grok-4.5": "Unchanged: docs list it and the unauthenticated Grok host now defaults to grok-4.5, but no EU subscription-lane auth flip was confirmed. TSBC-988 remains the parked reprobe issue.",
+    "gemini-catalog-drift": "Narrowed 2026-07-15: the live gemini_local catalog now lists gemini-3.5-flash, gemini-3.5-live-translate-preview, gemini-3.1-flash-lite, and gemini-3.1-flash-live-preview; gemini-3-flash-preview still remains missing.",
+    "agy-gemini-alias-gate": "NEW 2026-07-15: agy 1.1.2 keeps the Gemini lane alive but no longer accepts several raw docs model IDs (`gemini-3.5-flash`, `gemini-3.1-flash-live-preview`, `gemini-3.5-live-translate-preview`, `gemini-3-flash-preview`). Alias probing such as `Gemini 3.5 Flash (Medium)` still returns OK.",
     "claude-mythos-5": "Unchanged: docs and claude_local catalog list it, but Claude Code returns 404/no access on this lane; this still matches Anthropic's invitation-only positioning rather than a public GA flip."
   },
   "changesSincePrevious": [
-    "Claude Fable 5 now hard-fails on the Ireland Claude Code subscription lane with a 429 usage-limit message; yesterday's state recorded the same minimal probe as OK.",
-    "Google now exposes a dedicated Gemini 3 Flash Preview page with model code gemini-3-flash-preview, and that ID returns OK via agy in Ireland while the live gemini_local adapter catalog still omits it."
+    "agy upgraded from 1.1.1 to 1.1.2; the Gemini lane still works, but raw docs model IDs now hard-fail on the CLI for gemini-3.5-flash, gemini-3.1-flash-live-preview, gemini-3.5-live-translate-preview, and gemini-3-flash-preview while alias probing still returns OK.",
+    "The live gemini_local adapter catalog now lists gemini-3.5-flash, gemini-3.5-live-translate-preview, gemini-3.1-flash-lite, and gemini-3.1-flash-live-preview; only gemini-3-flash-preview remains missing from the prior drift set.",
+    "The live claude_local adapter catalog now lists claude-sonnet-5.",
+    "claude-fable-5 recovered from yesterday's 429 usage-limit response and now returns OK again on the Ireland Claude Code subscription lane.",
+    "The unauthenticated grok CLI surface now defaults to grok-4.5 and lists grok-composer-2.5-fast; yesterday the same surface defaulted to grok-composer-2.5-fast and exposed grok-build."
   ],
   "weeklyLiveness": {
     "fireDates": [
       "2026-07-13",
-      "2026-07-14"
+      "2026-07-14",
+      "2026-07-15"
     ],
-    "firesThisWeek": 2,
-    "changesThisWeek": 2,
-    "line": "model-watch alive: 2/7 fires this week, changes: 2"
+    "firesThisWeek": 3,
+    "changesThisWeek": 3,
+    "line": "model-watch alive: 3/7 fires this week, changes: 3"
   }
 }

@@ -8,6 +8,8 @@ import {
   resolveDefaultLogsDir,
   resolveDefaultSecretsKeyFilePath,
   resolveDefaultStorageDir,
+  resolvePaperclipCompanyRoot,
+  resolvePaperclipCompanyWorkProductsDir,
   resolvePaperclipConfigPathForInstance,
   resolvePaperclipInstanceRoot,
 } from "./home-paths.js";
@@ -32,5 +34,15 @@ describe("home path resolution", () => {
     expect(resolveDefaultLogsDir()).toBe(path.join(instanceRoot, "logs"));
     expect(resolveDefaultStorageDir()).toBe(path.join(instanceRoot, "data", "storage"));
     expect(resolveDefaultSecretsKeyFilePath()).toBe(path.join(instanceRoot, "secrets", "master.key"));
+  });
+
+  it("resolves company-scoped roots under the instance", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "paperclip-home-paths-company-"));
+    process.env.PAPERCLIP_HOME = home;
+    process.env.PAPERCLIP_INSTANCE_ID = "instance-a";
+
+    const companyRoot = path.join(home, "instances", "instance-a", "companies", "company-1");
+    expect(resolvePaperclipCompanyRoot("company-1")).toBe(companyRoot);
+    expect(resolvePaperclipCompanyWorkProductsDir("company-1")).toBe(path.join(companyRoot, "work-products"));
   });
 });

@@ -27,6 +27,7 @@ import {
   type RunLivenessState,
   type SourceTrustMetadata,
 } from "@paperclipai/shared";
+import { parseCodexJsonl } from "@paperclipai/adapter-codex-local/server";
 import {
   agents,
   agentConfigRevisions,
@@ -2183,6 +2184,12 @@ type UsageTotals = {
   outputTokens: number;
 };
 
+type HungRunWatchdogPolicy = {
+  noOutputMs: number;
+  maxRuntimeMs: number;
+  activeOutputGraceMs: number;
+};
+
 type SessionCompactionDecision = {
   rotate: boolean;
   reason: string | null;
@@ -2770,6 +2777,28 @@ function deriveNormalizedUsageDelta(current: UsageTotals | null, previous: Usage
   };
 }
 
+function buildUsageJsonFromRecoveredTotals(input: {
+  rawUsage: UsageTotals;
+  normalizedUsage: UsageTotals | null;
+  usageSource: string;
+  sessionId: string | null;
+  model: string | null;
+}) {
+  const usage = input.normalizedUsage ?? input.rawUsage;
+  return {
+    inputTokens: usage.inputTokens,
+    cachedInputTokens: usage.cachedInputTokens,
+    outputTokens: usage.outputTokens,
+    rawInputTokens: input.rawUsage.inputTokens,
+    rawCachedInputTokens: input.rawUsage.cachedInputTokens,
+    rawOutputTokens: input.rawUsage.outputTokens,
+    usageSource: input.usageSource,
+    ...(input.sessionId ? { persistedSessionId: input.sessionId } : {}),
+    ...(input.model ? { model: input.model } : {}),
+    provider: "openai",
+  } as Record<string, unknown>;
+}
+
 function formatCount(value: number | null | undefined) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "0";
   return value.toLocaleString("en-US");
@@ -3104,20 +3133,31 @@ export function shouldDeferFollowupWakeForSameIssue(input: {
   return false;
 }
 
-function shouldSupersedeQueuedRunForFreshIssueAssignment(input: {
-  incomingWakeReason: string | null | undefined;
+function shouldSupersedeQueuedContinuationWakeForIssueAssignment(input: {
+  activeExecutionRun: { status: string; contextSnapshot: unknown } | null;
+  incomingContextSnapshot: Record<string, unknown> | null | undefined;
   issueStatus: string | null | undefined;
-  queuedRun: Pick<typeof heartbeatRuns.$inferSelect, "status" | "contextSnapshot"> | null;
 }) {
-  if (input.incomingWakeReason !== "issue_assigned") return false;
+  if (!input.activeExecutionRun || input.activeExecutionRun.status !== "queued") return false;
   if (input.issueStatus !== "todo") return false;
-  if (!input.queuedRun || input.queuedRun.status !== "queued") return false;
 
-  const queuedContext = parseObject(input.queuedRun.contextSnapshot);
-  if (deriveCommentId(queuedContext, null)) return false;
+  const incomingWakeReason = readNonEmptyString(input.incomingContextSnapshot?.wakeReason);
+  if (incomingWakeReason !== "issue_assigned") return false;
 
-  const queuedWakeReason = readNonEmptyString(queuedContext.wakeReason);
-  return queuedWakeReason !== "issue_assigned";
+  const activeContext = parseObject(input.activeExecutionRun.contextSnapshot);
+  const activeWakeReason = readNonEmptyString(activeContext.wakeReason);
+  const activeRetryReason = readNonEmptyString(activeContext.retryReason);
+
+  if (activeWakeReason === "issue_assigned") return false;
+
+  return (
+    activeWakeReason === FINISH_SUCCESSFUL_RUN_HANDOFF_REASON ||
+    activeWakeReason === "issue_terminal_status" ||
+    activeWakeReason === "issue_continuation_needed" ||
+    activeWakeReason === "issue_assignment_recovery" ||
+    activeRetryReason === "issue_continuation_needed" ||
+    activeRetryReason === "assignment_recovery"
+  );
 }
 
 const SESSION_CONFIGURED_MODEL_KEY = "__paperclipConfiguredModel";
@@ -10292,6 +10332,32 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     return normalized >= 0 ? normalized : null;
   }
 
+  function resolveHungRunWatchdogPolicy(input: {
+    runtimeConfig: Record<string, unknown> | null | undefined;
+    defaultNoOutputMs: number;
+    defaultMaxRuntimeMs: number;
+  }): HungRunWatchdogPolicy {
+    const heartbeat = parseObject(parseObject(input.runtimeConfig).heartbeat);
+    const noOutputMs =
+      normalizeOptionalNonNegativeInteger(
+        heartbeat.hungRunNoOutputMs ?? heartbeat.hungRunSilenceMs,
+      ) ?? Math.max(0, input.defaultNoOutputMs);
+    const maxRuntimeMs =
+      normalizeOptionalNonNegativeInteger(
+        heartbeat.hungRunMaxRuntimeMs ?? heartbeat.maxRuntimeMs,
+      ) ?? Math.max(0, input.defaultMaxRuntimeMs);
+    const activeOutputGraceMs =
+      normalizeOptionalNonNegativeInteger(
+        heartbeat.hungRunActiveOutputGraceMs ?? heartbeat.hungRunGraceMs,
+      ) ?? noOutputMs;
+
+    return {
+      noOutputMs,
+      maxRuntimeMs,
+      activeOutputGraceMs: Math.max(0, activeOutputGraceMs),
+    };
+  }
+
   function currentUtcDayWindow(now = new Date()) {
     const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
     const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0, 0));
@@ -11560,7 +11626,14 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       // sense; remote/other adapters have no local pid to terminate.
       if (!isTrackedLocalChildProcessAdapter(adapterType)) continue;
       // Never kill intentionally long-lived / window-exempt agents.
-      if (isActivityWindowExemptAgent({ adapterType, runtimeConfig: parseObject(runtimeConfig) })) continue;
+      const parsedRuntimeConfig = parseObject(runtimeConfig);
+      if (isActivityWindowExemptAgent({ adapterType, runtimeConfig: parsedRuntimeConfig })) continue;
+
+      const policy = resolveHungRunWatchdogPolicy({
+        runtimeConfig: parsedRuntimeConfig,
+        defaultNoOutputMs: noOutputMs,
+        defaultMaxRuntimeMs: maxRuntimeMs,
+      });
 
       // A dead/absent child is an orphan, not a hang — reapOrphanedRuns owns it.
       const childAlive =
@@ -11573,16 +11646,91 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       const runtimeRef = run.processStartedAt ?? run.startedAt;
       const runtimeMs = runtimeRef ? now.getTime() - new Date(runtimeRef).getTime() : 0;
 
-      const silenceHit = noOutputMs > 0 && silenceMs >= noOutputMs;
-      const runtimeHit = maxRuntimeMs > 0 && runtimeMs >= maxRuntimeMs;
+      const silenceHit = policy.noOutputMs > 0 && silenceMs >= policy.noOutputMs;
+      const runtimeHit = policy.maxRuntimeMs > 0 && runtimeMs >= policy.maxRuntimeMs;
       if (!silenceHit && !runtimeHit) continue;
 
+      const recentOutput = policy.noOutputMs > 0 && silenceMs < policy.noOutputMs;
+      const watchdogState = parseObject(parseObject(run.resultJson).hungRunWatchdog);
+      const runtimeWarningAtRaw = readNonEmptyString(watchdogState.runtimeWarningAt);
+      const runtimeWarningAt = runtimeWarningAtRaw ? new Date(runtimeWarningAtRaw) : null;
+      const runtimeWarningAgeMs = runtimeWarningAt ? now.getTime() - runtimeWarningAt.getTime() : null;
+
+      if (
+        runtimeHit &&
+        !silenceHit &&
+        recentOutput &&
+        policy.activeOutputGraceMs > 0 &&
+        (runtimeWarningAgeMs == null || runtimeWarningAgeMs < policy.activeOutputGraceMs)
+      ) {
+        if (!runtimeWarningAtRaw) {
+          const warningReason =
+            `Hung-run watchdog warned: runtime ${Math.round(runtimeMs / 60000)}m exceeded cap ` +
+            `${Math.round(policy.maxRuntimeMs / 60000)}m, but output is still recent; granting ` +
+            `${Math.round(policy.activeOutputGraceMs / 60000)}m grace before termination.`;
+          const warnedRun = await db
+            .update(heartbeatRuns)
+            .set({
+              resultJson: {
+                ...parseObject(run.resultJson),
+                hungRunWatchdog: {
+                  runtimeWarningAt: now.toISOString(),
+                  runtimeMs,
+                  maxRuntimeMs: policy.maxRuntimeMs,
+                  noOutputMs: policy.noOutputMs,
+                  activeOutputGraceMs: policy.activeOutputGraceMs,
+                  state: "warned_active_output",
+                },
+              },
+              updatedAt: now,
+            })
+            .where(eq(heartbeatRuns.id, run.id))
+            .returning()
+            .then((rows) => rows[0] ?? null);
+          if (warnedRun) {
+            await appendRunEvent(warnedRun, await nextRunEventSeq(warnedRun.id), {
+              eventType: "lifecycle",
+              stream: "system",
+              level: "warn",
+              message: warningReason,
+              payload: {
+                runtimeMs,
+                maxRuntimeMs: policy.maxRuntimeMs,
+                silenceMs,
+                noOutputMs: policy.noOutputMs,
+                activeOutputGraceMs: policy.activeOutputGraceMs,
+              },
+            });
+          }
+        }
+        continue;
+      }
+
       const reason = silenceHit
-        ? `Terminated by hung-run watchdog: no output for ${Math.round(silenceMs / 60000)}m (threshold ${Math.round(noOutputMs / 60000)}m)`
-        : `Terminated by hung-run watchdog: runtime ${Math.round(runtimeMs / 60000)}m exceeded hard cap ${Math.round(maxRuntimeMs / 60000)}m`;
+        ? `Terminated by hung-run watchdog: no output for ${Math.round(silenceMs / 60000)}m (threshold ${Math.round(policy.noOutputMs / 60000)}m)`
+        : recentOutput && policy.activeOutputGraceMs > 0
+          ? `Terminated by hung-run watchdog: runtime ${Math.round(runtimeMs / 60000)}m exceeded hard cap ${Math.round(policy.maxRuntimeMs / 60000)}m and remained active past the ${Math.round(policy.activeOutputGraceMs / 60000)}m grace window`
+          : `Terminated by hung-run watchdog: runtime ${Math.round(runtimeMs / 60000)}m exceeded hard cap ${Math.round(policy.maxRuntimeMs / 60000)}m`;
 
       try {
-        await cancelRunInternal(run.id, reason);
+        const agent = await getAgent(run.agentId);
+        const usageJson = agent ? await recoverHungRunTerminationUsage(run, agent) : null;
+        await cancelRunInternal(run.id, reason, {
+          errorCode: "hung_run_watchdog",
+          usageJson,
+          resultJson: {
+            hungRunWatchdog: {
+              state: silenceHit ? "terminated_silence" : "terminated_runtime_cap",
+              runtimeMs,
+              silenceMs,
+              noOutputMs: policy.noOutputMs,
+              maxRuntimeMs: policy.maxRuntimeMs,
+              activeOutputGraceMs: policy.activeOutputGraceMs,
+              recentOutput,
+              ...(runtimeWarningAtRaw ? { runtimeWarningAt: runtimeWarningAtRaw } : {}),
+            },
+          },
+        });
         terminated.push(run.id);
         await logActivity(db, {
           companyId: run.companyId,
@@ -11593,7 +11741,17 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
           action: "heartbeat.hung_run_terminated",
           entityType: "heartbeat_run",
           entityId: run.id,
-          details: { reason, silenceMs, runtimeMs, silenceHit, runtimeHit },
+          details: {
+            reason,
+            silenceMs,
+            runtimeMs,
+            silenceHit,
+            runtimeHit,
+            maxRuntimeMs: policy.maxRuntimeMs,
+            noOutputMs: policy.noOutputMs,
+            activeOutputGraceMs: policy.activeOutputGraceMs,
+            recentOutput,
+          },
         });
       } catch (err) {
         logger.error({ err, runId: run.id, agentId: run.agentId }, "hung-run watchdog termination failed");
@@ -16201,6 +16359,53 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
           activeExecutionRun = null;
         }
 
+        const cancelSupersededQueuedIssueWake = async (queuedRun: typeof heartbeatRuns.$inferSelect) => {
+          if (queuedRun.status !== "queued") return false;
+
+          const now = new Date();
+          const reason = "Cancelled because a fresh issue_assigned wake superseded a stale queued same-issue wake";
+          const cancelled = await tx
+            .update(heartbeatRuns)
+            .set({
+              status: "cancelled",
+              finishedAt: now,
+              error: reason,
+              errorCode: "issue_assignment_superseded",
+              updatedAt: now,
+            })
+            .where(and(eq(heartbeatRuns.id, queuedRun.id), eq(heartbeatRuns.status, "queued")))
+            .returning()
+            .then((rows) => rows[0] ?? null);
+
+          if (!cancelled) return false;
+
+          if (queuedRun.wakeupRequestId) {
+            await tx
+              .update(agentWakeupRequests)
+              .set({
+                status: "cancelled",
+                finishedAt: now,
+                error: reason,
+                updatedAt: now,
+              })
+              .where(eq(agentWakeupRequests.id, queuedRun.wakeupRequestId));
+          }
+
+          if (issue.executionRunId === queuedRun.id) {
+            await tx
+              .update(issues)
+              .set({
+                executionRunId: null,
+                executionAgentNameKey: null,
+                executionLockedAt: null,
+                updatedAt: now,
+              })
+              .where(and(eq(issues.id, issue.id), eq(issues.executionRunId, queuedRun.id)));
+          }
+
+          return true;
+        };
+
         // A queued/scheduled run holding the lock for an agent that is
         // no longer the issue's assignee is stale by design — the issue
         // has been re-routed (e.g. blocked → in_review with a different
@@ -16305,6 +16510,18 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
                 .where(eq(issues.id, issue.id));
             }
           }
+        }
+
+        if (
+          activeExecutionRun &&
+          shouldSupersedeQueuedContinuationWakeForIssueAssignment({
+            activeExecutionRun,
+            incomingContextSnapshot: enrichedContextSnapshot,
+            issueStatus: issue.status,
+          }) &&
+          await cancelSupersededQueuedIssueWake(activeExecutionRun)
+        ) {
+          activeExecutionRun = null;
         }
 
         const dependencyReadiness = await issuesSvc.listDependencyReadiness(
@@ -16470,60 +16687,6 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
               },
             });
             return { kind: "skipped" as const };
-          }
-        }
-
-        if (
-          activeExecutionRun &&
-          activeExecutionRun.status === "queued" &&
-          shouldSupersedeQueuedRunForFreshIssueAssignment({
-            incomingWakeReason: readNonEmptyString(enrichedContextSnapshot.wakeReason),
-            issueStatus: issue.status,
-            queuedRun: activeExecutionRun,
-          })
-        ) {
-          const staleQueuedContext = parseObject(activeExecutionRun.contextSnapshot);
-          const staleQueuedWakeReason = readNonEmptyString(staleQueuedContext.wakeReason);
-          const now = new Date();
-          const cancelled = await tx
-            .update(heartbeatRuns)
-            .set({
-              status: "cancelled",
-              finishedAt: now,
-              error: "Cancelled because a fresh issue_assigned wake superseded an older queued same-issue wake",
-              errorCode: "superseded_by_fresh_issue_assignment",
-              resultJson: {
-                ...parseObject(activeExecutionRun.resultJson),
-                stopReason: "superseded_by_fresh_issue_assignment",
-                supersededByWakeReason: "issue_assigned",
-                supersededRunWakeReason: staleQueuedWakeReason,
-                currentIssueStatus: issue.status,
-              },
-              updatedAt: now,
-            })
-            .where(
-              and(
-                eq(heartbeatRuns.id, activeExecutionRun.id),
-                eq(heartbeatRuns.status, "queued"),
-              ),
-            )
-            .returning()
-            .then((rows) => rows[0] ?? null);
-
-          if (cancelled?.wakeupRequestId) {
-            await tx
-              .update(agentWakeupRequests)
-              .set({
-                status: "cancelled",
-                finishedAt: now,
-                error: "Cancelled because a fresh issue_assigned wake superseded an older queued same-issue wake",
-                updatedAt: now,
-              })
-              .where(eq(agentWakeupRequests.id, cancelled.wakeupRequestId));
-          }
-
-          if (cancelled) {
-            activeExecutionRun = null;
           }
         }
 
@@ -16804,7 +16967,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       .where(and(eq(heartbeatRuns.agentId, agentId), inArray(heartbeatRuns.status, [...EXECUTION_PATH_HEARTBEAT_RUN_STATUSES])))
       .orderBy(desc(heartbeatRuns.createdAt));
 
-    let sameScopeQueuedRun = activeRuns.find(
+    const sameScopeQueuedRun = activeRuns.find(
       (candidate) => candidate.status === "queued" && isSameTaskScope(runTaskKey(candidate), taskKey),
     );
     const sameScopeScheduledRetryRun = activeRuns.find(
@@ -16817,49 +16980,6 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       Boolean(sameScopeRunningRun) &&
       !sameScopeQueuedRun &&
       shouldQueueFollowupForRunningIssueWake({ contextSnapshot: enrichedContextSnapshot, wakeCommentId });
-
-    if (issueId && sameScopeQueuedRun) {
-      const incomingWakeReason = readNonEmptyString(enrichedContextSnapshot.wakeReason);
-      if (incomingWakeReason === "issue_assigned") {
-        const issueStatus = await db
-          .select({ status: issues.status })
-          .from(issues)
-          .where(and(eq(issues.id, issueId), eq(issues.companyId, agent.companyId)))
-          .then((rows) => rows[0]?.status ?? null);
-
-        if (
-          shouldSupersedeQueuedRunForFreshIssueAssignment({
-            incomingWakeReason,
-            issueStatus,
-            queuedRun: sameScopeQueuedRun,
-          })
-        ) {
-          const staleQueuedContext = parseObject(sameScopeQueuedRun.contextSnapshot);
-          const staleQueuedWakeReason = readNonEmptyString(staleQueuedContext.wakeReason);
-          await cancelRunInternal(
-            sameScopeQueuedRun.id,
-            "Cancelled because a fresh issue_assigned wake superseded an older queued same-issue wake",
-            {
-              errorCode: "superseded_by_fresh_issue_assignment",
-              resultJson: {
-                supersededByWakeReason: incomingWakeReason,
-                supersededRunWakeReason: staleQueuedWakeReason,
-                currentIssueStatus: issueStatus,
-              },
-              eventMessage: "queued same-issue wake superseded by fresh issue assignment",
-              eventPayload: {
-                issueId,
-                currentIssueStatus: issueStatus,
-                supersededByWakeReason: incomingWakeReason,
-                supersededRunWakeReason: staleQueuedWakeReason,
-              },
-            },
-          );
-          sameScopeQueuedRun = null;
-        }
-      }
-    }
-
     const rawCoalescedTarget =
       sameScopeQueuedRun ??
       sameScopeScheduledRetryRun ??

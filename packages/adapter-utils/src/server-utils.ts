@@ -129,6 +129,26 @@ export function resolvePaperclipInstanceRootForAdapter(input: {
   return path.resolve(homeDir, "instances", instanceId);
 }
 
+function resolvePaperclipCompanyRootForAdapter(input: {
+  companyId: string;
+  homeDir?: string;
+  instanceId?: string;
+  env?: NodeJS.ProcessEnv;
+}): string {
+  const companyId = input.companyId.trim();
+  if (!PATH_SEGMENT_RE.test(companyId)) throw new Error(`Invalid company id '${input.companyId}'.`);
+  return path.resolve(resolvePaperclipInstanceRootForAdapter(input), "companies", companyId);
+}
+
+function resolvePaperclipCompanyWorkProductsDirForAdapter(input: {
+  companyId: string;
+  homeDir?: string;
+  instanceId?: string;
+  env?: NodeJS.ProcessEnv;
+}): string {
+  return path.resolve(resolvePaperclipCompanyRootForAdapter(input), "work-products");
+}
+
 export const DEFAULT_PAPERCLIP_AGENT_PROMPT_TEMPLATE = [
   "You are agent {{agent.id}} ({{agent.name}}). Continue your Paperclip work.",
   "",
@@ -1719,6 +1739,8 @@ export function buildPaperclipEnv(agent: { id: string; companyId: string }): Rec
   const vars: Record<string, string> = {
     PAPERCLIP_AGENT_ID: agent.id,
     PAPERCLIP_COMPANY_ID: agent.companyId,
+    PAPERCLIP_COMPANY_ROOT: resolvePaperclipCompanyRootForAdapter({ companyId: agent.companyId }),
+    PAPERCLIP_WORK_PRODUCTS_DIR: resolvePaperclipCompanyWorkProductsDirForAdapter({ companyId: agent.companyId }),
   };
   const runtimeHost = resolveHostForUrl(
     process.env.PAPERCLIP_LISTEN_HOST ?? process.env.HOST ?? "localhost",

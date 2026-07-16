@@ -8,12 +8,14 @@
 // file became valid again. This was the platform's single point of failure and
 // it fired twice over the weekend.
 //
-// NEW behaviour: we own the watch/restart loop and run a compile gate
-// (scripts/dev-watch-gate.mjs, an esbuild bundle that executes no code) BEFORE
-// swapping the running server. The currently-running server keeps serving the
-// fleet the entire time the candidate is broken; a save only triggers a reload
-// once it compiles cleanly. The guarantee is one-directional and fail-safe: a
-// bad edit can NEVER take the server down — at worst it delays the next reload.
+// NEW behaviour: we own the watch/restart loop and run a pre-reload gate
+// (scripts/dev-watch-gate.mjs) BEFORE swapping the running server. That gate
+// bundles the source graph and runs a focused issue-create route smoke, so a
+// save only triggers a reload once the candidate compiles AND
+// `POST /api/companies/:companyId/issues` still works. The currently-running
+// server keeps serving the fleet the entire time the candidate is broken. The
+// guarantee is one-directional and fail-safe: a bad edit can NEVER take the
+// server down — at worst it delays the next reload.
 //
 // Scope: the watcher reacts to edits under server/src (the documented SPOF
 // surface). The gate itself follows the full source graph — server/src AND
@@ -123,13 +125,13 @@ async function reload(reason: string): Promise<void> {
   pendingReload = false;
   restarting = true;
   try {
-    log(`change detected (${reason}); checking compile before reload…`);
+    log(`change detected (${reason}); checking compile + issue-create smoke before reload…`);
     const ok = await runGate();
     if (!ok) {
-      log("⚠ reload BLOCKED — candidate did not compile; keeping the running server up. Fix the error above.");
+      log("⚠ reload BLOCKED — candidate failed compile or issue-create smoke; keeping the running server up. Fix the error above.");
       return;
     }
-    log("✓ compile clean — reloading server");
+    log("✓ compile + issue-create smoke clean — reloading server");
     await stopChild();
     startChild();
   } finally {
@@ -205,7 +207,7 @@ try {
     if (!shouldReact(name)) return;
     scheduleReload(name ?? "src");
   });
-  log(`gated watcher active — edits under ${path.relative(cwd, watchDir) || watchDir} reload only after a clean compile`);
+  log(`gated watcher active — edits under ${path.relative(cwd, watchDir) || watchDir} reload only after compile + issue-create smoke pass`);
   log(`gate: ${path.relative(serverRoot, gateScript)} · a broken edit keeps the running server up instead of crashing it`);
 } catch (error) {
   log(`⚠ watcher setup failed (${(error as Error).message}); server is UP but auto-reload is disabled until next restart`);

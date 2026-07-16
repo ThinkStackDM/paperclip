@@ -34,6 +34,30 @@ export function resolvePaperclipInstanceRoot(input: {
   return path.resolve(resolvePaperclipHomeDir(input.homeDir), "instances", resolvePaperclipInstanceId(input.instanceId));
 }
 
+export function resolvePaperclipCompanyRoot(
+  companyId: string,
+  input: {
+    homeDir?: string;
+    instanceId?: string;
+  } = {},
+): string {
+  const trimmed = companyId.trim();
+  if (!PATH_SEGMENT_RE.test(trimmed)) {
+    throw new Error(`Invalid company id '${companyId}'.`);
+  }
+  return path.resolve(resolvePaperclipInstanceRoot(input), "companies", trimmed);
+}
+
+export function resolvePaperclipCompanyWorkProductsDir(
+  companyId: string,
+  input: {
+    homeDir?: string;
+    instanceId?: string;
+  } = {},
+): string {
+  return path.resolve(resolvePaperclipCompanyRoot(companyId, input), "work-products");
+}
+
 export function resolvePaperclipInstanceConfigPath(input: {
   homeDir?: string;
   instanceId?: string;

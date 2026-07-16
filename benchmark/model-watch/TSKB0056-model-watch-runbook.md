@@ -71,6 +71,12 @@ Default bounded loop:
 
 Use `tsbc_task_probe.py` for the refinement pass, with explicit overrides when
 the live lane is not the same file bundle that `variants.json` points at.
+For antigravity roles that are known to be agentic (`book-chapter`, `content`,
+`cv-review`), non-`bare+none` probe cells now auto-route through the
+file-mounted `agy --print` frame and record `generationFrame` per model.
+Treat any older single-shot Gemini probe rows on those roles as
+methodology-mismatched unless the issue explicitly scoped a raw prompt-packet
+experiment.
 
 Example:
 

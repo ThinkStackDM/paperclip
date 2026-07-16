@@ -1224,6 +1224,144 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     expect(wakeup?.status).toBe("claimed");
   });
 
+  it("respects a per-agent hung-run max-runtime override", async () => {
+    const child = spawnAliveProcess();
+    childProcesses.add(child);
+
+    const { runId, agentId } = await seedRunFixture({
+      processPid: child.pid ?? null,
+      agentStatus: "running",
+      includeIssue: false,
+    });
+    await db
+      .update(agents)
+      .set({
+        runtimeConfig: {
+          heartbeat: {
+            hungRunMaxRuntimeMs: 120_000,
+          },
+        },
+      })
+      .where(eq(agents.id, agentId));
+    await db
+      .update(heartbeatRuns)
+      .set({
+        startedAt: new Date("2026-03-19T00:00:00.000Z"),
+        lastOutputAt: new Date("2026-03-19T00:01:25.000Z"),
+      })
+      .where(eq(heartbeatRuns.id, runId));
+    const heartbeat = heartbeatService(db);
+
+    const result = await heartbeat.terminateHungRuns({
+      noOutputMs: 60_000,
+      maxRuntimeMs: 60_000,
+      now: new Date("2026-03-19T00:01:30.000Z"),
+    });
+    expect(result.terminated).toBe(0);
+    expect(isPidAlive(child.pid)).toBe(true);
+    expect((await heartbeat.getRun(runId))?.status).toBe("running");
+  });
+
+  it("warns before terminating an active run that only exceeded the runtime cap", async () => {
+    const child = spawnAliveProcess();
+    childProcesses.add(child);
+
+    const { runId } = await seedRunFixture({
+      processPid: child.pid ?? null,
+      agentStatus: "running",
+      includeIssue: false,
+    });
+    await db
+      .update(heartbeatRuns)
+      .set({
+        startedAt: new Date("2026-03-19T00:00:00.000Z"),
+        lastOutputAt: new Date("2026-03-19T00:01:00.000Z"),
+      })
+      .where(eq(heartbeatRuns.id, runId));
+    const heartbeat = heartbeatService(db);
+
+    const first = await heartbeat.terminateHungRuns({
+      noOutputMs: 60_000,
+      maxRuntimeMs: 60_000,
+      now: new Date("2026-03-19T00:01:05.000Z"),
+    });
+    expect(first.terminated).toBe(0);
+
+    const warnedRun = await heartbeat.getRun(runId);
+    expect(warnedRun?.status).toBe("running");
+    expect(warnedRun?.resultJson).toMatchObject({
+      hungRunWatchdog: expect.objectContaining({
+        state: "warned_active_output",
+        maxRuntimeMs: 60_000,
+        noOutputMs: 60_000,
+        activeOutputGraceMs: 60_000,
+      }),
+    });
+
+    await db
+      .update(heartbeatRuns)
+      .set({
+        lastOutputAt: new Date("2026-03-19T00:02:01.000Z"),
+      })
+      .where(eq(heartbeatRuns.id, runId));
+
+    const second = await heartbeat.terminateHungRuns({
+      noOutputMs: 60_000,
+      maxRuntimeMs: 60_000,
+      now: new Date("2026-03-19T00:02:10.000Z"),
+    });
+    expect(second.terminated).toBe(1);
+    expect(await waitForPidExit(child.pid as number, 2_000)).toBe(true);
+
+    const cancelledRun = await heartbeat.getRun(runId);
+    expect(cancelledRun?.status).toBe("cancelled");
+    expect(cancelledRun?.errorCode).toBe("hung_run_watchdog");
+    expect(cancelledRun?.error).toContain("remained active past the 1m grace window");
+  });
+
+  it("records recovered usage when the hung-run watchdog cancels a codex run", async () => {
+    const child = spawnAliveProcess();
+    childProcesses.add(child);
+
+    const { runId } = await seedRunFixture({
+      processPid: child.pid ?? null,
+      agentStatus: "running",
+      includeIssue: false,
+    });
+    await db
+      .update(heartbeatRuns)
+      .set({
+        startedAt: new Date("2026-03-19T00:00:00.000Z"),
+        lastOutputAt: new Date("2026-03-19T00:00:00.000Z"),
+        stdoutExcerpt: [
+          "{\"type\":\"thread.started\",\"thread_id\":\"session-123\"}",
+          "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":11,\"cached_input_tokens\":2,\"output_tokens\":7}}",
+        ].join("\n"),
+      })
+      .where(eq(heartbeatRuns.id, runId));
+    const heartbeat = heartbeatService(db);
+
+    const result = await heartbeat.terminateHungRuns({
+      noOutputMs: 60_000,
+      maxRuntimeMs: 0,
+      now: new Date("2026-03-19T00:02:00.000Z"),
+    });
+    expect(result.terminated).toBe(1);
+    expect(await waitForPidExit(child.pid as number, 2_000)).toBe(true);
+
+    const cancelledRun = await heartbeat.getRun(runId);
+    expect(cancelledRun?.status).toBe("cancelled");
+    expect(cancelledRun?.usageJson).toMatchObject({
+      inputTokens: 11,
+      cachedInputTokens: 2,
+      outputTokens: 7,
+      rawInputTokens: 11,
+      rawCachedInputTokens: 2,
+      rawOutputTokens: 7,
+      persistedSessionId: "session-123",
+    });
+  });
+
   it("skips generic timer wakes without invoking an adapter when no assigned work is actionable", async () => {
     const { companyId, agentId } = await seedIdleTimerAgentFixture();
     const heartbeat = heartbeatService(db);

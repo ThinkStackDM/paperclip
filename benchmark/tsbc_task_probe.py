@@ -9,16 +9,18 @@ running a whole role sweep or mutating the benchmark suites.
 import argparse
 import hashlib
 import json
+import shutil
 import statistics
+import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 import benchlib
 import ledger
-from adapters import run_model
+from adapters import run_antigravity_agentic, run_model
 from scoring import score_run
-from variants import build_prompt, load_skill_bundle, resolve_role
+from variants import PREFIX_INSTR, build_prompt, load_skill_bundle, resolve_role
 
 
 def now_run_id():
@@ -114,6 +116,58 @@ def suite_meta(role):
     }
 
 
+AGY_PRINT_TIMEOUT = "4m0s"
+AGENTIC_ROUTE_ROLES = {"book-chapter", "content", "cv-review"}
+
+
+def generation_method(role, model_row, agent_file, skills):
+    if (
+        model_row.get("adapter") == "antigravity"
+        and role in AGENTIC_ROUTE_ROLES
+        and not (agent_file == "bare" and skills == "none")
+    ):
+        return "agentic_file_mount"
+    return "single_shot_concat"
+
+
+def planned_generation_methods(role, models, agent_file, skills):
+    return {
+        model["id"]: generation_method(role, model, agent_file, skills)
+        for model in models
+    }
+
+
+def stage_skills(cwd, skills_dir):
+    staged = []
+    if not skills_dir:
+        return staged
+    root = Path(cwd) / ".paperclip" / "skills"
+    root.mkdir(parents=True, exist_ok=True)
+    for skill_dir in sorted(Path(skills_dir).iterdir()):
+        if not (skill_dir / "SKILL.md").exists():
+            continue
+        shutil.copytree(skill_dir, root / skill_dir.name, dirs_exist_ok=True)
+        staged.append(skill_dir.name)
+    return staged
+
+
+def build_agentic_prompt(agent_body, staged_names, task_prompt):
+    blocks = []
+    if agent_body.strip():
+        blocks.append(
+            f"--- BEGIN AGENT OPERATING FILE ---\n{agent_body.strip()}\n--- END AGENT OPERATING FILE ---"
+        )
+    if staged_names:
+        blocks.append(
+            "Paperclip runtime skills are available as files in "
+            f"`./.paperclip/skills/` ({len(staged_names)} skills: {', '.join(staged_names)}). "
+            "Read and apply only the skill instructions that match the task."
+        )
+    if not blocks:
+        return task_prompt
+    return "\n\n".join(blocks) + f"\n\n{PREFIX_INSTR}\n\n=== TASK ===\n{task_prompt}"
+
+
 def prompt_parts(role, agent_file, skills, current_agent_file_path=None, skills_dir_path=None):
     rc = json.load(open(benchlib.ROOT / "variants.json"))["roles"].get(role)
     source_meta = {
@@ -187,6 +241,7 @@ def aggregate(records):
             "effort": effort or "cli_default",
             "task_id": task_id,
             "adapterType": rs[0].get("adapterType"),
+            "generationFrame": ",".join(sorted({r.get("generationFrame", "single_shot_concat") for r in rs})),
             "reportedModels": sorted({r.get("model_reported") for r in rs if r.get("model_reported")}),
             "samples": len(rs),
             "okCount": sum(1 for r in rs if r.get("ok")),
@@ -211,6 +266,7 @@ def overall_summary(rows):
         out.append({
             "model": model,
             "effort": effort or "cli_default",
+            "generationFrame": ",".join(sorted({r.get("generationFrame", "single_shot_concat") for r in rs})),
             "tasks": len(rs),
             "samples": sum(r["samples"] for r in rs),
             "okCount": sum(r["okCount"] for r in rs),
@@ -242,6 +298,12 @@ def write_report(out_dir, meta, per_task, overall):
         f"- Reps: `{meta['reps']}`",
         f"- Judge: `{meta['judge']}`",
         f"- Effort override: `{meta['effortOverride']}`",
+        f"- Probe frame policy: `{meta['probeFramePolicy']}`",
+        "- Planned generation methods: "
+        + ", ".join(
+            f"`{model}={frame}`"
+            for model, frame in sorted((meta.get("plannedGenerationMethods") or {}).items())
+        ),
         f"- Agent-file source: `{meta['agentFileSourcePath'] or 'none'}` ({meta['agentFileSourceKind']})",
         f"- Skills source: `{meta['skillsSourcePath'] or 'none'}` ({meta['skillsSourceKind']})",
         f"- Suite source: `{meta['suiteSourcePath']}`",
@@ -253,24 +315,24 @@ def write_report(out_dir, meta, per_task, overall):
         "",
         "## Overall",
         "",
-        "| model | effort | tasks | samples | ok | meanQ | minQ | meanOut | meanIn | q/1k-out |",
-        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| model | frame | effort | tasks | samples | ok | meanQ | minQ | meanOut | meanIn | q/1k-out |",
+        "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in overall:
         lines.append(
-            "| {model} | {effort} | {tasks} | {samples} | {okCount} | {meanQuality:.3f} | {minQuality:.3f} | "
+            "| {model} | {generationFrame} | {effort} | {tasks} | {samples} | {okCount} | {meanQuality:.3f} | {minQuality:.3f} | "
             "{meanOutputTokens:.1f} | {meanInputTokens:.1f} | {meanQPer1kOut:.3f} |".format(**row)
         )
     lines.extend([
         "",
         "## Per Task",
         "",
-        "| model | effort | task | samples | ok | meanQ | minQ | meanOut | meanIn | q/1k-out |",
-        "|---|---|---|---:|---:|---:|---:|---:|---:|---:|",
+        "| model | frame | effort | task | samples | ok | meanQ | minQ | meanOut | meanIn | q/1k-out |",
+        "|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|",
     ])
     for row in per_task:
         lines.append(
-            "| {model} | {effort} | {task_id} | {samples} | {okCount} | {meanQuality:.3f} | {minQuality:.3f} | "
+            "| {model} | {generationFrame} | {effort} | {task_id} | {samples} | {okCount} | {meanQuality:.3f} | {minQuality:.3f} | "
             "{meanOutputTokens:.1f} | {meanInputTokens:.1f} | {meanQPer1kOut:.3f} |".format(**row)
         )
     lines.extend([
@@ -343,6 +405,7 @@ def append_probe_rows(meta, per_task):
                 "reps": meta["reps"],
                 "suiteSourcePath": meta["suiteSourcePath"],
                 "probeContextSha256": meta["probeContextSha256"],
+                "generationFrame": row.get("generationFrame"),
             },
             "skill": None,
             "source": "tsbc_task_probe.py",
@@ -401,6 +464,8 @@ def main():
         "skills": args.skills,
         "judge": cfg["judge"].get("id"),
         "effortOverride": args.effort or "cli_default",
+        "probeFramePolicy": "auto_agentic_antigravity_non_bare_for_book-content-cv",
+        "plannedGenerationMethods": planned_generation_methods(args.role, models, args.agent_file, args.skills),
         "startedAt": now_iso(),
         "workers": workers,
         **source_meta,
@@ -420,6 +485,7 @@ def main():
         "taskIds": meta["taskIds"],
         "models": meta["models"],
         "modelEfforts": {m["id"]: benchlib.model_effort_label(m) for m in models},
+        "plannedGenerationMethods": meta["plannedGenerationMethods"],
         "agentFile": args.agent_file,
         "skills": args.skills,
         "agentFileSha256": meta["agentFileSha256"],
@@ -432,6 +498,12 @@ def main():
     print(f"models : {', '.join(meta['models'])}", flush=True)
     print(f"cell   : {args.agent_file}+{args.skills}", flush=True)
     print(f"effort : {meta['effortOverride']}", flush=True)
+    print(
+        "frames : " + ", ".join(
+            f"{model}={frame}" for model, frame in sorted(meta["plannedGenerationMethods"].items())
+        ),
+        flush=True,
+    )
     print(f"agent  : {meta['agentFileSourcePath'] or 'none'}", flush=True)
     print(f"skills : {meta['skillsSourcePath'] or 'none'}", flush=True)
     print(f"suite  : {meta['suiteSourcePath']}", flush=True)
@@ -449,16 +521,35 @@ def main():
 
     for rep in range(1, args.reps + 1):
         for task in tasks:
-            prompt = build_prompt(af_body, skills_body, task["prompt"])
             for model in models:
                 idx += 1
                 sample_id = f"rep{rep:02d}"
+                frame = generation_method(args.role, model, args.agent_file, args.skills)
                 try:
-                    raw = run_model(prompt, model, adapters_cfg, timeout)
+                    if frame == "agentic_file_mount":
+                        with tempfile.TemporaryDirectory(prefix=f"probe-agy-{args.role}-") as cwd:
+                            staged_skills = stage_skills(
+                                cwd,
+                                meta["skillsSourcePath"] if args.skills == "all" else None,
+                            )
+                            prompt = build_agentic_prompt(af_body, staged_skills, task["prompt"])
+                            raw = run_antigravity_agentic(
+                                prompt,
+                                model.get("model_arg"),
+                                ["--print-timeout", AGY_PRINT_TIMEOUT],
+                                timeout,
+                                cwd,
+                            )
+                    else:
+                        staged_skills = []
+                        prompt = build_prompt(af_body, skills_body, task["prompt"])
+                        raw = run_model(prompt, model, adapters_cfg, timeout)
                     scored = score_run(task, raw, cfg, adapters_cfg, timeout)
                 except Exception as e:
                     raw = benchlib.empty_result()
                     raw["error"] = f"harness exception: {e}"
+                    staged_skills = []
+                    prompt = ""
                     scored = {
                         "deterministicScore": None,
                         "deterministicDetails": [],
@@ -480,6 +571,7 @@ def main():
                     "agentFile": args.agent_file,
                     "skills": args.skills,
                     "judge": cfg["judge"].get("id"),
+                    "generationFrame": frame,
                     "ok": raw.get("ok"),
                     "error": raw.get("error"),
                     "output": raw.get("output"),
@@ -494,6 +586,8 @@ def main():
                     "suiteSha256": meta["suiteSha256"],
                     "wallMs": raw.get("wallMs"),
                     "stderrTail": raw.get("stderrTail"),
+                    "promptChars": len(prompt),
+                    "stagedSkills": len(staged_skills),
                 }
                 rec.update(scored)
                 raw_path = raw_dir / f"{args.role}__{task['id']}__{model['id']}__{sample_id}.json"
@@ -503,7 +597,8 @@ def main():
                 qtxt = f"{q:.3f}" if isinstance(q, (int, float)) else "—"
                 print(
                     f"[{idx:>2}/{total}] {model['id']:<12} {task['id']:<26} {sample_id} "
-                    f"ok={str(bool(rec.get('ok'))):<5} q={qtxt:<5} out={rec.get('outputTokens') or '?':>4}",
+                    f"frame={frame:<19} ok={str(bool(rec.get('ok'))):<5} "
+                    f"q={qtxt:<5} out={rec.get('outputTokens') or '?':>4}",
                     flush=True,
                 )
 

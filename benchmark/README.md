@@ -218,7 +218,12 @@ Use `tsbc_task_probe.py` for that pass. It now accepts explicit
 `--current-agent-file-path`, `--skills-dir-path`, and `--effort` overrides and
 records the source paths plus agent/skills/suite hashes in `summary.json`,
 `report.md`, raw records, and the shared ledger rows, so the issue closeout can
-prove what context and effort were actually measured.
+prove what context and effort were actually measured. For antigravity roles that
+are documented as agentic (`book-chapter`, `content`, `cv-review`),
+non-`bare+none` probe cells now auto-route through the file-mounted
+`agy --print` frame and record the per-model `generationFrame` in the
+artifacts. Do not treat older single-shot Gemini probe rows on those roles as
+live-lane evidence.
 
 Do not publish a live-lane adoption verdict without:
 

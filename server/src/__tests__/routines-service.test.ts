@@ -3050,6 +3050,82 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     expect(runs[1]?.failureReason).toBeNull();
   });
 
+  it("dispatches the scheduled reuse wake after commit so the wakeup sees the reused issue as todo", async () => {
+    let observedReuseWakeStatus: string | null = null;
+    const { companyId, routine, svc } = await seedFixture({
+      wakeup: async (_agentId, wakeupOpts) => {
+        if (wakeupOpts.payload?.mutation !== "update") {
+          return null;
+        }
+        const issueId = typeof wakeupOpts.payload?.issueId === "string" ? wakeupOpts.payload.issueId : null;
+        expect(issueId).toBeTruthy();
+        const issue = await db
+          .select({ status: issues.status })
+          .from(issues)
+          .where(eq(issues.id, issueId!))
+          .then((rows) => rows[0] ?? null);
+        observedReuseWakeStatus = issue?.status ?? null;
+        if (observedReuseWakeStatus !== "todo") {
+          throw new Error(`expected reused issue status todo during wake, saw ${observedReuseWakeStatus ?? "missing"}`);
+        }
+        return null;
+      },
+    });
+    await svc.update(
+      routine.id,
+      {
+        env: {
+          PAPERCLIP_ROUTINE_ISSUE_MODE: { type: "plain", value: "reuse_terminal" },
+        },
+      },
+      {},
+    );
+    const { trigger } = await svc.createTrigger(
+      routine.id,
+      {
+        kind: "schedule",
+        label: "daily",
+        cronExpression: "0 0 * * *",
+        timezone: "UTC",
+      },
+      {},
+    );
+    const pastDue = new Date("2020-01-01T00:00:00.000Z");
+
+    await db
+      .update(routineTriggers)
+      .set({ nextRunAt: pastDue })
+      .where(eq(routineTriggers.id, trigger.id));
+    expect((await svc.tickScheduledTriggers(new Date())).triggered).toBe(1);
+
+    const [firstIssue] = await db
+      .select()
+      .from(issues)
+      .where(eq(issues.companyId, companyId));
+    expect(firstIssue).toBeTruthy();
+
+    await db
+      .update(issues)
+      .set({ status: "done", completedAt: new Date(), executionRunId: null, executionLockedAt: null })
+      .where(eq(issues.id, firstIssue!.id));
+    await svc.syncRunStatusForIssue(firstIssue!.id);
+
+    await db
+      .update(routineTriggers)
+      .set({ nextRunAt: pastDue })
+      .where(eq(routineTriggers.id, trigger.id));
+    expect((await svc.tickScheduledTriggers(new Date())).triggered).toBe(1);
+
+    expect(observedReuseWakeStatus).toBe("todo");
+    const runs = (await db
+      .select()
+      .from(routineRuns)
+      .where(eq(routineRuns.routineId, routine.id)))
+      .sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime());
+    expect(runs[1]?.status).toBe("issue_reused");
+    expect(runs[1]?.failureReason).toBeNull();
+  });
+
   it("records suppressed automatic runs when worktree execution is disabled while allowing manual runs", async () => {
     const runtimeEnv = { PAPERCLIP_IN_WORKTREE: "yes", PAPERCLIP_INSTANCE_ID: "worktree-routines-test" };
     const { companyId, routine, svc } = await seedFixture({ runtimeEnv });

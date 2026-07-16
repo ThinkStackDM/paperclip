@@ -2419,6 +2419,11 @@ export function routineService(
       : dispatchFingerprint;
     const canReuseTerminalExecutionIssue =
       input.source === "schedule" && routineReusesTerminalExecutionIssue(input.routine);
+    let deferredReuseWake:
+      | {
+        issue: { id: string; assigneeAgentId: string | null; status: string };
+      }
+      | null = null;
     const run = await db.transaction(async (tx) => {
       const txDb = tx as unknown as Db;
       const lockTimeoutMs = input.source === "schedule" ? readScheduleDispatchLockTimeoutMs() : 0;
@@ -2702,12 +2707,18 @@ export function routineService(
           throw new Error("Routine dispatch did not produce an execution issue");
         }
 
-        // Keep the fast-path assignment wake for normal dispatches. For scheduled
-        // terminal-issue reuse, tolerate a transient wake-time issue-row lock race:
-        // the reused issue is still valid committed work, and stranded-assignment
-        // recovery will enqueue a normal issue_assigned wake if this immediate
-        // handoff misses.
-        try {
+        // Scheduled terminal-issue reuse must enqueue after commit so the wakeup
+        // service reads the reused issue as todo instead of the stale pre-commit
+        // terminal row. Fresh issue creation keeps the in-transaction fast path.
+        if (input.source === "schedule" && dispatchStatus === "issue_reused") {
+          deferredReuseWake = {
+            issue: {
+              id: executionIssue.id,
+              assigneeAgentId: executionIssue.assigneeAgentId,
+              status: executionIssue.status,
+            },
+          };
+        } else {
           await queueIssueAssignmentWakeup({
             heartbeat,
             issue: executionIssue,
@@ -2717,19 +2728,6 @@ export function routineService(
             requestedByActorType: input.source === "schedule" ? "system" : undefined,
             rethrowOnError: true,
           });
-        } catch (err) {
-          if (
-            input.source === "schedule" &&
-            dispatchStatus === "issue_reused" &&
-            isIssueWakeLockContentionError(err)
-          ) {
-            logger.warn(
-              { err, issueId: executionIssue.id, routineId: input.routine.id, runId: createdRun.id },
-              "scheduled routine issue reuse committed despite transient assignment wake lock contention",
-            );
-          } else {
-            throw err;
-          }
         }
         const updated = await finalizeRun(createdRun.id, {
           status: dispatchStatus,
@@ -2767,6 +2765,18 @@ export function routineService(
         return failed ?? createdRun;
       }
     });
+
+    if (deferredReuseWake) {
+      await queueIssueAssignmentWakeup({
+        heartbeat,
+        issue: deferredReuseWake.issue,
+        reason: "issue_assigned",
+        mutation: "update",
+        contextSource: "routine.dispatch",
+        requestedByActorType: "system",
+        rethrowOnError: false,
+      });
+    }
 
     if (input.source === "schedule" || input.source === "webhook") {
       const actorId = input.source === "schedule" ? "routine-scheduler" : "routine-webhook";

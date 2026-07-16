@@ -957,6 +957,50 @@ describe("shared ACPX engine runtime behavior", () => {
     expect(await pathExists(path.join(cwd, ".claude", "settings.local.json"))).toBe(false);
   });
 
+  it("defaults ACPX cwd and env to the company work-products root when no workspace cwd is available", async () => {
+    const root = await makeTempRoot();
+    const previousHome = process.env.HOME;
+    const previousPaperclipHome = process.env.PAPERCLIP_HOME;
+    const previousPaperclipInstanceId = process.env.PAPERCLIP_INSTANCE_ID;
+    process.env.HOME = root;
+    process.env.PAPERCLIP_HOME = path.join(root, "paperclip-home");
+    process.env.PAPERCLIP_INSTANCE_ID = "instance-1";
+
+    try {
+      const { meta } = await runExecutor({
+        agent: "custom",
+        agentCommand: "node ./fake-acp.js",
+        stateDir: path.join(root, "state"),
+      });
+
+      const expectedCompanyRoot = path.join(
+        process.env.PAPERCLIP_HOME!,
+        "instances",
+        "instance-1",
+        "companies",
+        "company-1",
+      );
+      const expectedWorkProductsDir = path.join(expectedCompanyRoot, "work-products");
+      expect(meta[0]?.cwd).toBe(expectedWorkProductsDir);
+      expect(meta[0]?.env).toMatchObject({
+        PAPERCLIP_COMPANY_ROOT: expectedCompanyRoot,
+        PAPERCLIP_WORK_PRODUCTS_DIR: expectedWorkProductsDir,
+      });
+      expect(meta[0]?.commandNotes).toEqual(
+        expect.arrayContaining([
+          `No execution workspace or explicit cwd was available, so ACPX defaulted to the company work-products root ${expectedWorkProductsDir}.`,
+        ]),
+      );
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousPaperclipHome === undefined) delete process.env.PAPERCLIP_HOME;
+      else process.env.PAPERCLIP_HOME = previousPaperclipHome;
+      if (previousPaperclipInstanceId === undefined) delete process.env.PAPERCLIP_INSTANCE_ID;
+      else process.env.PAPERCLIP_INSTANCE_ID = previousPaperclipInstanceId;
+    }
+  });
+
   it("changes the ACPX session fingerprint when the resolved secret manifest rotates", async () => {
     const root = await makeTempRoot();
     const baseConfig = {
