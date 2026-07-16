@@ -6,7 +6,7 @@ import {
   parseJson,
 } from "@paperclipai/adapter-utils/server-utils";
 
-const CLAUDE_AUTH_REQUIRED_RE = /(?:not\s+logged\s+in|please\s+log\s+in|please\s+run\s+(?:`?claude\s+login`?|\/login)|login\s+required|requires\s+login|unauthorized|authentication\s+required|invalid\s+api\s+key[\s\S]{0,120}(?:\/login|claude\s+login|log\s+in))/i;
+const CLAUDE_AUTH_REQUIRED_RE = /(?:not\s+logged\s+in|please\s+log\s+in|please\s+run\s+(?:`?claude\s+login`?|\/login)|login\s+required|requires\s+login|(?:unauthorized|authentication\s+required|invalid\s+api\s+key)[\s\S]{0,120}(?:\/login|claude\s+login|log\s+in))/i;
 const URL_RE = /(https?:\/\/[^\s'"`<>()[\]{};,!?]+[^\s'"`<>()[\]{};,!.?:]+)/gi;
 
 const CLAUDE_TRANSIENT_UPSTREAM_RE =
@@ -206,6 +206,13 @@ export function detectClaudeLoginRequired(input: {
   stdout: string;
   stderr: string;
 }): { requiresLogin: boolean; loginUrl: string | null } {
+  if (isClaudeCompletedSuccessResult(input.parsed)) {
+    return {
+      requiresLogin: false,
+      loginUrl: null,
+    };
+  }
+
   const resultText = asString(input.parsed?.result, "").trim();
   const messages = [resultText, ...extractClaudeErrorMessages(input.parsed ?? {}), input.stdout, input.stderr]
     .join("\n")
@@ -218,6 +225,19 @@ export function detectClaudeLoginRequired(input: {
     requiresLogin,
     loginUrl: extractClaudeLoginUrl([input.stdout, input.stderr].join("\n")),
   };
+}
+
+export function isClaudeCompletedSuccessResult(parsed: Record<string, unknown> | null | undefined): boolean {
+  if (!parsed) return false;
+
+  const type = asString(parsed.type, "").trim().toLowerCase();
+  const subtype = asString(parsed.subtype, "").trim().toLowerCase();
+  const isError = parsed.is_error === true;
+  const terminalReasons = [parsed.terminal_reason, parsed.terminalReason]
+    .map((value) => asString(value, "").trim().toLowerCase())
+    .filter(Boolean);
+
+  return type === "result" && subtype === "success" && !isError && terminalReasons.includes("completed");
 }
 
 export function describeClaudeFailure(parsed: Record<string, unknown>): string | null {

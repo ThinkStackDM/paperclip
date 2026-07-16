@@ -3,6 +3,7 @@ import {
   parseClaudeStreamJson,
   detectClaudeLoginRequired,
   extractClaudeRetryNotBefore,
+  isClaudeCompletedSuccessResult,
   isClaudeProviderQuotaError,
   isClaudeTransientUpstreamError,
   isClaudePoisonedPreviousMessageIdError,
@@ -80,6 +81,54 @@ describe("detectClaudeLoginRequired", () => {
         stdout: "",
         stderr: "Invalid API key",
       }).requiresLogin,
+    ).toBe(false);
+  });
+
+  it("does not classify tool-level unauthorized text when the final Claude result completed successfully", () => {
+    expect(
+      detectClaudeLoginRequired({
+        parsed: {
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          terminal_reason: "completed",
+          result: "Work completed successfully.",
+        },
+        stdout: 'Tool error: {"code":"RESPONSIBLE_USER_UNAUTHORIZED","message":"not allowed"}',
+        stderr: "cleanup stopped benchmark child with exit code 143",
+      }).requiresLogin,
+    ).toBe(false);
+  });
+});
+
+describe("isClaudeCompletedSuccessResult", () => {
+  it("detects completed structured success results", () => {
+    expect(
+      isClaudeCompletedSuccessResult({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        terminal_reason: "completed",
+      }),
+    ).toBe(true);
+  });
+
+  it("returns false for incomplete or failed results", () => {
+    expect(
+      isClaudeCompletedSuccessResult({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        terminal_reason: "max_turns",
+      }),
+    ).toBe(false);
+    expect(
+      isClaudeCompletedSuccessResult({
+        type: "result",
+        subtype: "error_during_execution",
+        is_error: true,
+        terminal_reason: "completed",
+      }),
     ).toBe(false);
   });
 });

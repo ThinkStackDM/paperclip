@@ -333,4 +333,95 @@ describe("claude remote execution", () => {
     expect(call?.[2]).toContain("12345678-1234-4abc-9def-123456789012");
   });
 
+  it("does not classify tool-level unauthorized output as Claude auth failure after a completed success result", async () => {
+    runChildProcess.mockResolvedValueOnce({
+      exitCode: 143,
+      signal: "SIGTERM",
+      timedOut: false,
+      stdout: [
+        JSON.stringify({ type: "system", subtype: "init", session_id: "claude-session-2", model: "claude-sonnet" }),
+        'Tool error: {"code":"RESPONSIBLE_USER_UNAUTHORIZED","message":"agent-config update denied"}',
+        JSON.stringify({
+          type: "result",
+          session_id: "claude-session-2",
+          subtype: "success",
+          is_error: false,
+          terminal_reason: "completed",
+          result: "Completed assigned work.",
+          usage: { input_tokens: 3, cache_read_input_tokens: 0, output_tokens: 2 },
+        }),
+      ].join("\n"),
+      stderr: "",
+      pid: 124,
+      startedAt: new Date().toISOString(),
+      terminalResultCleanup: {
+        status: "terminated",
+        pid: 999,
+        signal: "SIGTERM",
+        graceMs: 5000,
+      },
+    });
+
+    const rootDir = await mkdtemp(path.join(os.tmpdir(), "paperclip-claude-remote-success-auth-"));
+    cleanupDirs.push(rootDir);
+    const workspaceDir = path.join(rootDir, "workspace");
+    await mkdir(workspaceDir, { recursive: true });
+
+    const result = await execute({
+      runId: "run-ssh-success-auth",
+      agent: {
+        id: "agent-1",
+        companyId: "company-1",
+        name: "Claude Coder",
+        adapterType: "claude_local",
+        adapterConfig: {},
+      },
+      runtime: {
+        sessionId: null,
+        sessionParams: null,
+        sessionDisplayId: null,
+        taskKey: null,
+      },
+      config: {
+        command: "claude",
+      },
+      context: {
+        paperclipWorkspace: {
+          cwd: workspaceDir,
+          source: "project_primary",
+        },
+      },
+      executionTransport: {
+        remoteExecution: {
+          host: "127.0.0.1",
+          port: 2222,
+          username: "fixture",
+          remoteWorkspacePath: "/remote/workspace",
+          remoteCwd: "/remote/workspace",
+          privateKey: "PRIVATE KEY",
+          knownHosts: "[127.0.0.1]:2222 ssh-ed25519 AAAA",
+          strictHostKeyChecking: true,
+        },
+      },
+      onLog: async () => {},
+    });
+
+    expect(result.errorCode).toBeNull();
+    expect(result.errorMessage).toBeNull();
+    expect(result.summary).toBe("Completed assigned work.");
+    expect(result.sessionId).toBe("claude-session-2");
+    expect(result.resultJson).toMatchObject({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      terminal_reason: "completed",
+      unmanagedBackgroundTask: {
+        status: "terminated",
+        pid: 999,
+        signal: "SIGTERM",
+        graceMs: 5000,
+      },
+    });
+  });
+
 });
