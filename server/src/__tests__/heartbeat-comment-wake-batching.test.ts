@@ -13,7 +13,7 @@ import {
   issues,
 } from "@paperclipai/db";
 import { runningProcesses } from "../adapters/index.js";
-import { heartbeatService } from "../services/heartbeat.ts";
+import { buildPaperclipWakePayload, heartbeatService } from "../services/heartbeat.ts";
 import { SUCCESSFUL_RUN_HANDOFF_REQUIRED_NOTICE_BODY } from "../services/recovery/index.ts";
 import {
   getEmbeddedPostgresTestSupport,
@@ -177,6 +177,66 @@ describeEmbeddedPostgres("heartbeat comment wake batching", () => {
 
   afterEach(() => {
     runningProcesses.clear();
+  });
+
+  it("keeps a singular wake comment id visible in the inline payload when the batched array is absent", async () => {
+    const companyId = randomUUID();
+    const issueId = randomUUID();
+    const missingCommentId = randomUUID();
+    const issuePrefix = `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`;
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix,
+      requireBoardApprovalForNewAgents: false,
+      defaultResponsibleUserId: "responsible-user",
+    });
+
+    await db.insert(issues).values({
+      id: issueId,
+      companyId,
+      title: "Wake comment fallback",
+      status: "in_progress",
+      priority: "high",
+      workMode: "standard",
+      responsibleUserId: "responsible-user",
+      issueNumber: 1,
+      identifier: `${issuePrefix}-1`,
+    });
+
+    const payload = await buildPaperclipWakePayload({
+      db,
+      companyId,
+      contextSnapshot: {
+        issueId,
+        taskId: issueId,
+        commentId: missingCommentId,
+        wakeCommentId: missingCommentId,
+        wakeReason: "issue_commented",
+      },
+    });
+
+    expect(payload).toMatchObject({
+      reason: "issue_commented",
+      issue: {
+        id: issueId,
+        identifier: `${issuePrefix}-1`,
+        title: "Wake comment fallback",
+        status: "in_progress",
+        priority: "high",
+        workMode: "standard",
+      },
+      commentIds: [missingCommentId],
+      latestCommentId: missingCommentId,
+      comments: [],
+      commentWindow: {
+        requestedCount: 1,
+        includedCount: 0,
+        missingCount: 1,
+      },
+      fallbackFetchNeeded: true,
+    });
   });
 
   it("defers approval-approved wakes for a running issue so the assignee resumes after the run", async () => {

@@ -4189,13 +4189,26 @@ function deriveCommentId(
 export function extractWakeCommentIds(
   contextSnapshot: Record<string, unknown> | null | undefined,
 ): string[] {
-  const raw = contextSnapshot?.[WAKE_COMMENT_IDS_KEY];
-  if (!Array.isArray(raw)) return [];
   const out: string[] = [];
-  for (const entry of raw) {
+  const append = (entry: unknown) => {
     const value = readNonEmptyString(entry);
-    if (!value || out.includes(value)) continue;
+    if (!value || out.includes(value)) return;
     out.push(value);
+  };
+
+  const raw = contextSnapshot?.[WAKE_COMMENT_IDS_KEY];
+  if (Array.isArray(raw)) {
+    for (const entry of raw) {
+      append(entry);
+    }
+  }
+
+  // Older or raced context snapshots can carry only the singular comment keys.
+  // Treat them as a canonical one-item wake batch so fresh directive comments
+  // cannot collapse to "0/0" + "unknown" in the inline wake payload.
+  if (out.length === 0) {
+    append(contextSnapshot?.wakeCommentId);
+    append(contextSnapshot?.commentId);
   }
   return out;
 }
