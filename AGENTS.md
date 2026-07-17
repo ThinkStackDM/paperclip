@@ -230,3 +230,13 @@ PR #2218 (`feat/external-adapter-phase1`) adds external adapter support. See roo
 This section is local to the ThinkStack served tree (not upstream).
 
 "Smallest relevant verification" and minimal-diff instincts apply to HOW you verify — never to WHAT you deliver. If the issue states explicit parameters (named wake paths to cover, a periodic mechanism to add, byte-identical operations, evidence formats, acceptance-criteria lists), those are acceptance criteria: deliver every one, or surface the conflict on the issue and get a decision BEFORE narrowing. Any shipped deviation must be labelled DEVIATION in the closeout and approved. Silent scope-narrowing is a malformed close (TSKB0055 Gate G8) and gets reopened.
+
+<!-- BEGIN THINKSTACK OPS RULE: asset-custody-block -->
+## Gate AC1 — durable artifact and TSKB custody (standing rule)
+
+- Canonical knowledge base: `/Users/glad0s/TSKB`. A project or worktree `docs/TSKB/` folder is a consultation copy or draft pocket, never the permanent source of truth. Reusable process learning must be folded into the relevant canonical `~/TSKB/KB/` entry before the issue closes.
+- Durable deliverables: create work under a path containing `work-products/<ISSUE-ID>/` (or the issue's established durable product folder), then upload every true review/delivery file to the Paperclip issue and create the matching artifact work product. A chat-only file, temp path, model cache, or worktree-only path is not a delivered asset.
+- Preserve source plus render: for generated media, retain the editable/source inputs, prompts or provenance notes, and the final render. Do not overwrite an approved/released asset; create a new version and record what it supersedes.
+- X10 custody is automatic only after the artifact reaches Paperclip storage or a recognized `work-products`/`artifacts` folder. The hourly custody job versions those roots into `/Volumes/X10 Pro/TSKB-Assets/TSAS - [ALL] - Paperclip Asset Custody - v1.0 - 07-26/`.
+- Closeout evidence must link the Paperclip attachment/work product and cite any canonical TSKB delta. If no reusable learning occurred, say so; do not manufacture a KB change.
+<!-- END THINKSTACK OPS RULE: asset-custody-block -->
