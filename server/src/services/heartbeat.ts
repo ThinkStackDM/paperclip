@@ -16393,13 +16393,22 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
 
           const now = new Date();
           const reason = "Cancelled because a fresh issue_assigned wake superseded a stale queued same-issue wake";
+          const queuedContext = parseObject(queuedRun.contextSnapshot);
+          const queuedWakeReason = readNonEmptyString(queuedContext.wakeReason);
           const cancelled = await tx
             .update(heartbeatRuns)
             .set({
               status: "cancelled",
               finishedAt: now,
               error: reason,
-              errorCode: "issue_assignment_superseded",
+              errorCode: "superseded_by_fresh_issue_assignment",
+              resultJson: {
+                ...parseObject(queuedRun.resultJson),
+                stopReason: "superseded_by_fresh_issue_assignment",
+                supersededByWakeReason: "issue_assigned",
+                supersededRunWakeReason: queuedWakeReason,
+                currentIssueStatus: issue.status,
+              },
               updatedAt: now,
             })
             .where(and(eq(heartbeatRuns.id, queuedRun.id), eq(heartbeatRuns.status, "queued")))
