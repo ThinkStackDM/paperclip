@@ -3160,6 +3160,22 @@ function shouldSupersedeQueuedContinuationWakeForIssueAssignment(input: {
   );
 }
 
+function shouldSupersedeQueuedRunForFreshIssueAssignment(input: {
+  incomingWakeReason: string | null | undefined;
+  issueStatus: string | null | undefined;
+  queuedRun: Pick<typeof heartbeatRuns.$inferSelect, "status" | "contextSnapshot"> | null;
+}) {
+  if (input.incomingWakeReason !== "issue_assigned") return false;
+  if (input.issueStatus !== "todo") return false;
+  if (!input.queuedRun || input.queuedRun.status !== "queued") return false;
+
+  const queuedContext = parseObject(input.queuedRun.contextSnapshot);
+  if (deriveCommentId(queuedContext, null)) return false;
+
+  const queuedWakeReason = readNonEmptyString(queuedContext.wakeReason);
+  return queuedWakeReason !== "issue_assigned";
+}
+
 const SESSION_CONFIGURED_MODEL_KEY = "__paperclipConfiguredModel";
 const SESSION_CONFIG_FINGERPRINT_KEY = "__paperclipConfigFingerprint";
 const SESSION_CONFIG_FINGERPRINT_VERSION_KEY = "__paperclipConfigFingerprintVersion";
@@ -16703,6 +16719,60 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
           }
         }
 
+        if (
+          activeExecutionRun &&
+          activeExecutionRun.status === "queued" &&
+          shouldSupersedeQueuedRunForFreshIssueAssignment({
+            incomingWakeReason: readNonEmptyString(enrichedContextSnapshot.wakeReason),
+            issueStatus: issue.status,
+            queuedRun: activeExecutionRun,
+          })
+        ) {
+          const staleQueuedContext = parseObject(activeExecutionRun.contextSnapshot);
+          const staleQueuedWakeReason = readNonEmptyString(staleQueuedContext.wakeReason);
+          const now = new Date();
+          const cancelled = await tx
+            .update(heartbeatRuns)
+            .set({
+              status: "cancelled",
+              finishedAt: now,
+              error: "Cancelled because a fresh issue_assigned wake superseded an older queued same-issue wake",
+              errorCode: "superseded_by_fresh_issue_assignment",
+              resultJson: {
+                ...parseObject(activeExecutionRun.resultJson),
+                stopReason: "superseded_by_fresh_issue_assignment",
+                supersededByWakeReason: "issue_assigned",
+                supersededRunWakeReason: staleQueuedWakeReason,
+                currentIssueStatus: issue.status,
+              },
+              updatedAt: now,
+            })
+            .where(
+              and(
+                eq(heartbeatRuns.id, activeExecutionRun.id),
+                eq(heartbeatRuns.status, "queued"),
+              ),
+            )
+            .returning()
+            .then((rows) => rows[0] ?? null);
+
+          if (cancelled?.wakeupRequestId) {
+            await tx
+              .update(agentWakeupRequests)
+              .set({
+                status: "cancelled",
+                finishedAt: now,
+                error: "Cancelled because a fresh issue_assigned wake superseded an older queued same-issue wake",
+                updatedAt: now,
+              })
+              .where(eq(agentWakeupRequests.id, cancelled.wakeupRequestId));
+          }
+
+          if (cancelled) {
+            activeExecutionRun = null;
+          }
+        }
+
         if (activeExecutionRun) {
           const executionAgent = await tx
             .select({ name: agents.name })
@@ -16980,7 +17050,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       .where(and(eq(heartbeatRuns.agentId, agentId), inArray(heartbeatRuns.status, [...EXECUTION_PATH_HEARTBEAT_RUN_STATUSES])))
       .orderBy(desc(heartbeatRuns.createdAt));
 
-    const sameScopeQueuedRun = activeRuns.find(
+    let sameScopeQueuedRun = activeRuns.find(
       (candidate) => candidate.status === "queued" && isSameTaskScope(runTaskKey(candidate), taskKey),
     );
     const sameScopeScheduledRetryRun = activeRuns.find(
@@ -16993,6 +17063,49 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       Boolean(sameScopeRunningRun) &&
       !sameScopeQueuedRun &&
       shouldQueueFollowupForRunningIssueWake({ contextSnapshot: enrichedContextSnapshot, wakeCommentId });
+
+    if (issueId && sameScopeQueuedRun) {
+      const incomingWakeReason = readNonEmptyString(enrichedContextSnapshot.wakeReason);
+      if (incomingWakeReason === "issue_assigned") {
+        const issueStatus = await db
+          .select({ status: issues.status })
+          .from(issues)
+          .where(and(eq(issues.id, issueId), eq(issues.companyId, agent.companyId)))
+          .then((rows) => rows[0]?.status ?? null);
+
+        if (
+          shouldSupersedeQueuedRunForFreshIssueAssignment({
+            incomingWakeReason,
+            issueStatus,
+            queuedRun: sameScopeQueuedRun,
+          })
+        ) {
+          const staleQueuedContext = parseObject(sameScopeQueuedRun.contextSnapshot);
+          const staleQueuedWakeReason = readNonEmptyString(staleQueuedContext.wakeReason);
+          await cancelRunInternal(
+            sameScopeQueuedRun.id,
+            "Cancelled because a fresh issue_assigned wake superseded an older queued same-issue wake",
+            {
+              errorCode: "superseded_by_fresh_issue_assignment",
+              resultJson: {
+                supersededByWakeReason: incomingWakeReason,
+                supersededRunWakeReason: staleQueuedWakeReason,
+                currentIssueStatus: issueStatus,
+              },
+              eventMessage: "queued same-issue wake superseded by fresh issue assignment",
+              eventPayload: {
+                issueId,
+                currentIssueStatus: issueStatus,
+                supersededByWakeReason: incomingWakeReason,
+                supersededRunWakeReason: staleQueuedWakeReason,
+              },
+            },
+          );
+          sameScopeQueuedRun = null;
+        }
+      }
+    }
+
     const rawCoalescedTarget =
       sameScopeQueuedRun ??
       sameScopeScheduledRetryRun ??
