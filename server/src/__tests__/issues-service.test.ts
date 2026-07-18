@@ -1,4 +1,6 @@
+import { readFile, rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
+import path from "node:path";
 import { asc, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
@@ -42,6 +44,7 @@ import {
   WORKSPACE_WORKTREE_REQUIRES_PROJECT_REMEDIATION,
 } from "../services/execution-workspace-policy.ts";
 import { buildAgentMentionHref, buildProjectMentionHref, MAX_ISSUE_REQUEST_DEPTH, type IssueWorkMode } from "@paperclipai/shared";
+import { resolvePaperclipInstanceRoot } from "@paperclipai/shared/home-paths";
 
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
 const describeEmbeddedPostgres = embeddedPostgresSupport.supported ? describe : describe.skip;
@@ -68,6 +71,7 @@ describeEmbeddedPostgres("issueService.fallbackReassign", () => {
   let db!: ReturnType<typeof createDb>;
   let svc!: ReturnType<typeof issueService>;
   let tempDb: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>> | null = null;
+  const companyRootsToCleanup = new Set<string>();
 
   beforeAll(async () => {
     tempDb = await startEmbeddedPostgresTestDatabase("paperclip-issues-fallback-reassign-");
@@ -82,6 +86,10 @@ describeEmbeddedPostgres("issueService.fallbackReassign", () => {
     await db.delete(heartbeatRuns);
     await db.delete(agents);
     await db.delete(companies);
+    for (const companyRoot of companyRootsToCleanup) {
+      await rm(companyRoot, { recursive: true, force: true });
+    }
+    companyRootsToCleanup.clear();
   });
 
   afterAll(async () => {
@@ -97,6 +105,9 @@ describeEmbeddedPostgres("issueService.fallbackReassign", () => {
     const checkoutRunId = randomUUID();
     const executionRunId = randomUUID();
     const resetAt = new Date("2026-06-25T10:00:00.000Z");
+    const companyRoot = path.resolve(resolvePaperclipInstanceRoot(), "companies", companyId);
+    const fallbackStatePath = path.resolve(companyRoot, "fallback-state", `${primaryAgentId}.json`);
+    companyRootsToCleanup.add(companyRoot);
 
     await db.insert(companies).values({
       id: companyId,
@@ -227,6 +238,22 @@ describeEmbeddedPostgres("issueService.fallbackReassign", () => {
     expect(storedComment.body).toContain(`From agent: ${primaryAgentId}`);
     expect(storedComment.body).toContain(`To agent: ${sisterAgentId}`);
     expect(storedComment.body).toContain(`Reset at: ${resetAt.toISOString()}`);
+
+    const state = JSON.parse(await readFile(fallbackStatePath, "utf8")) as Record<string, unknown>;
+    expect(state).toMatchObject({
+      primaryAgentId,
+      sisterAgentId,
+      sisterAgentIds: [sisterAgentId],
+      limitKind: "usage",
+      resetAt: resetAt.toISOString(),
+      movedIssues: ["TST-42"],
+      movedIssueTargets: {
+        "TST-42": sisterAgentId,
+      },
+      runId,
+    });
+    expect(typeof state.detectedAt).toBe("string");
+    expect(typeof state.lastDeferredAt).toBe("string");
   });
 });
 

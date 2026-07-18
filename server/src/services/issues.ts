@@ -1,5 +1,7 @@
 import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
 import { and, asc, desc, eq, gt, gte, inArray, isNull, like, lt, ne, notInArray, or, sql, type SQL } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
@@ -63,6 +65,7 @@ import {
   isUuidLike,
   normalizeIssueIdentifier as normalizeIssueReferenceIdentifier,
 } from "@paperclipai/shared";
+import { resolvePaperclipInstanceRoot } from "@paperclipai/shared/home-paths";
 import { conflict, HttpError, notFound, unprocessable } from "../errors.js";
 import { logger } from "../middleware/logger.js";
 import { parseObject } from "../adapters/utils.js";
@@ -424,6 +427,148 @@ function buildFallbackReassignAuditComment(input: {
     input.resetAt ? `Reset at: ${input.resetAt.toISOString()}` : null,
     input.runId ? `Run id: ${input.runId}` : null,
   ].filter((line): line is string => Boolean(line)).join("\n");
+}
+
+type FallbackReassignReason = "session_limit" | "weekly_limit" | "usage_limit" | "paused_primary";
+
+type PersistedFallbackState = {
+  primaryAgentId: string;
+  sisterAgentId: string;
+  sisterAgentIds: string[];
+  runId: string | null;
+  trigger?: string;
+  limitKind?: string;
+  pauseReason?: string;
+  status?: string;
+  detectedAt?: string;
+  resetAt?: string | null;
+  movedIssues: string[];
+  movedIssueTargets: Record<string, string>;
+  skippedActiveRun: string[];
+  releasedCheckouts: string[];
+  reassignFailed: string[];
+  lastDeferredAt?: string;
+  lastSwapBackAt?: string;
+  lastSkipped?: unknown[];
+};
+
+function uniqueStrings(values: Array<string | null | undefined>) {
+  return Array.from(new Set(values.filter((value): value is string => typeof value === "string" && value.trim().length > 0)));
+}
+
+function readStringArray(value: unknown) {
+  return Array.isArray(value) ? uniqueStrings(value.map((entry) => (typeof entry === "string" ? entry : null))) : [];
+}
+
+function readFallbackIssueTargets(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const result: Record<string, string> = {};
+  for (const [key, target] of Object.entries(value)) {
+    if (typeof target === "string" && key.trim().length > 0 && target.trim().length > 0) {
+      result[key] = target;
+    }
+  }
+  return result;
+}
+
+function fallbackLimitKindForReason(reason: FallbackReassignReason) {
+  switch (reason) {
+    case "session_limit":
+      return "session";
+    case "weekly_limit":
+      return "weekly";
+    case "usage_limit":
+      return "usage";
+    case "paused_primary":
+      return "paused";
+  }
+}
+
+function fallbackTriggerForReason(reason: FallbackReassignReason) {
+  return reason === "paused_primary" ? "paused-primary" : "limit-failover";
+}
+
+function fallbackDeferredStatusForReason(reason: FallbackReassignReason) {
+  return reason === "paused_primary" ? "deferred-primary-paused" : "deferred-primary-limit";
+}
+
+async function persistFallbackReassignState(input: {
+  companyId: string;
+  primaryAgentId: string;
+  sisterAgentId: string;
+  issueRef: string;
+  reason: FallbackReassignReason;
+  resetAt: Date | null;
+  runId: string | null;
+}) {
+  const fallbackStateDir = path.resolve(
+    resolvePaperclipInstanceRoot(),
+    "companies",
+    input.companyId,
+    "fallback-state",
+  );
+  const fallbackStatePath = path.resolve(fallbackStateDir, `${input.primaryAgentId}.json`);
+  await fs.mkdir(fallbackStateDir, { recursive: true });
+
+  const raw = await fs.readFile(fallbackStatePath, "utf8").catch((error: NodeJS.ErrnoException) => {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  });
+
+  let existing: Partial<PersistedFallbackState> = {};
+  if (raw && raw.trim().length > 0) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        existing = parsed as Partial<PersistedFallbackState>;
+      }
+    } catch {
+      existing = {};
+    }
+  }
+
+  const nowIso = new Date().toISOString();
+  const movedIssueTargets = {
+    ...readFallbackIssueTargets(existing.movedIssueTargets),
+    [input.issueRef]: input.sisterAgentId,
+  };
+  const nextState: PersistedFallbackState = {
+    primaryAgentId: input.primaryAgentId,
+    sisterAgentId: input.sisterAgentId,
+    sisterAgentIds: uniqueStrings([input.sisterAgentId, ...readStringArray(existing.sisterAgentIds)]),
+    runId: input.runId,
+    trigger: typeof existing.trigger === "string" && existing.trigger.trim().length > 0
+      ? existing.trigger
+      : fallbackTriggerForReason(input.reason),
+    limitKind: fallbackLimitKindForReason(input.reason),
+    ...(input.reason === "paused_primary"
+      ? {
+          pauseReason:
+            typeof existing.pauseReason === "string" && existing.pauseReason.trim().length > 0
+              ? existing.pauseReason
+              : "manual",
+        }
+      : {}),
+    status:
+      typeof existing.status === "string" && existing.status.trim().length > 0
+        ? existing.status
+        : fallbackDeferredStatusForReason(input.reason),
+    detectedAt:
+      typeof existing.detectedAt === "string" && existing.detectedAt.trim().length > 0
+        ? existing.detectedAt
+        : nowIso,
+    resetAt: input.resetAt?.toISOString() ?? (typeof existing.resetAt === "string" ? existing.resetAt : null),
+    movedIssues: uniqueStrings([input.issueRef, ...readStringArray(existing.movedIssues)]),
+    movedIssueTargets,
+    skippedActiveRun: readStringArray(existing.skippedActiveRun),
+    releasedCheckouts: readStringArray(existing.releasedCheckouts),
+    reassignFailed: readStringArray(existing.reassignFailed),
+    lastDeferredAt: nowIso,
+    ...(typeof existing.lastSwapBackAt === "string" ? { lastSwapBackAt: existing.lastSwapBackAt } : {}),
+    ...(Array.isArray(existing.lastSkipped) ? { lastSkipped: existing.lastSkipped } : {}),
+  };
+
+  await fs.writeFile(fallbackStatePath, `${JSON.stringify(nextState, null, 2)}\n`, "utf8");
 }
 
 type IssueCommentRunLogAttributionCandidate = {
@@ -7544,6 +7689,17 @@ export function issueService(db: Db) {
           .returning()
           .then((rows) => rows[0] ?? null);
         if (!updated) throw notFound("Issue not found");
+
+        const issueRef = (current.identifier ?? current.id).trim();
+        await persistFallbackReassignState({
+          companyId: current.companyId,
+          primaryAgentId: current.assigneeAgentId,
+          sisterAgentId: sister.id,
+          issueRef,
+          reason,
+          resetAt: parsedResetAt && !Number.isNaN(parsedResetAt.getTime()) ? parsedResetAt : null,
+          runId,
+        });
 
         const [comment] = await tx
           .insert(issueComments)

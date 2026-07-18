@@ -74,6 +74,7 @@ function registerRouteMocks() {
     accessService: () => mockAccessService,
     agentService: () => mockAgentService,
     companyService: () => ({ getById: vi.fn(async () => ({ id: companyId, issuePrefix: "PAP" })) }),
+    companySkillService: () => ({}),
     documentAnnotationService: () => ({ remapOpenThreadsForDocument: async () => [] }),
     documentService: () => ({ upsertIssueDocument: vi.fn() }),
     executionWorkspaceService: () => ({}),
