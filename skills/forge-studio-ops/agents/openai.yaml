@@ -1,0 +1,4 @@
+interface:
+  display_name: "Forge Studio Ops"
+  short_description: "Create and govern Forge Studio brand assets"
+  default_prompt: "Use $forge-studio-ops to create a governed brand Candidate pack or audit brand asset usage."
