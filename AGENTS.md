@@ -240,3 +240,13 @@ This section is local to the ThinkStack served tree (not upstream).
 - X10 custody is automatic only after the artifact reaches Paperclip storage or a recognized `work-products`/`artifacts` folder. The hourly custody job versions those roots into `/Volumes/X10 Pro/TSKB-Assets/TSAS - [ALL] - Paperclip Asset Custody - v1.0 - 07-26/`.
 - Closeout evidence must link the Paperclip attachment/work product and cite any canonical TSKB delta. If no reusable learning occurred, say so; do not manufacture a KB change.
 <!-- END THINKSTACK OPS RULE: asset-custody-block -->
+
+<!-- BEGIN THINKSTACK OPS RULE: brand-mark-ban-block -->
+## Gate BR1 — operator-banned trio marks (standing rule)
+
+- **BANNED 2026-07-18:** Cashflow Compass hexagon + chart/trend line or arrow; Stack Lab hexagon + stacked diamond/layer/chevron; Vault Cases magnifying glass + fingerprint/radar arcs/dots.
+- The ban includes every colour, glow, outline, mono, animated, raster, vector, lockup, redraw, and embedded derivative. Historical copies in X10, Git, work products, chat attachments, or quarantine are evidence only—not reusable references.
+- Machine registry: `/Users/glad0s/scripts/brand/banned-marks.json`. Canonical decision: `/Users/glad0s/TSKB/KB/TSKB0059 [ALL] - Banned Brand Marks Registry - v1.0 - 07-26/README.md`.
+- The active `mark.svg` / `mark.png` slots for these brands are intentionally absent. Do not repair, restore, regenerate, substitute, or route around that absence. Any render requiring one of these marks fails closed until a replacement receives explicit operator approval.
+- Before trio brand work, run `/Users/glad0s/scripts/brand/check-banned-marks.sh`. A non-zero result blocks production and promotion.
+<!-- END THINKSTACK OPS RULE: brand-mark-ban-block -->
