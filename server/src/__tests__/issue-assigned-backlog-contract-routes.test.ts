@@ -3,9 +3,26 @@ import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const assigneeAgentId = "22222222-2222-4222-8222-222222222222";
+const primaryAgentId = "33333333-3333-4333-8333-333333333333";
+const sisterAgentId = "44444444-4444-4444-8444-444444444444";
 
 const mockWakeup = vi.hoisted(() => vi.fn(async () => undefined));
 const mockLogActivity = vi.hoisted(() => vi.fn(async () => undefined));
+const mockAgentService = vi.hoisted(() => ({
+  getById: vi.fn(async () => null),
+  getFallbackPrimaryRelationshipForSister: vi.fn(async () => null),
+  list: vi.fn(async () => []),
+  listFallbackRelationships: vi.fn(async () => []),
+  resolveByReference: vi.fn(async (_companyId: string, reference: string) => ({
+    ambiguous: false,
+    agent: {
+      id: reference,
+      companyId: "company-1",
+      status: "active",
+      orgChainHealth: { status: "healthy" },
+    },
+  })),
+}));
 const mockIssueService = vi.hoisted(() => ({
   create: vi.fn(),
   createChild: vi.fn(),
@@ -30,18 +47,7 @@ vi.mock("../services/index.js", () => ({
     })),
     hasPermission: vi.fn(async () => true),
   }),
-  agentService: () => ({
-    getById: vi.fn(async () => null),
-    resolveByReference: vi.fn(async (_companyId: string, reference: string) => ({
-      ambiguous: false,
-      agent: {
-        id: reference,
-        companyId: "company-1",
-        status: "active",
-        orgChainHealth: { status: "healthy" },
-      },
-    })),
-  }),
+  agentService: () => mockAgentService,
   companySkillService: () => ({
     completeTestRunForIssue: vi.fn(async () => null),
   }),
@@ -170,6 +176,10 @@ function expectClearAssignedStatusValidation(res: request.Response) {
 describe("assigned backlog creation contract", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockAgentService.getById.mockResolvedValue(null);
+    mockAgentService.getFallbackPrimaryRelationshipForSister.mockResolvedValue(null);
+    mockAgentService.list.mockResolvedValue([]);
+    mockAgentService.listFallbackRelationships.mockResolvedValue([]);
     mockIssueService.getById.mockResolvedValue(makeIssue({
       id: "parent-1",
       title: "Parent issue",
@@ -243,6 +253,66 @@ describe("assigned backlog creation contract", () => {
           statusDefaultReason: "assigned_omitted_status",
           assignmentWakeSkipped: false,
         }),
+      }),
+    );
+  });
+
+  it("normalizes direct assignment from a fallback sister back to its invokable primary", async () => {
+    mockAgentService.getById.mockImplementation(async (id: string) => {
+      if (id === sisterAgentId) {
+        return {
+          id: sisterAgentId,
+          companyId: "company-1",
+          status: "idle",
+          orgChainHealth: { status: "healthy" },
+        };
+      }
+      if (id === primaryAgentId) {
+        return {
+          id: primaryAgentId,
+          companyId: "company-1",
+          status: "idle",
+          orgChainHealth: { status: "healthy" },
+        };
+      }
+      return null;
+    });
+    mockAgentService.getFallbackPrimaryRelationshipForSister.mockResolvedValue({
+      id: "relationship-1",
+      companyId: "company-1",
+      primaryAgentId,
+      sisterAgentId,
+      priority: 1,
+      createdBy: "seed",
+      createdAt: new Date("2026-07-17T12:00:00.000Z"),
+      revokedAt: null,
+    });
+
+    const res = await request(await createApp())
+      .post("/api/companies/company-1/issues")
+      .send({
+        title: "Fallback sister should normalize",
+        assigneeAgentId: sisterAgentId,
+      });
+
+    expect(res.status).toBe(201);
+    expect(mockIssueService.create).toHaveBeenCalledWith(
+      "company-1",
+      expect.objectContaining({
+        title: "Fallback sister should normalize",
+        assigneeAgentId: primaryAgentId,
+        status: "todo",
+      }),
+    );
+    expect(res.body).toEqual(expect.objectContaining({
+      assigneeAgentId: primaryAgentId,
+      status: "todo",
+    }));
+    expect(mockWakeup).toHaveBeenCalledWith(
+      primaryAgentId,
+      expect.objectContaining({
+        source: "assignment",
+        reason: "issue_assigned",
       }),
     );
   });

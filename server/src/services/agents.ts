@@ -1060,6 +1060,18 @@ export function agentService(db: Db) {
         ))
         .then((rows) => rows[0] ?? null),
 
+    getFallbackPrimaryRelationshipForSister: async (companyId: string, sisterAgentId: string) =>
+      db
+        .select()
+        .from(agentFallbackSisters)
+        .where(and(
+          eq(agentFallbackSisters.companyId, companyId),
+          eq(agentFallbackSisters.sisterAgentId, sisterAgentId),
+          isNull(agentFallbackSisters.revokedAt),
+        ))
+        .orderBy(asc(agentFallbackSisters.priority), asc(agentFallbackSisters.createdAt))
+        .then((rows) => rows[0] ?? null),
+
     revokeFallbackRelationship: async (companyId: string, primaryAgentId: string, sisterAgentId: string) => {
       const now = new Date();
       return db

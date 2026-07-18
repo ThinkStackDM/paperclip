@@ -5013,7 +5013,27 @@ export function issueRoutes(
     }
 
     const assignee = await agentsSvc.getById(normalizedAssigneeAgentId);
-    if (!assignee || assignee.companyId !== companyId || assignee.status !== "paused") {
+    if (!assignee || assignee.companyId !== companyId) {
+      return normalizedAssigneeAgentId;
+    }
+
+    const primaryRelationship = await agentsSvc.getFallbackPrimaryRelationshipForSister(
+      companyId,
+      assignee.id,
+    );
+    if (primaryRelationship) {
+      const primary = await agentsSvc.getById(primaryRelationship.primaryAgentId);
+      if (
+        primary
+        && primary.companyId === companyId
+        && isAgentStatusInvokable(primary.status)
+        && primary.orgChainHealth?.status !== "invalid_org_chain"
+      ) {
+        return primary.id;
+      }
+    }
+
+    if (assignee.status !== "paused") {
       return normalizedAssigneeAgentId;
     }
 
