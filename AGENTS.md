@@ -251,3 +251,13 @@ This section is local to the ThinkStack served tree (not upstream).
 - Originals are work in progress. Nothing from `/Volumes/X10 Pro/TSKB-Assets/Operator Review/Trio Originals - Working Review - 2026-07-18/WORKING COPY/` becomes canonical until the operator declares the review complete and a promotion pass records new hashes.
 - Before trio brand work, run `/Users/glad0s/scripts/brand/check-banned-marks.sh`. A non-zero result blocks production and promotion.
 <!-- END THINKSTACK OPS RULE: brand-mark-ban-block -->
+
+<!-- BEGIN THINKSTACK OPS RULE: asset-rejection-block -->
+## Gate AC2 — operator cleanup decisions (standing rule)
+
+- The 2026-07-18 full custody review removed 209 files and installed 233 permanent additions. Exact decisions, paths, and SHA-256 hashes are in `/Users/glad0s/scripts/asset-custody/` and TSKB0069.
+- A rejection is scoped to the exact former path plus exact bytes. Do not extrapolate it into a visual-family, file-type, brand, directory, or global same-hash ban. A different replacement at the former path is allowed; an identical file at another explicitly approved path is not automatically rejected.
+- Never restore exact rejected bytes to a former source path from Git, X10 `versions/`, the immutable review baseline, Trash, model caches, work products, or chat attachments.
+- The consolidated Hermes B-roll under `/Users/glad0s/scripts/brand/broll images/` and `/Users/glad0s/scripts/brand/broll video/` is an approved permanent asset library. New generated media must be saved to governed source/work-product paths, not left only in model caches.
+- Before custody recovery, source restoration, or bulk asset promotion, run `/Users/glad0s/scripts/asset-custody/check-operator-rejections.sh`. A non-zero result blocks the operation.
+<!-- END THINKSTACK OPS RULE: asset-rejection-block -->
