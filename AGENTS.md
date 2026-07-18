@@ -242,11 +242,12 @@ This section is local to the ThinkStack served tree (not upstream).
 <!-- END THINKSTACK OPS RULE: asset-custody-block -->
 
 <!-- BEGIN THINKSTACK OPS RULE: brand-mark-ban-block -->
-## Gate BR1 — operator-banned trio marks (standing rule)
+## Gate BR1 — exact-file trio re-render ban (standing rule)
 
-- **BANNED 2026-07-18:** Cashflow Compass hexagon + chart/trend line or arrow; Stack Lab hexagon + stacked diamond/layer/chevron; Vault Cases magnifying glass + fingerprint/radar arcs/dots.
-- The ban includes every colour, glow, outline, mono, animated, raster, vector, lockup, redraw, and embedded derivative. Historical copies in X10, Git, work products, chat attachments, or quarantine are evidence only—not reusable references.
-- Machine registry: `/Users/glad0s/scripts/brand/banned-marks.json`. Canonical decision: `/Users/glad0s/TSKB/KB/TSKB0059 [ALL] - Banned Brand Marks Registry - v1.0 - 07-26/README.md`.
-- The active `mark.svg` / `mark.png` slots for these brands are intentionally absent. Do not repair, restore, regenerate, substitute, or route around that absence. Any render requiring one of these marks fails closed until a replacement receives explicit operator approval.
+- **BANNED 2026-07-18:** only the three 1024px middle-column files confirmed in operator visual review: Cashflow Compass SHA `363a1f5202a3…`, Stack Lab SHA `e40056ee7176…`, and Vault Cases SHA `d54338e704ac…`. Their former paths and full hashes are in `/Users/glad0s/scripts/brand/banned-marks.json`.
+- Do **not** extrapolate this into a shape, style, concept, family, colour, SVG, or future-original ban. The left-column shape/style is allowed and is being recreated. Future genuine originals are allowed.
+- The right-column intro-slide stills (CC `37116fcfe690…`, SL `a91030eef30a…`, VC `84b8911db1b0…`) are approved reference evidence and must be preserved through the recreation pass; they are not canonical source files and may contain minor render discrepancies.
+- Byte-identical copies of the three banned middle-column files are prohibited. Historical copies stay in quarantine/X10 versions as evidence only and must not return to active reference-lock paths.
+- Originals are work in progress. Nothing from `/Volumes/X10 Pro/TSKB-Assets/Operator Review/Trio Originals - Working Review - 2026-07-18/WORKING COPY/` becomes canonical until the operator declares the review complete and a promotion pass records new hashes.
 - Before trio brand work, run `/Users/glad0s/scripts/brand/check-banned-marks.sh`. A non-zero result blocks production and promotion.
 <!-- END THINKSTACK OPS RULE: brand-mark-ban-block -->
