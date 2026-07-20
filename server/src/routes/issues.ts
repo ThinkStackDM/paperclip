@@ -5056,6 +5056,38 @@ export function issueRoutes(
 
     return normalizedAssigneeAgentId;
   }
+
+  async function resolveRecoveryFallbackPrimaryAgentId(input: {
+    companyId: string;
+    currentAssigneeAgentId: string | null;
+    targetAgentId: string;
+    activeRecoveryAction: Awaited<ReturnType<typeof recoveryActionsSvc.getActiveForIssue>> | null;
+  }) {
+    const currentAssigneeAgentId = input.currentAssigneeAgentId;
+    const activeRecoveryAction = input.activeRecoveryAction;
+    if (!currentAssigneeAgentId || !activeRecoveryAction) return null;
+    if (activeRecoveryAction.ownerAgentId !== currentAssigneeAgentId) return null;
+
+    const candidates = [
+      activeRecoveryAction.previousOwnerAgentId,
+      activeRecoveryAction.returnOwnerAgentId,
+    ].filter((value, index, items): value is string =>
+      typeof value === "string" && value.length > 0 && items.indexOf(value) === index,
+    );
+
+    for (const candidate of candidates) {
+      if (candidate === currentAssigneeAgentId) continue;
+      const relationship = await agentsSvc.getFallbackRelationship(
+        input.companyId,
+        candidate,
+        input.targetAgentId,
+      );
+      if (relationship) {
+        return candidate;
+      }
+    }
+    return null;
+  }
   function toValidTimestamp(value: Date | string | null | undefined) {
     if (!value) return null;
     const timestamp = value instanceof Date ? value.getTime() : new Date(value).getTime();
@@ -8517,16 +8549,6 @@ export function issueRoutes(
         });
         return;
       }
-      if (req.body.expectedFromAgentId && req.body.expectedFromAgentId !== fromAgentId) {
-        // Integrity guard against races: the caller's view of the primary must
-        // match the current assignee before we swap.
-        res.status(409).json({
-          error: "Fallback reassignment primary mismatch",
-          details: { issueId: id, expectedFromAgentId: req.body.expectedFromAgentId, actualAssigneeAgentId: fromAgentId },
-        });
-        return;
-      }
-
       const targetAgentId = await normalizeIssueAssigneeAgentReference(
         existing.companyId,
         req.body.toAgentId as string,
@@ -8549,55 +8571,78 @@ export function issueRoutes(
       }
 
       if (targetAgentId !== actorAgentId) {
-        const delegatedFallbackDecision = await decideAgentIssueMutationOverride(
-          existing,
-          actorAgentId,
-          {
-            action: "tasks:fallback_reassign",
-            scope: { targetAgentId },
-          },
-        );
-        if (!delegatedFallbackDecision?.allowed) {
-          res.status(403).json({
-            error: "Fallback reassignment target must match the authenticated sister agent or an explicit fallback executor grant",
-            details: {
-              reason: "third_party_target",
-              actorAgentId,
-              targetAgentId,
-            },
-          });
-          return;
-        }
-      } else {
-        const fallbackMutationAllowed = await assertAgentIssueMutationAllowed(req, res, existing, {
-          agentMutationOverride: {
-            action: "tasks:fallback_reassign",
-            scope: { targetAgentId },
+        res.status(403).json({
+          error: "Fallback reassignment target must match the authenticated sister agent",
+          details: {
+            reason: "third_party_target",
+            actorAgentId,
+            targetAgentId,
           },
         });
-        if (!fallbackMutationAllowed) {
-          return;
-        }
+        return;
       }
 
-      const relationship = await agentsSvc.getFallbackRelationship(existing.companyId, fromAgentId, targetAgentId);
+      const activeRecoveryAction = await recoveryActionsSvc.getActiveForIssue(existing.companyId, existing.id);
+      const effectivePrimaryAgentId =
+        await resolveRecoveryFallbackPrimaryAgentId({
+          companyId: existing.companyId,
+          currentAssigneeAgentId: fromAgentId,
+          targetAgentId,
+          activeRecoveryAction,
+        }) ?? fromAgentId;
+
+      const fallbackMutationAllowed = await assertAgentIssueMutationAllowed(req, res, {
+        ...existing,
+        assigneeAgentId: effectivePrimaryAgentId,
+      }, {
+        agentMutationOverride: {
+          action: "tasks:fallback_reassign",
+          scope: { targetAgentId },
+        },
+      });
+      if (!fallbackMutationAllowed) {
+        return;
+      }
+
+      if (req.body.expectedFromAgentId && req.body.expectedFromAgentId !== effectivePrimaryAgentId) {
+        // Integrity guard against races: the caller's view of the failed primary
+        // must match the effective takeover source, even if recovery rebound the
+        // live assignee temporarily.
+        res.status(409).json({
+          error: "Fallback reassignment primary mismatch",
+          details: {
+            issueId: id,
+            expectedFromAgentId: req.body.expectedFromAgentId,
+            actualAssigneeAgentId: effectivePrimaryAgentId,
+            currentAssigneeAgentId: fromAgentId,
+            recoveryOwnerAgentId: activeRecoveryAction?.ownerAgentId ?? null,
+          },
+        });
+        return;
+      }
+
+      const relationship = await agentsSvc.getFallbackRelationship(
+        existing.companyId,
+        effectivePrimaryAgentId,
+        targetAgentId,
+      );
       if (!relationship) {
         res.status(404).json({
           error: "Registered fallback relationship not found",
           details: {
             reason: "missing_fallback_relationship",
-            primaryAgentId: fromAgentId,
+            primaryAgentId: effectivePrimaryAgentId,
             sisterAgentId: targetAgentId,
           },
         });
         return;
       }
 
-      const primary = await agentsSvc.getById(fromAgentId);
+      const primary = await agentsSvc.getById(effectivePrimaryAgentId);
       if (!primary || primary.companyId !== existing.companyId) {
         res.status(404).json({
           error: "Fallback reassignment primary agent not found",
-          details: { primaryAgentId: fromAgentId },
+          details: { primaryAgentId: effectivePrimaryAgentId },
         });
         return;
       }
@@ -8642,7 +8687,8 @@ export function issueRoutes(
           id: existing.id,
           companyId: existing.companyId,
           identifier: existing.identifier ?? null,
-          assigneeAgentId: fromAgentId,
+          assigneeAgentId: effectivePrimaryAgentId,
+          currentAssigneeAgentId: fromAgentId,
         },
         { id: targetAgentId },
         req.body.reason,
@@ -8661,7 +8707,8 @@ export function issueRoutes(
         entityType: "issue",
         entityId: existing.id,
         details: {
-          fromAgentId,
+          fromAgentId: effectivePrimaryAgentId,
+          currentAssigneeAgentId: fromAgentId,
           toAgentId: targetAgentId,
           grantPermissionKey: "tasks:fallback_reassign",
           reason: req.body.reason,

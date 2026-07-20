@@ -255,6 +255,116 @@ describeEmbeddedPostgres("issueService.fallbackReassign", () => {
     expect(typeof state.detectedAt).toBe("string");
     expect(typeof state.lastDeferredAt).toBe("string");
   });
+
+  it("reassigns a recovery-owned stranded issue when the effective primary is supplied", async () => {
+    const companyId = randomUUID();
+    const primaryAgentId = randomUUID();
+    const recoveryOwnerAgentId = randomUUID();
+    const sisterAgentId = randomUUID();
+    const issueId = randomUUID();
+    const runId = randomUUID();
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+    await db.insert(agents).values([
+      {
+        id: primaryAgentId,
+        companyId,
+        name: "Primary",
+        role: "engineer",
+        status: "active",
+        adapterType: "codex_local",
+        adapterConfig: {},
+        runtimeConfig: {},
+        permissions: {},
+      },
+      {
+        id: recoveryOwnerAgentId,
+        companyId,
+        name: "Recovery",
+        role: "engineer",
+        status: "active",
+        adapterType: "codex_local",
+        adapterConfig: {},
+        runtimeConfig: {},
+        permissions: {},
+      },
+      {
+        id: sisterAgentId,
+        companyId,
+        name: "Sister",
+        role: "engineer",
+        status: "active",
+        adapterType: "codex_local",
+        adapterConfig: {},
+        runtimeConfig: {},
+        permissions: {},
+      },
+    ]);
+    await db.insert(heartbeatRuns).values({
+      id: runId,
+      companyId,
+      agentId: sisterAgentId,
+      status: "running",
+      invocationSource: "test",
+    });
+    await db.insert(issues).values({
+      id: issueId,
+      companyId,
+      title: "Recovery-owned fallback target",
+      identifier: "TST-43",
+      status: "in_progress",
+      priority: "high",
+      assigneeAgentId: recoveryOwnerAgentId,
+      executionRunId: runId,
+      executionLockedAt: new Date("2026-06-25T08:00:00.000Z"),
+      executionAgentNameKey: "recovery",
+    });
+
+    const result = await svc.fallbackReassign(
+      {
+        id: issueId,
+        companyId,
+        identifier: "TST-43",
+        assigneeAgentId: primaryAgentId,
+        currentAssigneeAgentId: recoveryOwnerAgentId,
+      },
+      { id: sisterAgentId },
+      "paused_primary",
+      null,
+      runId,
+    );
+
+    expect(result).toMatchObject({
+      reassignedFromAgentId: primaryAgentId,
+      reassignedToAgentId: sisterAgentId,
+      issue: {
+        id: issueId,
+        assigneeAgentId: sisterAgentId,
+      },
+    });
+
+    const storedIssue = await db
+      .select({
+        assigneeAgentId: issues.assigneeAgentId,
+        executionRunId: issues.executionRunId,
+        executionLockedAt: issues.executionLockedAt,
+        executionAgentNameKey: issues.executionAgentNameKey,
+      })
+      .from(issues)
+      .where(eq(issues.id, issueId))
+      .then((rows) => rows[0]!);
+    expect(storedIssue).toEqual({
+      assigneeAgentId: sisterAgentId,
+      executionRunId: null,
+      executionLockedAt: null,
+      executionAgentNameKey: null,
+    });
+  });
 });
 
 describe("deriveIssueCommentRunLogAttribution", () => {
@@ -6465,7 +6575,7 @@ describeEmbeddedPostgres("board action requirements", () => {
       assigneeUserId,
     });
 
-    return { companyId, issueId };
+    return { companyId, issueId, assigneeAgentId };
   }
 
   it("detects pending confirmation interactions and applies or removes the board-action title prefix", async () => {
@@ -6503,7 +6613,7 @@ describeEmbeddedPostgres("board action requirements", () => {
   });
 
   it("ignores stale self-created request_confirmation interactions when deriving board action", async () => {
-    const { companyId, issueId } = await seedBoardActionIssue();
+    const { companyId, issueId, assigneeAgentId } = await seedBoardActionIssue();
     const documentId = randomUUID();
     const staleRevisionId = randomUUID();
     const currentRevisionId = randomUUID();
@@ -6560,36 +6670,51 @@ describeEmbeddedPostgres("board action requirements", () => {
           revisionNumber: 1,
         },
       },
-      createdByAgentId: "self-agent",
+      createdByAgentId: assigneeAgentId,
     });
 
     const result = await svc.getBoardActionRequirements(companyId, [{ id: issueId }]);
     expect(result.has(issueId)).toBe(false);
   });
 
-  it("ignores request_confirmation interactions superseded by a later board comment", async () => {
-    const { companyId, issueId } = await seedBoardActionIssue();
+  it("ignores request_confirmation interactions already superseded by a later board comment", async () => {
+    const { companyId, issueId } = await seedBoardActionIssue({
+      assigneeAgentId: null,
+      assigneeUserId: "local-board",
+    });
+    const creatorAgentId = randomUUID();
+
+    await db.insert(agents).values({
+      id: creatorAgentId,
+      companyId,
+      name: "CodexCoder",
+      role: "engineer",
+      status: "active",
+      adapterType: "codex_local",
+      adapterConfig: {},
+      runtimeConfig: {},
+      permissions: {},
+    });
 
     await db.insert(issueThreadInteractions).values({
       id: randomUUID(),
       companyId,
       issueId,
       kind: "request_confirmation",
-      status: "pending",
+      status: "cancelled",
       continuationPolicy: "wake_assignee_on_accept",
       payload: {
         version: 1,
         prompt: "Approve the rollout?",
       },
-      createdByAgentId: "self-agent",
+      createdByAgentId: creatorAgentId,
       createdAt: new Date("2026-06-28T12:00:00.000Z"),
-    });
-    await db.insert(issueComments).values({
-      companyId,
-      issueId,
-      authorUserId: "local-board",
-      body: "Use the updated plan instead.",
-      createdAt: new Date("2026-06-28T12:05:00.000Z"),
+      result: {
+        version: 1,
+        outcome: "superseded_by_comment",
+        commentId: randomUUID(),
+      },
+      resolvedAt: new Date("2026-06-28T12:05:00.000Z"),
     });
 
     const result = await svc.getBoardActionRequirements(companyId, [{ id: issueId }]);
@@ -6627,7 +6752,7 @@ describeEmbeddedPostgres("board action requirements", () => {
   });
 
   it("surfaces stale_issue_state board-action expiries back onto the source issue", async () => {
-    const { companyId, issueId } = await seedBoardActionIssue();
+    const { companyId, issueId, assigneeAgentId } = await seedBoardActionIssue();
 
     await db.insert(issueThreadInteractions).values({
       id: randomUUID(),
@@ -6648,7 +6773,7 @@ describeEmbeddedPostgres("board action requirements", () => {
         outcome: "stale_issue_state",
         reason: "Issue closed as done.",
       },
-      createdByAgentId: "self-agent",
+      createdByAgentId: assigneeAgentId,
       createdAt: new Date("2026-07-12T09:00:00.000Z"),
       resolvedAt: new Date("2026-07-12T09:01:00.000Z"),
     });

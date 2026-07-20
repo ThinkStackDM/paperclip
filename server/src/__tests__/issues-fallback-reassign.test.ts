@@ -12,6 +12,7 @@ const companyId = "22222222-2222-4222-8222-222222222222";
 const primaryAgentId = "33333333-3333-4333-8333-333333333333"; // watched primary (current assignee)
 const sisterAgentId = "44444444-4444-4444-8444-444444444444"; // registered fallback sister (caller + target)
 const thirdPartyAgentId = "55555555-5555-4555-8555-555555555555";
+const recoveryOwnerAgentId = "77777777-7777-4777-8777-777777777778";
 const stableNow = new Date("2026-06-25T08:00:00.000Z");
 const validResetAt = "2026-06-25T10:00:00.000Z";
 const outOfHorizonResetAt = "2026-06-25T20:30:00.000Z";
@@ -32,10 +33,16 @@ const mockAccessService = vi.hoisted(() => ({
 
 const mockAgentService = vi.hoisted(() => ({
   getFallbackRelationship: vi.fn(),
+  getFallbackPrimaryRelationshipForSister: vi.fn(),
   getById: vi.fn(),
   isPausedOrLimitFailed: vi.fn(),
   list: vi.fn(),
   resolveByReference: vi.fn(),
+}));
+
+const mockIssueRecoveryActionService = vi.hoisted(() => ({
+  getActiveForIssue: vi.fn(async () => null),
+  resolveActiveForIssue: vi.fn(async () => null),
 }));
 
 const mockHeartbeatService = vi.hoisted(() => ({
@@ -92,10 +99,7 @@ function registerRouteMocks() {
       listCompanyIds: vi.fn(async () => [companyId]),
     }),
     issueApprovalService: () => ({}),
-    issueRecoveryActionService: () => ({
-      getActiveForIssue: vi.fn(async () => null),
-      resolveActiveForIssue: vi.fn(async () => null),
-    }),
+    issueRecoveryActionService: () => mockIssueRecoveryActionService,
     issueReferenceService: () => ({
       deleteDocumentSource: async () => undefined,
       diffIssueReferenceSummary: () => ({
@@ -254,6 +258,7 @@ describe("authorized fallback reassignment", () => {
       sisterAgentId,
       revokedAt: null,
     });
+    mockIssueRecoveryActionService.getActiveForIssue.mockResolvedValue(null);
     mockAgentService.isPausedOrLimitFailed.mockResolvedValue(true);
     mockHeartbeatService.wakeup.mockResolvedValue(undefined);
     mockAccessService.decide.mockImplementation(grantedDecide());
@@ -309,7 +314,7 @@ describe("authorized fallback reassignment", () => {
     );
   });
 
-  it("allows a non-sister executor to target the registered sister when a scoped grant authorizes it", async () => {
+  it("rejects a non-sister executor even when it targets the registered sister", async () => {
     const res = await request(await createApp(delegatedExecutorActor()))
       .post(`/api/issues/${issueId}/fallback-reassign`)
       .send({
@@ -318,14 +323,59 @@ describe("authorized fallback reassignment", () => {
         reason: "paused_primary",
       });
 
+    expect(res.status, JSON.stringify(res.body)).toBe(403);
+    expect(res.body.error).toContain("target must match");
+    expect(res.body.details).toMatchObject({
+      reason: "third_party_target",
+      actorAgentId: delegatedExecutorActor().agentId,
+      targetAgentId: sisterAgentId,
+    });
+    expect(mockAccessService.decide).not.toHaveBeenCalled();
+    expect(mockIssueService.fallbackReassign).not.toHaveBeenCalled();
+  });
+
+  it("allows the registered sister to take over a recovery-owned stranded issue", async () => {
+    mockIssueService.getById.mockResolvedValue(makeIssue({ assigneeAgentId: recoveryOwnerAgentId }));
+    mockIssueRecoveryActionService.getActiveForIssue.mockResolvedValue({
+      id: "recovery-action-1",
+      issueId,
+      companyId,
+      kind: "stranded_assigned_issue",
+      ownerAgentId: recoveryOwnerAgentId,
+      previousOwnerAgentId: primaryAgentId,
+      returnOwnerAgentId: null,
+    });
+
+    const res = await request(await createApp(executorActor()))
+      .post(`/api/issues/${issueId}/fallback-reassign`)
+      .send({
+        toAgentId: sisterAgentId,
+        expectedFromAgentId: primaryAgentId,
+        reason: "paused_primary",
+      });
+
     expect(res.status, JSON.stringify(res.body)).toBe(200);
-    expect(res.body).toMatchObject({ reassignedFromAgentId: primaryAgentId, reassignedToAgentId: sisterAgentId });
     expect(mockAccessService.decide).toHaveBeenCalledWith(
       expect.objectContaining({
-        actor: expect.objectContaining({ agentId: delegatedExecutorActor().agentId }),
         action: "tasks:fallback_reassign",
+        resource: expect.objectContaining({
+          issueId,
+          assigneeAgentId: primaryAgentId,
+        }),
         scope: { targetAgentId: sisterAgentId },
       }),
+    );
+    expect(mockAgentService.getFallbackRelationship).toHaveBeenCalledWith(companyId, primaryAgentId, sisterAgentId);
+    expect(mockIssueService.fallbackReassign).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: issueId,
+        assigneeAgentId: primaryAgentId,
+        currentAssigneeAgentId: recoveryOwnerAgentId,
+      }),
+      { id: sisterAgentId },
+      "paused_primary",
+      null,
+      executorActor().runId,
     );
   });
 
@@ -360,12 +410,7 @@ describe("authorized fallback reassignment", () => {
     expect(res.status, JSON.stringify(res.body)).toBe(403);
     expect(res.body.error).toContain("target must match");
     expect(res.body.details.reason).toBe("third_party_target");
-    expect(mockAccessService.decide).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: "tasks:fallback_reassign",
-        scope: { targetAgentId: thirdPartyAgentId },
-      }),
-    );
+    expect(mockAccessService.decide).not.toHaveBeenCalled();
     expect(mockIssueService.fallbackReassign).not.toHaveBeenCalled();
   });
 
@@ -382,7 +427,12 @@ describe("authorized fallback reassignment", () => {
 
     expect(res.status, JSON.stringify(res.body)).toBe(409);
     expect(res.body.error).toBe("Fallback reassignment primary mismatch");
-    expect(mockAccessService.decide).not.toHaveBeenCalled();
+    expect(mockAccessService.decide).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "tasks:fallback_reassign",
+        scope: { targetAgentId: sisterAgentId },
+      }),
+    );
     expect(mockIssueService.fallbackReassign).not.toHaveBeenCalled();
   });
 

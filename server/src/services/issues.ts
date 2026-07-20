@@ -7628,6 +7628,7 @@ export function issueService(db: Db) {
         companyId: string;
         identifier?: string | null;
         assigneeAgentId: string | null;
+        currentAssigneeAgentId?: string | null;
       },
       sister: { id: string },
       reason: "session_limit" | "weekly_limit" | "usage_limit" | "paused_primary",
@@ -7652,7 +7653,18 @@ export function issueService(db: Db) {
         if (!current.assigneeAgentId) {
           throw conflict("Fallback reassignment requires an assigned primary", { issueId: issue.id });
         }
-        if (issue.assigneeAgentId && current.assigneeAgentId !== issue.assigneeAgentId) {
+        if (issue.currentAssigneeAgentId && current.assigneeAgentId !== issue.currentAssigneeAgentId) {
+          throw conflict("Fallback reassignment current assignee mismatch", {
+            issueId: issue.id,
+            expectedCurrentAssigneeAgentId: issue.currentAssigneeAgentId,
+            actualAssigneeAgentId: current.assigneeAgentId,
+          });
+        }
+        if (
+          issue.assigneeAgentId
+          && !issue.currentAssigneeAgentId
+          && current.assigneeAgentId !== issue.assigneeAgentId
+        ) {
           throw conflict("Fallback reassignment primary mismatch", {
             issueId: issue.id,
             expectedFromAgentId: issue.assigneeAgentId,
@@ -7665,6 +7677,7 @@ export function issueService(db: Db) {
             assigneeAgentId: current.assigneeAgentId,
           });
         }
+        const primaryAgentId = issue.assigneeAgentId ?? current.assigneeAgentId;
         await assertIssueToolCapabilityAssignment({
           companyId: current.companyId,
           issueId: current.id,
@@ -7693,7 +7706,7 @@ export function issueService(db: Db) {
         const issueRef = (current.identifier ?? current.id).trim();
         await persistFallbackReassignState({
           companyId: current.companyId,
-          primaryAgentId: current.assigneeAgentId,
+          primaryAgentId,
           sisterAgentId: sister.id,
           issueRef,
           reason,
@@ -7712,7 +7725,7 @@ export function issueService(db: Db) {
             createdByRunId: runId,
             body: buildFallbackReassignAuditComment({
               issueIdentifier: current.identifier ?? null,
-              primaryAgentId: current.assigneeAgentId,
+              primaryAgentId,
               sisterAgentId: sister.id,
               reason,
               resetAt: parsedResetAt && !Number.isNaN(parsedResetAt.getTime()) ? parsedResetAt : null,
@@ -7728,7 +7741,7 @@ export function issueService(db: Db) {
         return {
           issue: enriched,
           comment,
-          reassignedFromAgentId: current.assigneeAgentId,
+          reassignedFromAgentId: primaryAgentId,
           reassignedToAgentId: sister.id,
         };
       });
