@@ -7,7 +7,7 @@ description: Create, inspect, package, verify, hand off, and track governed Forg
 
 Use the `forge-studio` CLI as the single machine contract. It invokes the same renderer, outlined type, QA rules, schemas, and version as the visible app; do not recreate Forge artwork with a separate script.
 
-Canonical v1.1 source: `/Users/glad0s/scripts/brand-suite/forge-studio`. The complete operator/agent runbook is `/Users/glad0s/scripts/brand-suite/forge-studio/OPERATOR-AND-AGENT-RUNBOOK.md`. Dated `Studio-Forge-Working-Copy-*` folders are release evidence, not live working paths.
+Canonical v1.2 source: `/Users/glad0s/scripts/brand-suite/forge-studio`. The complete operator/agent runbook is `/Users/glad0s/scripts/brand-suite/forge-studio/OPERATOR-AND-AGENT-RUNBOOK.md`. Dated `Studio-Forge-Working-Copy-*` folders are release evidence, not live working paths.
 
 ## Start safely
 
@@ -42,13 +42,18 @@ Do not claim brand usage from a chat attachment, temporary render folder, prompt
    `forge-studio project clone <source> <new-id> --name "<review name>" --version <semver> --patch <json> --json`
 
 4. Keep the patch limited to design intent: name, brand copy, brief, seed, palette, identity recipe, brand world, output pack, and stage. The CLI rejects governed status/history fields.
-5. Build through the production renderer:
+5. For a Complete Founder Launch handoff, set real launch facts on the isolated Draft before rendering:
+
+   `forge-studio project launch set <new-id> --founder-name "<name>" --founder-role "<role>" --offer "<offer>" --audience "<audience>" --email "<email>" --website "<url>" --booking-url "<url>" --services "Service one|Service two" --json`
+
+   Do not invent contact, proof, photography, credentials or legal details. Missing facts must remain explicit in Day-One Readiness and the affected template. Saved Founder Launch module switches are a release boundary: disabled modules must be absent from the package and retained as empty manifest categories.
+6. Build through the production renderer:
 
    `forge-studio candidate build <new-id> --pack complete --version <semver> --json`
 
-6. Require `status: Candidate`, matching versions, and `verification.ok: true`. Then independently run release verification.
-7. Inspect `review-sheet.svg`, `context-board.svg`, dark/light/mono masters, wordmark, monogram, compact lockup, and representative platform outputs at actual size.
-8. Prepare a verified ZIP only after visual review.
+7. Require `status: Candidate`, matching versions, and `verification.ok: true`. Then independently run release verification.
+8. Inspect `review-sheet.svg`, `context-board.svg`, dark/light/mono masters, wordmark, monogram, compact lockup, and representative platform outputs at actual size. For Complete packs also open the readiness report, all four exact meeting-background PNGs, participant/self-view proofs, capabilities/contact assets, onboarding files and trust templates. Upload normal meeting backgrounds; mirroring is a preview-only self-view aid.
+9. Prepare a verified ZIP only after visual review.
 
 Candidate is a review state, not approval. Preserve meaningful rejection reasons and lessons so the next revision learns rather than merely changes.
 
@@ -77,4 +82,4 @@ Ask the operator to review in `/Users/glad0s/Applications/Forge Studio.app`. Sta
 
 ## Handoff
 
-Report the project ID and revision, Candidate release entry, asset version, integrity count, visual QA result, verified ZIP path if created, and any unresolved custody or X10 condition. Link the release folder or review sheet when the environment supports local links.
+Report the project ID and revision, Candidate release entry, asset version, integrity count, visual QA result, Founder Launch readiness/module state when applicable, verified ZIP path if created, and any unresolved custody or X10 condition. Link the release folder or review sheet when the environment supports local links.

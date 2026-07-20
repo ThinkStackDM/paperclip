@@ -15,7 +15,7 @@ produce an asset, use the operational skills:
 - **video-gen-ops** — produce + attach a video; **video-assembly-pipeline** + **video-editing** drive assembly.
 - **og-image-rendering** — render legible text on an image. (grok-imagine garbles small text in
   photoreal scenes — owner of the "never trust the generator's text, overlay real copy" rule.)
-- **forge-studio-ops** — create, verify, package and govern complete brand identities through the canonical Forge Studio v1.1 renderer and custody model.
+- **forge-studio-ops** — create, verify, package and govern complete brand identities and Founder Launch handoffs through the canonical Forge Studio v1.2 renderer and custody model.
 
 ## Self-serve — $0, run on a hermes lane in your company
 | Tool / skill | What it's for |
@@ -30,7 +30,7 @@ produce an asset, use the operational skills:
 | **excalidraw** / **architecture-diagram** (Hermes) | hand-drawn / infra diagrams, no API key |
 | **humanizer** (Hermes) | strip AI-isms from any prose before it ships |
 | local FLUX (`scripts/imagegen/generate-image.sh`) | offline image gen — free but slow (~5 min), off-peak only |
-| Forge Studio v1.1 via **forge-studio-ops** | governed SVG identity systems, responsive marks, rich material derivatives, platform/social/print packs, editable Office handoff, Candidate verification, adoption records and drift recovery |
+| Forge Studio v1.2 via **forge-studio-ops** | governed SVG identity systems, responsive marks, rich material derivatives, platform/social/print/Office packs, exact meeting backgrounds, contact/capabilities, onboarding and trust templates, Candidate verification, adoption records and drift recovery |
 
 The Hermes skills above are installed + enabled on hermes lanes — call them directly (no install).
 

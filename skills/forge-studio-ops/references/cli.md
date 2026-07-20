@@ -2,7 +2,7 @@
 
 ## Contract
 
-- Version: `1.1.0` (holistic polish and production-library line)
+- Version: `1.2.0` (Founder Launch production line)
 - Command: `/Users/glad0s/.local/bin/forge-studio`
 - Default service: `http://127.0.0.1:4681/`
 - Canonical source: `/Users/glad0s/scripts/brand-suite/forge-studio`
@@ -20,6 +20,7 @@ forge-studio doctor --json
 forge-studio projects list --json
 forge-studio project show <id> --json
 forge-studio project clone <source> <target> --name <name> --version <semver> --patch <file-or-> --json
+forge-studio project launch set <id> [--founder-name <name>] [--founder-role <role>] [--offer <offer>] [--audience <audience>] [--email <email>] [--website <url>] [--phone <phone>] [--booking-url <url>] [--service-area <area>] [--services "Service one|Service two"] --json
 forge-studio project production set <id> [--blueprint-mode authored|sculpted|luminous|graphic] [--material prismatic|glass|enamel|chrome|embossed|brushed-metal|neon|masonry|obsidian|aurora] [--blend brand|forge|electric|aurora|ember|alpine|mineral] [--surface clean|forge-cut|energy-vein|spectral-edge|molten-flow|glass-caustic|precision-etch] --json
 forge-studio sources list [--status <status>] [--eligibility <tier>] --json
 forge-studio releases list [--brand <slug>] --json
@@ -69,6 +70,14 @@ Use nested JSON to update creative fields. Common fields are:
 ```
 
 Do not include `id`, `status`, `revision`, `history`, timestamps, `qa`, `schemaVersion`, `appVersion`, or `publishTskb`. The clone command refuses those fields and never overwrites an existing target project.
+
+## Founder Launch contract
+
+- `project launch set` updates real Business Launch Profile facts on the isolated Draft. It does not approve or publish them.
+- Shared contact remains canonical under `applications.contact`; brand voice, audience and promise remain canonical in the Brand World. Founder Launch consumes those facts instead of creating a second drifting copy.
+- A Complete pack can include 29 Founder Launch outputs across profile, meetings, contact, sales, onboarding and trust. The saved module switches determine the exact required files; disabled categories remain present as empty arrays in `founder-launch-manifest.json`.
+- Review `founder-readiness-report-view.html` before handoff. Missing proof, photography, legal or non-placeholder contact remains an explicit readiness gap.
+- Meeting backgrounds ship unmirrored at exact 1920x1080 and 1280x720 dark/light sizes. Only the self-view proof is mirrored for preview.
 
 ## Exit codes
 

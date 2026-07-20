@@ -263,11 +263,12 @@ This section is local to the ThinkStack served tree (not upstream).
 <!-- END THINKSTACK OPS RULE: asset-rejection-block -->
 
 <!-- BEGIN THINKSTACK OPS RULE: forge-studio-v1-block -->
-## Gate FS1 — Forge Studio v1.1 is the canonical brand-production door
+## Gate FS1 — Forge Studio v1.2 is the canonical brand-production door
 
 - Canonical source: `/Users/glad0s/scripts/brand-suite/forge-studio`; operator app: `/Users/glad0s/Applications/Forge Studio.app`; agent command: `/Users/glad0s/.local/bin/forge-studio`; full runbook: `/Users/glad0s/scripts/brand-suite/forge-studio/OPERATOR-AND-AGENT-RUNBOOK.md`.
-- Require the CLI, local service and renderer to report `1.1.0` before producing assets. v1.1 provides 28 automatic Studio Grade marks, form-aware material blueprints, seven governed surface wraps and the hardened nine-step operator flow.
-- For any new or upgraded canonical identity, responsive mark, brand pack, platform artwork, stationery, editable Office brand file, production handoff, brand adoption record, or drift audit, use the `forge-studio-ops` skill and start with `forge-studio doctor --json`.
+- Require the CLI, local service and renderer to report `1.2.0` before producing assets. v1.2 retains the governed identity and material engine and adds the Founder Launch Kit: day-one readiness, exact virtual-meeting assets, contact/capabilities, onboarding and trust-template handoff within the hardened nine-step flow.
+- For any new or upgraded canonical identity, responsive mark, brand pack, platform artwork, stationery, editable Office brand file, Founder Launch handoff, production handoff, brand adoption record, or drift audit, use the `forge-studio-ops` skill and start with `forge-studio doctor --json`.
+- Complete the Business Launch Profile with real facts. Placeholder contact, proof, photography, credentials or legal details must remain visibly incomplete and must never be promoted into customer claims. Saved module switches define the release contents and manifest; do not imply a disabled module shipped.
 - Dated `Studio-Forge-Working-Copy-*` directories are evidence only. Never install from them or hand their paths to a live consumer.
 - Agents may create, verify, zip and acknowledge immutable **Candidate** releases. They may not approve, change source custody, restore known good, publish to X10, or register a Draft/Candidate as live usage.
 - Reuse an Approved release before generating a replacement. Record the exact release entry, integrity count, permanent consumer path and drift result; a chat attachment or temporary render is not adoption evidence.
