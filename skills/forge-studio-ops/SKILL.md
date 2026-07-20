@@ -7,12 +7,15 @@ description: Create, inspect, package, verify, hand off, and track governed Forg
 
 Use the `forge-studio` CLI as the single machine contract. It invokes the same renderer, outlined type, QA rules, schemas, and version as the visible app; do not recreate Forge artwork with a separate script.
 
+Canonical v1.0 source: `/Users/glad0s/scripts/brand-suite/forge-studio`. The complete operator/agent runbook is `/Users/glad0s/scripts/brand-suite/forge-studio/OPERATOR-AND-AGENT-RUNBOOK.md`. Dated `Studio-Forge-Working-Copy-*` folders are release evidence, not live working paths.
+
 ## Start safely
 
 1. Run `forge-studio doctor --json`.
 2. Stop if `ok` is false or the CLI, service, and renderer versions differ.
 3. Run `forge-studio approved list --json` before creating anything. Reuse an Approved release when it already satisfies the task.
 4. Never use `brandsuite forge` for a new canonical asset. Treat it as compatibility-only.
+5. Record the live source path, CLI/service version and output release entry in the issue handoff; a chat attachment is never the final location.
 
 Read [references/cli.md](references/cli.md) when choosing commands, interpreting failures, or preparing automation.
 
@@ -60,7 +63,7 @@ Never perform or work around these actions as an agent:
 - Modify files inside an immutable release directory.
 - Register Candidate or Draft assets as live usage.
 
-Ask the operator to review in the Forge Studio app. State clearly whether the result is Draft, Candidate, Approved, locally verified, or permanently published. If X10 is unavailable, leave the verified release local and say so.
+Ask the operator to review in `/Users/glad0s/Applications/Forge Studio.app`. State clearly whether the result is Draft, Candidate, Approved, locally verified, or permanently published. If X10 is unavailable, leave the verified release local and say so.
 
 ## Control drift and recovery
 

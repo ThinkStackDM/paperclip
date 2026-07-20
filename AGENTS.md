@@ -261,3 +261,14 @@ This section is local to the ThinkStack served tree (not upstream).
 - The consolidated Hermes B-roll under `/Users/glad0s/scripts/brand/broll images/` and `/Users/glad0s/scripts/brand/broll video/` is an approved permanent asset library. New generated media must be saved to governed source/work-product paths, not left only in model caches.
 - Before custody recovery, source restoration, or bulk asset promotion, run `/Users/glad0s/scripts/asset-custody/check-operator-rejections.sh`. A non-zero result blocks the operation.
 <!-- END THINKSTACK OPS RULE: asset-rejection-block -->
+
+<!-- BEGIN THINKSTACK OPS RULE: forge-studio-v1-block -->
+## Gate FS1 — Forge Studio v1.0 is the canonical brand-production door
+
+- Canonical source: `/Users/glad0s/scripts/brand-suite/forge-studio`; operator app: `/Users/glad0s/Applications/Forge Studio.app`; agent command: `/Users/glad0s/.local/bin/forge-studio`; full runbook: `/Users/glad0s/scripts/brand-suite/forge-studio/OPERATOR-AND-AGENT-RUNBOOK.md`.
+- For any new or upgraded canonical identity, responsive mark, brand pack, platform artwork, stationery, editable Office brand file, production handoff, brand adoption record, or drift audit, use the `forge-studio-ops` skill and start with `forge-studio doctor --json`.
+- Dated `Studio-Forge-Working-Copy-*` directories are evidence only. Never install from them or hand their paths to a live consumer.
+- Agents may create, verify, zip and acknowledge immutable **Candidate** releases. They may not approve, change source custody, restore known good, publish to X10, or register a Draft/Candidate as live usage.
+- Reuse an Approved release before generating a replacement. Record the exact release entry, integrity count, permanent consumer path and drift result; a chat attachment or temporary render is not adoption evidence.
+- The legacy `brandsuite forge` path is compatibility-only and must not create new canonical assets.
+<!-- END THINKSTACK OPS RULE: forge-studio-v1-block -->
