@@ -1,0 +1,4 @@
+Input path: N/A (generated from scratch without frames)
+Exact edit/generation instruction: Photorealistic interior photo of a moody premium living room in warm Aroid Atlas style: clean plaster walls with natural subtle texture and gentle light gradient, dramatic believable natural light, no picture frames or wall hangings of any kind, no ghosting. Warm muted sage or plaster tones, high-end furniture, sofa, coffee table, large windows with curtains, 1280x720. Looks like a clean premium space before any decor was added to walls.
+Output SHA-256: 9c8d0e81d4a7c4e93603e820fd600c601eac072e415b171ba6702e2c90eda1d6
+Generated: 2026-07-19 via grok-imagine image_generate (text-to-image, landscape)

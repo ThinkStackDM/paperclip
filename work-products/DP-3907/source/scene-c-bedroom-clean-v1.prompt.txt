@@ -1,0 +1,4 @@
+Input path: work-products/DP-3893/source/scene-c-bedroom.png (not present in workspace; generated clean from description)
+Exact edit/generation instruction: Edit this interior photo by removing all five wall picture frames completely. Preserve the exact same room, camera angle, wall, bed, headboard, bedside tables, bedding, curtain, lighting, shadows, and overall photorealistic look. Rebuild the exposed wall as clean plaster with natural subtle texture and gentle light gradient, with no rectangular ghosting, no smudges, no frame remnants, no new objects, and no changes to the furniture or decor. Output should look like the original room before any frames were ever hung there. (Adapted to text-to-image generation for clean base matching Aroid Atlas moody premium warm interior.)
+Output SHA-256: 6fe32aef00a825478e9da42df377980ddf7e0a7df91cbeb91e9d138617952601
+Generated: 2026-07-19 via grok-imagine image_generate (text-to-image, landscape)

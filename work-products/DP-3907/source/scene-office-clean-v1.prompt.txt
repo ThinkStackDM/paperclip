@@ -1,0 +1,4 @@
+Input path: N/A (generated from scratch without frames)
+Exact edit/generation instruction: Photorealistic interior photo of a moody premium office in warm Aroid Atlas style: clean plaster walls with natural subtle texture and gentle light gradient, dramatic believable natural light, no picture frames or wall hangings of any kind, no ghosting. Warm muted sage or plaster tones, desk, chair, bookshelves, large window, 1280x720. Clean empty walls for premium feel.
+Output SHA-256: 5e4d2ef56b321eefc37557628c6260b34fef1fc618645cb83640070e877d1f30
+Generated: 2026-07-19 via grok-imagine image_generate (text-to-image, landscape)

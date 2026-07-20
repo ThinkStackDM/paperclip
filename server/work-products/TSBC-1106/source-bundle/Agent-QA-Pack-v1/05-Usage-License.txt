@@ -1,0 +1,16 @@
+Agent QA Pack v1 - Usage License
+
+You may:
+
+- use and adapt these files inside your own team or client workflow;
+- duplicate the files internally for the people doing the work;
+- edit the wording to fit your own tools and review process.
+
+You may not:
+
+- resell the pack as-is;
+- redistribute the pack publicly for free or paid use;
+- claim the pack's examples or wording are a substitute for legal, security, or
+  compliance review.
+
+This pack is an operational starter, not a warranty.

@@ -95,3 +95,20 @@ benchmark/.tsbc-power.json
 benchmark/.claude-bench-halt
 # root scratch dir (server/scratch/ already ignored)
 /scratch/
+
+# work-product render candidates: generated media stays on disk, out of git.
+# Text deliverables (md/txt/json) under work-products remain tracked.
+# (Media committed before 2026-07-20 stays tracked; this governs new renders.)
+work-products/**/*.mp4
+work-products/**/*.png
+work-products/**/*.jpg
+work-products/**/*.jpeg
+server/work-products/**/*.mp4
+server/work-products/**/*.png
+server/work-products/**/*.jpg
+server/work-products/**/*.jpeg
+# symlinks into local instance work-product storage (~/.paperclip/instances/...)
+server/work-products/TSM-5448
+server/work-products/TSM-5451
+server/work-products/TSM-5452
+server/work-products/tsr-4158

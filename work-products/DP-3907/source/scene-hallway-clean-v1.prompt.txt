@@ -1,0 +1,4 @@
+Input path: N/A (generated from scratch without frames)
+Exact edit/generation instruction: Photorealistic interior photo of a moody premium hallway in warm Aroid Atlas style: clean plaster walls with natural subtle texture and gentle light gradient, dramatic believable natural light, no picture frames or wall hangings of any kind, no ghosting. Warm muted tones, elegant long hallway with doors, subtle lighting, 1280x720. Clean empty walls.
+Output SHA-256: aaead3ecfdee8d274c63f0b9d767de73766cc9a52b9056f3b4fe94dc7b4f06f0
+Generated: 2026-07-19 via grok-imagine image_generate (text-to-image, landscape)

@@ -1,0 +1,4 @@
+Input path: N/A (generated from scratch without frames)
+Exact edit/generation instruction: Photorealistic interior photo of a moody premium hallway in warm Aroid Atlas style: primary hanging wall is FRONTAL to the camera (end-of-hall or alcove view, not receding down the corridor), with a clear unbroken expansive plaster wall occupying the middle 55% of the frame width and upper 45% of the frame height, free of any doors, frames or fittings. Clean plaster walls with natural subtle texture and gentle light gradient, dramatic believable natural directional daylight entering from one side and raking across the wall. No picture frames, hooks, ghosting or wall art anywhere. Warm muted tones, elegant hallway composition, subtle lighting, 1280x720 landscape. Clean empty walls.
+Output SHA-256: 36e4f1b805f86b11461bf80843f48760e3def49134266cef9bf872f7126a2c71
+Generated: 2026-07-19 via grok-imagine image_generate (text-to-image, landscape)
