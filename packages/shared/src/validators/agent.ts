@@ -195,15 +195,59 @@ export const agentFallbackSisterSchema = z.object({
 
 export const agentFallbackSisterListSchema = z.array(agentFallbackSisterSchema);
 
+export const ignoreActivityWindowExceptionClassSchema = z.enum([
+  "permanent_portfolio_ceo_coverage",
+  "window_flipped_cto",
+  "approved_control_or_routine_lane",
+  "market_24_7_operations",
+  "custom",
+]);
+
 export const createAgentFallbackSisterSchema = z.object({
   primaryAgentId: z.string().uuid(),
   sisterAgentId: z.string().uuid(),
   priority: z.number().int().optional().default(0),
   createdBy: z.string().trim().min(1).optional(),
-}).strict();
+  retainPrimaryIgnoreActivityWindow: z.boolean().optional().default(false),
+  primaryIgnoreActivityWindowExceptionClass: ignoreActivityWindowExceptionClassSchema.optional(),
+  primaryIgnoreActivityWindowExceptionReason: z.string().trim().min(1).max(280).optional(),
+}).strict().superRefine((value, ctx) => {
+  if (!value.retainPrimaryIgnoreActivityWindow) {
+    if (value.primaryIgnoreActivityWindowExceptionClass !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "primaryIgnoreActivityWindowExceptionClass requires retainPrimaryIgnoreActivityWindow=true",
+        path: ["primaryIgnoreActivityWindowExceptionClass"],
+      });
+    }
+    if (value.primaryIgnoreActivityWindowExceptionReason !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "primaryIgnoreActivityWindowExceptionReason requires retainPrimaryIgnoreActivityWindow=true",
+        path: ["primaryIgnoreActivityWindowExceptionReason"],
+      });
+    }
+    return;
+  }
+  if (!value.primaryIgnoreActivityWindowExceptionClass) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "primaryIgnoreActivityWindowExceptionClass is required when retainPrimaryIgnoreActivityWindow=true",
+      path: ["primaryIgnoreActivityWindowExceptionClass"],
+    });
+  }
+  if (!value.primaryIgnoreActivityWindowExceptionReason) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "primaryIgnoreActivityWindowExceptionReason is required when retainPrimaryIgnoreActivityWindow=true",
+      path: ["primaryIgnoreActivityWindowExceptionReason"],
+    });
+  }
+});
 
 export type AgentFallbackSister = z.infer<typeof agentFallbackSisterSchema>;
 export type CreateAgentFallbackSister = z.infer<typeof createAgentFallbackSisterSchema>;
+export type IgnoreActivityWindowExceptionClass = z.infer<typeof ignoreActivityWindowExceptionClassSchema>;
 
 export const agentMineInboxQuerySchema = z.object({
   userId: z.string().trim().min(1),

@@ -78,9 +78,11 @@ function createSelectQuery(rows: Array<Record<string, unknown>>) {
 function createDbStub(options: {
   selectRows?: Array<Array<Record<string, unknown>>>;
   returningRows?: Array<Record<string, unknown>>;
+  updateReturningRows?: Array<Array<Record<string, unknown>>>;
 } = {}) {
   const selectRows = [...(options.selectRows ?? [])];
   const returningRows = [...(options.returningRows ?? [])];
+  const updateReturningRows = [...(options.updateReturningRows ?? [])];
   const insertChain = {
     values: vi.fn(() => insertChain),
     onConflictDoUpdate: vi.fn(() => insertChain),
@@ -91,15 +93,21 @@ function createDbStub(options: {
   };
   const insertValues = insertChain.values;
   const onConflictDoUpdate = insertChain.onConflictDoUpdate;
-  const returning = insertChain.returning;
+  const updateChain = {
+    set: vi.fn(() => updateChain),
+    where: vi.fn(async () => updateReturningRows.shift() ?? []),
+  };
 
   return {
     db: {
       select: vi.fn(() => createSelectQuery(selectRows.shift() ?? [])),
       insert: vi.fn(() => insertChain),
+      update: vi.fn(() => updateChain),
     },
     insertValues,
     onConflictDoUpdate,
+    updateSet: updateChain.set,
+    updateWhere: updateChain.where,
   };
 }
 
@@ -236,6 +244,100 @@ describe("agent fallback sister routes", () => {
       revokedAt: null,
     }));
     expect(db.onConflictDoUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears sister-only ignoreActivityWindow from a promoted windowed primary and enables it for the sister", async () => {
+    const createdRow = {
+      id: "77777777-7777-4777-8777-777777777777",
+      companyId,
+      primaryAgentId,
+      sisterAgentId,
+      priority: 1,
+      createdBy: "agent:test-agent",
+      createdAt: new Date("2026-07-16T13:10:00.000Z"),
+      revokedAt: null,
+    };
+    const db = createDbStub({
+      selectRows: [
+        [
+          { id: primaryAgentId },
+          { id: sisterAgentId },
+        ],
+        [{ activityWindow: { timezone: "Europe/Dublin", startHour: 17, endHour: 3 } }],
+        [
+          { id: primaryAgentId, runtimeConfig: { ignoreActivityWindow: true, ignoreActivityWindowException: { class: "old" } } },
+          { id: sisterAgentId, runtimeConfig: {} },
+        ],
+      ],
+      returningRows: [createdRow],
+    });
+
+    const res = await request(await createApp(db.db))
+      .post(`/api/companies/${companyId}/agent-fallback-sisters`)
+      .send({
+        primaryAgentId,
+        sisterAgentId,
+        priority: 1,
+      });
+
+    expect(res.status).toBe(201);
+    expect(db.updateSet).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      runtimeConfig: { ignoreActivityWindow: true },
+    }));
+    expect(db.updateSet).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      runtimeConfig: {},
+    }));
+  });
+
+  it("retains ignoreActivityWindow for an explicit audited primary exception", async () => {
+    const createdRow = {
+      id: "88888888-8888-4888-8888-888888888888",
+      companyId,
+      primaryAgentId,
+      sisterAgentId,
+      priority: 0,
+      createdBy: "agent:test-agent",
+      createdAt: new Date("2026-07-16T13:15:00.000Z"),
+      revokedAt: null,
+    };
+    const db = createDbStub({
+      selectRows: [
+        [
+          { id: primaryAgentId },
+          { id: sisterAgentId },
+        ],
+        [{ activityWindow: { timezone: "Europe/Dublin", startHour: 17, endHour: 3 } }],
+        [
+          { id: primaryAgentId, runtimeConfig: { ignoreActivityWindow: true } },
+          { id: sisterAgentId, runtimeConfig: { ignoreActivityWindow: true } },
+        ],
+      ],
+      returningRows: [createdRow],
+    });
+
+    const res = await request(await createApp(db.db))
+      .post(`/api/companies/${companyId}/agent-fallback-sisters`)
+      .send({
+        primaryAgentId,
+        sisterAgentId,
+        retainPrimaryIgnoreActivityWindow: true,
+        primaryIgnoreActivityWindowExceptionClass: "window_flipped_cto",
+        primaryIgnoreActivityWindowExceptionReason: "Window-flipped CTO primary stays always-on outside the company sprint.",
+      });
+
+    expect(res.status).toBe(201);
+    expect(db.updateSet).toHaveBeenCalledTimes(1);
+    expect(db.updateSet).toHaveBeenCalledWith(expect.objectContaining({
+      runtimeConfig: expect.objectContaining({
+        ignoreActivityWindow: true,
+        ignoreActivityWindowException: expect.objectContaining({
+          class: "window_flipped_cto",
+          reason: "Window-flipped CTO primary stays always-on outside the company sprint.",
+          source: "agent-fallback-sisters",
+          recordedBy: "user:local-board",
+        }),
+      }),
+    }));
   });
 
   it("allows cto lanes to seed the registry without an explicit fallback grant", async () => {

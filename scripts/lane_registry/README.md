@@ -50,11 +50,25 @@ had **no code consumers** — dead documentation. Deprecated.)
 # After any lane membership change (hire/retire a sister, edit the table):
 python3 generate.py --dry-run     # review the semantic diff
 python3 generate.py --write       # regenerate; running watchers pick it up within ≤60s
+
+# Audit window-exempt primaries after a promotion / flip:
+python3 audit_ignore_activity_window.py
 ```
 
 The watcher re-reads its registry **every poll** (`run_once → resolve_registry →
 load_registry`, ~60s), and `generate.py` writes **atomically** (`os.replace`), so a
 regenerate is a hot, restart-free update.
+
+## Activity-window invariant
+
+- `runtimeConfig.ignoreActivityWindow=true` is a **sister-lane default**, not a blanket primary default.
+- In a windowed company, creating a new fallback relationship through
+  `/api/companies/:companyId/agent-fallback-sisters` now reconciles both sides:
+  the registered sister is forced back to `ignoreActivityWindow=true`, while the
+  new primary has the flag cleared unless the caller supplies an explicit audited
+  exception (`retainPrimaryIgnoreActivityWindow=true` plus class + reason).
+- Use `audit_ignore_activity_window.py` to review any registry primary that still
+  retains the exemption. The audit reports a justification class; it does not mutate agents.
 
 ## Ordering rule (the one thing to remember)
 

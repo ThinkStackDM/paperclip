@@ -14,12 +14,15 @@ import {
   createAgentHireSchema,
   createAgentSchema,
   deriveAgentUrlKey,
+  IGNORE_ACTIVITY_WINDOW_RUNTIME_CONFIG_KEY,
   isUuidLike,
+  parseCompanyActivityWindow,
   normalizeIssueIdentifier,
   revokeAgentFallbackSisterSchema,
   resetAgentSessionSchema,
   testAdapterEnvironmentSchema,
   type AgentDesiredSkillEntry,
+  type IgnoreActivityWindowExceptionClass,
   type AgentSkillSnapshot,
   type InstanceSchedulerHeartbeatAgent,
   upsertAgentInstructionsFileSchema,
@@ -274,6 +277,73 @@ export function agentRoutes(
       map.set(row.sisterAgentId, row.primaryAgentId);
     }
     return map;
+  }
+
+  const IGNORE_ACTIVITY_WINDOW_EXCEPTION_RUNTIME_CONFIG_KEY = "ignoreActivityWindowException";
+
+  async function reconcileLanePromotionActivityWindowPolicy(input: {
+    companyId: string;
+    primaryAgentId: string;
+    sisterAgentId: string;
+    retainPrimaryIgnoreActivityWindow: boolean;
+    primaryIgnoreActivityWindowExceptionClass?: IgnoreActivityWindowExceptionClass;
+    primaryIgnoreActivityWindowExceptionReason?: string;
+    actorLabel: string;
+  }) {
+    const [companyRow] = await db
+      .select({ activityWindow: companies.activityWindow })
+      .from(companies)
+      .where(eq(companies.id, input.companyId))
+      .limit(1);
+    const hasCompanyActivityWindow = parseCompanyActivityWindow(companyRow?.activityWindow ?? null) !== null;
+    const agents = await db
+      .select({
+        id: agentsTable.id,
+        runtimeConfig: agentsTable.runtimeConfig,
+      })
+      .from(agentsTable)
+      .where(and(
+        eq(agentsTable.companyId, input.companyId),
+        inArray(agentsTable.id, [input.primaryAgentId, input.sisterAgentId]),
+      ));
+    const agentById = new Map(agents.map((agent) => [agent.id, agent]));
+    const primary = agentById.get(input.primaryAgentId);
+    const sister = agentById.get(input.sisterAgentId);
+    if (!primary || !sister) return;
+
+    const now = new Date();
+    const nextSisterRuntimeConfig = {
+      ...(readObject(sister.runtimeConfig) ?? {}),
+      [IGNORE_ACTIVITY_WINDOW_RUNTIME_CONFIG_KEY]: true,
+    };
+    if (JSON.stringify(nextSisterRuntimeConfig) !== JSON.stringify(sister.runtimeConfig ?? {})) {
+      await db
+        .update(agentsTable)
+        .set({ runtimeConfig: nextSisterRuntimeConfig, updatedAt: now })
+        .where(eq(agentsTable.id, input.sisterAgentId));
+    }
+
+    if (!hasCompanyActivityWindow) return;
+
+    const basePrimaryRuntimeConfig = { ...(readObject(primary.runtimeConfig) ?? {}) };
+    if (input.retainPrimaryIgnoreActivityWindow) {
+      basePrimaryRuntimeConfig[IGNORE_ACTIVITY_WINDOW_RUNTIME_CONFIG_KEY] = true;
+      basePrimaryRuntimeConfig[IGNORE_ACTIVITY_WINDOW_EXCEPTION_RUNTIME_CONFIG_KEY] = {
+        class: input.primaryIgnoreActivityWindowExceptionClass,
+        reason: input.primaryIgnoreActivityWindowExceptionReason,
+        source: "agent-fallback-sisters",
+        recordedAt: now.toISOString(),
+        recordedBy: input.actorLabel,
+      };
+    } else {
+      delete basePrimaryRuntimeConfig[IGNORE_ACTIVITY_WINDOW_RUNTIME_CONFIG_KEY];
+      delete basePrimaryRuntimeConfig[IGNORE_ACTIVITY_WINDOW_EXCEPTION_RUNTIME_CONFIG_KEY];
+    }
+    if (JSON.stringify(basePrimaryRuntimeConfig) === JSON.stringify(primary.runtimeConfig ?? {})) return;
+    await db
+      .update(agentsTable)
+      .set({ runtimeConfig: basePrimaryRuntimeConfig, updatedAt: now })
+      .where(eq(agentsTable.id, input.primaryAgentId));
   }
 
   /**
@@ -2182,11 +2252,17 @@ export function agentRoutes(
         sisterAgentId,
         priority,
         createdBy,
+        retainPrimaryIgnoreActivityWindow,
+        primaryIgnoreActivityWindowExceptionClass,
+        primaryIgnoreActivityWindowExceptionReason,
       } = req.body as {
         primaryAgentId: string;
         sisterAgentId: string;
         priority: number;
         createdBy?: string;
+        retainPrimaryIgnoreActivityWindow: boolean;
+        primaryIgnoreActivityWindowExceptionClass?: IgnoreActivityWindowExceptionClass;
+        primaryIgnoreActivityWindowExceptionReason?: string;
       };
 
       if (primaryAgentId === sisterAgentId) {
@@ -2233,6 +2309,16 @@ export function agentRoutes(
           },
         })
         .returning(fallbackSisterRowSelection);
+
+      await reconcileLanePromotionActivityWindowPolicy({
+        companyId,
+        primaryAgentId,
+        sisterAgentId,
+        retainPrimaryIgnoreActivityWindow,
+        primaryIgnoreActivityWindowExceptionClass,
+        primaryIgnoreActivityWindowExceptionReason,
+        actorLabel,
+      });
 
       res.status(201).json(row);
     },
