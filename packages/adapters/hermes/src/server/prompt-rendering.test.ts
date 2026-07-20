@@ -78,7 +78,7 @@ test("renders standard assignment wake with task authority and no backlog discov
   expect(prompt).toContain("## Paperclip Wake Payload");
   expect(prompt).toContain("Wake-handling discipline:");
   expect(prompt).toContain("not by ending the run with a payload echo");
-  expect(prompt.indexOf("Paperclip runtime identity:")).toBeLessThan(prompt.indexOf("## Paperclip Wake Payload"));
+  expect(prompt.indexOf("Paperclip runtime identity:")).toBeLessThan(prompt.lastIndexOf("## Paperclip Wake Payload"));
   expect(prompt).toContain("- reason: issue_assigned");
   expect(prompt).toContain("- issue: PAP-11750 Add Hermes prompt rendering regression tests");
   expect(prompt).toContain("- issue work mode: standard");
@@ -270,6 +270,7 @@ test("preserves custom prompt templates while exposing runtime and wake variable
   const prompt = buildPrompt(baseContext(), {
     paperclipApiUrl: "http://paperclip.local/api",
     promptTemplate: [
+      "Query:",
       "CUSTOM TEMPLATE",
       "agent={{agent.name}}",
       "api={{paperclipApiUrl}}",
@@ -284,6 +285,8 @@ test("preserves custom prompt templates while exposing runtime and wake variable
   });
 
   expect(prompt).toContain("CUSTOM TEMPLATE");
+  expect(prompt).toContain("Wake-handling discipline:");
+  expect(prompt.indexOf("Wake-handling discipline:")).toBeLessThan(prompt.lastIndexOf("Query:"));
   expect(prompt).toContain("agent=Hermes Engineer");
   expect(prompt).toContain("api=http://paperclip.local/api");
   expect(prompt).toContain("keyEnv=PAPERCLIP_API_KEY");

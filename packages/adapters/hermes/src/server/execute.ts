@@ -97,8 +97,6 @@ const HERMES_DEFAULT_PROMPT_TEMPLATE = [
   "- Include `-H \"X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID\"` on mutating issue requests.",
   "- For multiline comments or status updates, preserve newlines with `jq --arg` or a heredoc-fed helper rather than hand-escaping JSON.",
   "",
-  ...HERMES_PAPERCLIP_WAKE_DISCIPLINE_LINES,
-  "",
   "Safe multiline update pattern:",
   "```bash",
   "api=\"${PAPERCLIP_API_URL%/}\"",
@@ -121,6 +119,9 @@ const HERMES_DEFAULT_PROMPT_TEMPLATE = [
   "",
   DEFAULT_PAPERCLIP_AGENT_PROMPT_TEMPLATE,
 ].join("\n");
+
+const HERMES_WAKE_DISCIPLINE_SECTION =
+  HERMES_PAPERCLIP_WAKE_DISCIPLINE_LINES.join("\n");
 
 function renderConditionalSections(template: string, vars: Record<string, unknown>): string {
   const isTruthy = (key: string) => {
@@ -230,6 +231,7 @@ export function buildPrompt(
 
   const rendered = renderTemplate(renderConditionalSections(template, vars), vars);
   return joinPromptSections([
+    HERMES_WAKE_DISCIPLINE_SECTION,
     rendered,
     managedInstructionsSection,
     wakePrompt,
