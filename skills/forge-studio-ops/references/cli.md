@@ -2,7 +2,7 @@
 
 ## Contract
 
-- Version: `1.0.0`
+- Version: `1.0.1` (feature-frozen `1.0.x` adoption line)
 - Command: `/Users/glad0s/.local/bin/forge-studio`
 - Default service: `http://127.0.0.1:4681/`
 - Canonical source: `/Users/glad0s/scripts/brand-suite/forge-studio`
