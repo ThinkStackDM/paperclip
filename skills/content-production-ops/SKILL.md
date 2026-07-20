@@ -1,11 +1,23 @@
 ---
 name: content-production-ops
-description: ThinkStack Media pipeline for faceless YouTube content production with YMYL gating. Use for "10-video launch hitlist" work, channel video scripts ("Cashflow Compass video #N", "V1 script"), compound-primitive build/verification issues ("[CC CP]", "operational render-gate", "bake-off"), or YMYL linter/sign-off work. Encodes the hitlist bar, the script→lint→sign-off→render state machine, and the hard rule of splitting runner-independent code slices from runner-gated render verification.
+description: ThinkStack Media pipeline for faceless YouTube content production with YMYL gating. Use for "10-video launch hitlist" work, channel video scripts ("Cashflow Compass video #N", "V1 script"), compound-primitive build/verification issues ("[CC CP]", "operational render-gate", "bake-off"), or YMYL linter/sign-off work. Encodes the package-approval→research→script→lint→sign-off→render state machine, and the hard rule of splitting runner-independent code slices from runner-gated render verification.
 ---
 
 # Content Production Ops
 
 ThinkStack Media runs three faceless channels (Stack Lab — AI tools; Cashflow Compass — personal finance, YMYL-gated; Vault Cases — history/cold cases, archive-license-gated). The production pipeline exists and is partially built; **the #1 historical failure is batching runner-dependent render verification into the same issue as buildable code** — nearly every "operational render-gate" issue sat blocked for days on the missing GHA self-hosted runner while the code work inside it was finishable. Structure work so that never happens again.
+
+## Package-first law
+
+The episode chain is `package approval -> research -> script lock -> storyboard -> assets -> production -> QA -> publish`.
+
+Before any research packet or script draft starts, the package must be approved with:
+- approved title
+- approved thumbnail concept
+- approved hook
+- package-effort target `>=25%` of the approved effort
+
+If a scripting task arrives without those inputs, stop and push it back to packaging instead of drafting around the gap.
 
 ## The split rule (THIAAAAA-53 vs THIAAAAA-54 precedent)
 
