@@ -2,7 +2,7 @@
 
 ## Contract
 
-- Version: `1.0.2` (feature-frozen `1.0.x` adoption line)
+- Version: `1.1.0` (holistic polish and production-library line)
 - Command: `/Users/glad0s/.local/bin/forge-studio`
 - Default service: `http://127.0.0.1:4681/`
 - Canonical source: `/Users/glad0s/scripts/brand-suite/forge-studio`
@@ -20,6 +20,7 @@ forge-studio doctor --json
 forge-studio projects list --json
 forge-studio project show <id> --json
 forge-studio project clone <source> <target> --name <name> --version <semver> --patch <file-or-> --json
+forge-studio project production set <id> [--blueprint-mode authored|sculpted|luminous|graphic] [--material prismatic|glass|enamel|chrome|embossed|brushed-metal|neon|masonry|obsidian|aurora] [--blend brand|forge|electric|aurora|ember|alpine|mineral] [--surface clean|forge-cut|energy-vein|spectral-edge|molten-flow|glass-caustic|precision-etch] --json
 forge-studio sources list [--status <status>] [--eligibility <tier>] --json
 forge-studio releases list [--brand <slug>] --json
 forge-studio approved list --json

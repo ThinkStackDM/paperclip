@@ -263,9 +263,10 @@ This section is local to the ThinkStack served tree (not upstream).
 <!-- END THINKSTACK OPS RULE: asset-rejection-block -->
 
 <!-- BEGIN THINKSTACK OPS RULE: forge-studio-v1-block -->
-## Gate FS1 — Forge Studio v1.0 is the canonical brand-production door
+## Gate FS1 — Forge Studio v1.1 is the canonical brand-production door
 
 - Canonical source: `/Users/glad0s/scripts/brand-suite/forge-studio`; operator app: `/Users/glad0s/Applications/Forge Studio.app`; agent command: `/Users/glad0s/.local/bin/forge-studio`; full runbook: `/Users/glad0s/scripts/brand-suite/forge-studio/OPERATOR-AND-AGENT-RUNBOOK.md`.
+- Require the CLI, local service and renderer to report `1.1.0` before producing assets. v1.1 provides 28 automatic Studio Grade marks, form-aware material blueprints, seven governed surface wraps and the hardened nine-step operator flow.
 - For any new or upgraded canonical identity, responsive mark, brand pack, platform artwork, stationery, editable Office brand file, production handoff, brand adoption record, or drift audit, use the `forge-studio-ops` skill and start with `forge-studio doctor --json`.
 - Dated `Studio-Forge-Working-Copy-*` directories are evidence only. Never install from them or hand their paths to a live consumer.
 - Agents may create, verify, zip and acknowledge immutable **Candidate** releases. They may not approve, change source custody, restore known good, publish to X10, or register a Draft/Candidate as live usage.

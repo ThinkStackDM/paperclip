@@ -7,7 +7,7 @@ description: Create, inspect, package, verify, hand off, and track governed Forg
 
 Use the `forge-studio` CLI as the single machine contract. It invokes the same renderer, outlined type, QA rules, schemas, and version as the visible app; do not recreate Forge artwork with a separate script.
 
-Canonical v1.0 source: `/Users/glad0s/scripts/brand-suite/forge-studio`. The complete operator/agent runbook is `/Users/glad0s/scripts/brand-suite/forge-studio/OPERATOR-AND-AGENT-RUNBOOK.md`. Dated `Studio-Forge-Working-Copy-*` folders are release evidence, not live working paths.
+Canonical v1.1 source: `/Users/glad0s/scripts/brand-suite/forge-studio`. The complete operator/agent runbook is `/Users/glad0s/scripts/brand-suite/forge-studio/OPERATOR-AND-AGENT-RUNBOOK.md`. Dated `Studio-Forge-Working-Copy-*` folders are release evidence, not live working paths.
 
 ## Start safely
 
