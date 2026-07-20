@@ -340,6 +340,8 @@ def write_report(out_dir, meta, per_task, overall):
         "## TSBC Fairness Closeout (required before recommendation)",
         "",
         f"- Run IDs: `{meta['run_id']}`",
+        "- Issue-close PDF artifact: attach `TSBC-<issue>-report.pdf` before closing any TSBC test issue",
+        "- PDF contents: hypothesis, method, data, verdict `CONFIRMED` / `REFUTED` / `INCONCLUSIVE`, dispatched follow-up key",
         f"- Repetitions per compared cell: `{meta['reps']}`",
         f"- Scorer lane: `{meta['judge']}`",
         "- Scorer calibration status: `pass` / `pass_with_caveat` / `needs_calibration` / `failed`",
@@ -361,7 +363,7 @@ def write_report(out_dir, meta, per_task, overall):
         "- Any `not_preserved:*` field must explain why the artifact is missing; blank fields are not acceptable.",
         "- Next gate: `catalog_only` / `create_candidate_pack` / `run_opco_live_proof` / `adopt` / `reject` / `rerun` / `supersede`",
         "",
-        "> This probe report is evidence, not a finished TSBC closeout. Fill the checklist above in the issue or polished report before updating catalog rows or adoption recommendations.",
+        "> This probe report is evidence, not a finished TSBC closeout. Fill the checklist above in the issue or polished report, render the branded PDF artifact, and attach `TSBC-<issue>-report.pdf` before updating catalog rows or adoption recommendations.",
     ])
     (out_dir / "report.md").write_text("\n".join(lines) + "\n")
 

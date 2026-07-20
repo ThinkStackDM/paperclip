@@ -59,6 +59,7 @@ local agent harness. (Measuring the harness — skills/tools — is #16's job.)
 | `codex-gpt-5.4` | `codex exec … --json -o last.txt` | cumulative JSONL events |
 | `gemini-pro` | `gemini -p … -o json` | `stats` block |
 | `grok-4.3` / `grok-4.20` | `hermes -z … -m <model>` | `hermes sessions export` JSONL |
+| `grok-4.5` | `grok --prompt-file … -m grok-4.5 --output-format streaming-json` | estimated (`~4 chars/token`) |
 
 The normalized per-run record mirrors Paperclip's `usage_json`
 (`inputTokens`/`outputTokens`/`model`/`costUsd`) so the agent-scorecard and
@@ -136,6 +137,12 @@ that role onto; `roles.<role>.grokHeadToHead` carries the 4.3-vs-4.20 result.
 If a run will feed a TSBC issue, report, catalog row, or rollout decision, the
 benchmark is not complete at `report.md` or `recommendations.json`.
 
+If the run maps to a TSBC Paperclip test issue, the issue also stays open until a
+branded PDF closing artifact named `TSBC-<issue>-report.pdf` is attached. That
+PDF is mandatory on every TSBC test issue and must at minimum cover the
+hypothesis, method, data, verdict (`CONFIRMED` / `REFUTED` / `INCONCLUSIVE`),
+and dispatched follow-up key.
+
 Close it with the TSBC fairness block:
 
 - fairness verdict;
@@ -160,6 +167,9 @@ Close it with the TSBC fairness block:
 The TSBC KB keeps the pasteable template, and TSBC-specific probe reports should
 carry this closeout at the end so evaluators do not stop at mean score plus a
 recommendation.
+Use the TSBC report template plus the `brandsuite pdf` render path for the issue
+artifact; markdown tables and issue comments are supporting evidence, not a
+substitute for the PDF attachment.
 
 ## Consolidated token usage (`usage.py`)
 
@@ -179,6 +189,11 @@ tokens to `~/.gemini/tmp/<slug>/chats/session-*.jsonl` (`type=="gemini"` lines,
 `.tokens.{input,output,cached,thoughts,total}`). This rolls them up per day/model.
 CONSUMED-only — there is no local record of remaining quota (that needs a live Google
 Code Assist API call); `~/.gemini/tmp` is best-effort retention, so ingest incrementally.
+
+Direct `grok` note (2026-07-17): the EU `grok.com` lane now exposes `grok-4.5`, and
+the benchmark can run it via the native `grok` CLI. That stream does not emit usage
+blocks today, so `inputTokens` / `outputTokens` on direct-Grok rows are estimated and
+must be called out explicitly in any TSBC closeout.
 
 ## #16 Skill-refinement benchmark (`skillbench.py`)
 

@@ -353,6 +353,8 @@ def to_markdown(report, run_id, meta):
     L.append("> If this run will feed a TSBC issue, report, catalog row, or rollout decision, "
              "do not stop at the recommendation tables above.\n")
     L.append(f"- Run ID: `{run_id}`")
+    L.append("- Issue-close PDF artifact: attach `TSBC-<issue>-report.pdf` before closing any TSBC test issue")
+    L.append("- PDF contents: hypothesis, method, data, verdict `CONFIRMED` / `REFUTED` / `INCONCLUSIVE`, dispatched follow-up key")
     L.append("- Fairness verdict: `pass` / `pass_with_caveat` / `fail`")
     L.append("- Evidence depth: `directional` / `candidate` / `decision_grade` / `production_locked`")
     L.append("- Repetitions per compared cell: record the compared sample counts that support the recommendation")
@@ -374,6 +376,7 @@ def to_markdown(report, run_id, meta):
     L.append("- Prompt/system hash: record the prompt/agent/system hash, or `none` / `not_preserved:<why missing>`")
     L.append("- Failure-library IDs: list linked failures, or `none` with why that absence is meaningful")
     L.append("- Any `not_preserved:*` field must explain why the artifact is missing; blank fields are not acceptable")
-    L.append("- Next gate: `catalog_only` / `create_candidate_pack` / `run_opco_live_proof` / `adopt` / `reject` / `rerun` / `supersede`\n")
+    L.append("- Next gate: `catalog_only` / `create_candidate_pack` / `run_opco_live_proof` / `adopt` / `reject` / `rerun` / `supersede`")
+    L.append("- Issue may not move to `done` until the PDF artifact is attached and cited in the closeout evidence\n")
 
     return "\n".join(L) + "\n"

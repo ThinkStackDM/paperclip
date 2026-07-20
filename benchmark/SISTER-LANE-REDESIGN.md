@@ -138,7 +138,11 @@ Today: every lane = claude(parked) + codex-gpt-5.4 + grok-4.3 `-Hermes`. Deltas:
 
 > ✅ **Tooling bug FIXED 2026-06-23:** `make_fleet_agent.py` now sets `runtimeConfig.ignoreActivityWindow`
 > on every hire — inherited from the clone source, defaulting to `true` for sister hires (the always-on
-> codex/gemini lanes all set it), with a `--no-ignore-window` opt-out. Previously it dropped the flag, so
+> codex/gemini lanes all set it), with a `--no-ignore-window` opt-out. This is a **sister-only default**:
+> if that lane is later promoted to primary through `/api/companies/:companyId/agent-fallback-sisters`,
+> the promotion path must clear the exemption unless the caller records an explicit audited exception
+> class/reason (for example CEO coverage, window-flipped CTO, approved control/routine lane, or 24/7 market ops).
+> Previously it dropped the flag, so
 > newly-hired antigravity/Gemini (and any) sisters wouldn't pick up failover work outside the company
 > activity window — exactly when failover fires. All 16 sisters hired today were patched manually before
 > the fix; future hires carry it automatically.

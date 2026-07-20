@@ -1,13 +1,13 @@
 {
-  "date": "2026-07-15",
-  "fire": "Wednesday",
-  "weekStart": "2026-07-13",
+  "date": "2026-07-20",
+  "fire": "Monday",
+  "weekStart": "2026-07-20",
   "cliVersions": {
     "codex": "0.144.1",
-    "claude": "2.1.198 (Claude Code)",
-    "agy": "1.1.2",
-    "hermes": "v0.17.0 (2026.6.19) \u00b7 upstream 46e87b14",
-    "hermesUpdateAvailable": "1892 commits behind"
+    "claude": "2.1.211 (Claude Code)",
+    "agy": "1.1.4",
+    "hermes": "v0.17.0 (2026.6.19) · upstream b61c033c",
+    "hermesUpdateAvailable": "2725 commits behind"
   },
   "adapterModelLists": {
     "codex_local": [
@@ -56,86 +56,100 @@
       "grok-build"
     ],
     "opencode_local": {
-      "count": 110,
+      "count": 111,
       "notables": [
         "cloudflare-ai-gateway/anthropic/claude-fable-5",
         "cloudflare-ai-gateway/anthropic/claude-opus-4-8",
         "cloudflare-ai-gateway/anthropic/claude-sonnet-5",
         "cloudflare-ai-gateway/openai/gpt-5.5",
+        "cloudflare-ai-gateway/openai/gpt-5.6-sol",
+        "cloudflare-ai-gateway/openai/gpt-5.6-terra",
+        "cloudflare-ai-gateway/openai/gpt-5.6-luna",
+        "cloudflare-workers-ai/@cf/google/gemma-4-26b-a4b-it",
+        "cloudflare-workers-ai/@cf/moonshotai/kimi-k2.7-code",
         "cloudflare-workers-ai/@cf/openai/gpt-oss-20b",
-        "cloudflare-workers-ai/@cf/zai-org/glm-5.2"
+        "cloudflare-workers-ai/@cf/zai-org/glm-5.2",
+        "cloudflare-ai-gateway/moonshotai/kimi-k3"
       ]
     },
     "pi_local": [],
-    "cursor_cloud": []
+    "cursor_cloud": [],
+    "hermes_local": [],
+    "hermes_gateway": []
   },
   "providerDocs": {
     "openai": {
       "url": "https://developers.openai.com/api/docs/models",
-      "summary": "GPT-5.6 Sol/Terra/Luna remain live in the docs and on the Codex OAuth lane; no new OpenAI subscription-lane change was detected versus 2026-07-14.",
-      "liveProbe": {
-        "model": "gpt-5.6-luna",
-        "result": "OK"
+      "summary": "OpenAI still presents GPT-5.6 Sol, Terra, and Luna as the frontier coding family, with the `gpt-5.6` alias routing to Sol in the public docs. On the Ireland Codex OAuth lane on Monday, July 20, 2026, the explicit family IDs (`gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`) still return OK, while the previously observed ChatGPT-account base-ID gate on `gpt-5.6` remains in place. The official changelog still centers the July 9, 2026 GPT-5.6 family release rather than a newer Monday model-change entry.",
+      "liveProbes": {
+        "gpt-5.6": "400/not supported when using Codex with a ChatGPT account",
+        "gpt-5.6-sol": "OK",
+        "gpt-5.6-terra": "OK",
+        "gpt-5.6-luna": "OK"
       }
     },
     "anthropic": {
-      "url": "https://platform.claude.com/docs/en/about-claude/models/overview",
-      "summary": "Anthropic's overview still presents Claude Fable 5, Claude Mythos 5, and Claude Sonnet 5. On the Ireland Claude Code subscription lane, claude-fable-5 now returns OK again, claude-sonnet-5 still returns OK, and claude-mythos-5 still returns 404/no access. The live claude_local adapter catalog now includes claude-sonnet-5.",
+      "url": "https://docs.anthropic.com/en/docs/about-claude/models/overview",
+      "summary": "Anthropic's overview still presents Claude Fable 5 and Claude Sonnet 5 as broadly available, while Claude Mythos 5 remains invitation-only via Project Glasswing. On the Ireland Claude Code subscription lane on Monday, July 20, 2026, `claude-fable-5` and `claude-sonnet-5` still return OK, and `claude-mythos-5` still returns the expected no-access error.",
       "liveProbes": {
         "claude-fable-5": "OK",
         "claude-sonnet-5": "OK",
-        "claude-mythos-5": "404/no access on this Claude Code lane"
+        "claude-mythos-5": "model/no-access error on this Claude Code lane"
       }
     },
     "google": {
       "url": "https://ai.google.dev/gemini-api/docs/models",
-      "summary": "Google still exposes gemini-3.5-flash, gemini-3.1-flash-lite, gemini-3.1-flash-live-preview, gemini-3.5-live-translate-preview, and gemini-3-flash-preview in the public model docs. The live gemini_local adapter catalog now lists every one of those except gemini-3-flash-preview, but agy 1.1.2 no longer accepts several raw docs model IDs and instead exposes alias-based model names via `agy models`.",
+      "summary": "Google's current models page marks `gemini-2.0-flash` and `gemini-2.0-flash-lite` as shut down, and the official release notes say the Gemini 2.0 Flash family is now shut down as of June 1, 2026. On the Ireland AGY lane on Monday, July 20, 2026, both retired IDs still execute but self-identify as Gemini 3.5 Flash, while the live `gemini_local` adapter catalog still advertises the retired IDs. This is now a routed retirement/routing-drift alert rather than an unchanged catalog note.",
       "liveProbes": {
-        "gemini-3.5-flash": "CLI gate: raw doc ID invalid on agy 1.1.2; alias `Gemini 3.5 Flash (Medium)` returns OK",
-        "gemini-3.1-flash-lite": "OK",
-        "gemini-3.1-flash-live-preview": "CLI gate: raw doc ID invalid on agy 1.1.2",
-        "gemini-3.5-live-translate-preview": "CLI gate: raw doc ID invalid on agy 1.1.2",
-        "gemini-3-flash-preview": "CLI gate: raw doc ID invalid on agy 1.1.2"
+        "gemini-3.5-flash": "executes; self-identifies as Gemini 3.5 Flash",
+        "gemini-3.1-flash-lite": "executes; self-identifies as Gemini 3.5 Flash",
+        "gemini-3.1-flash-live-preview": "executes; self-identifies as Gemini 3.5 Flash",
+        "gemini-3.5-live-translate-preview": "executes; self-identifies as Gemini 3.5 Flash",
+        "gemini-3-flash-preview": "executes; self-identifies as Gemini 3.5 Flash",
+        "Gemini 3.1 Pro (Low)": "executes; self-identifies as Gemini 3.5 Flash",
+        "gemini-2.0-flash": "executes; self-identifies as Gemini 3.5 Flash",
+        "gemini-2.0-flash-lite": "executes; self-identifies as Gemini 3.5 Flash"
       }
     },
     "xai": {
       "url": "https://docs.x.ai/developers/models",
-      "summary": "xAI docs still present Grok 4.5 and the broader Grok 4.20 family. The local Grok host remains unauthenticated for subscription-lane probing; its unauthenticated surface now defaults to grok-4.5 and lists grok-composer-2.5-fast, but no EU auth flip was confirmed from Ireland.",
-      "hostProbe": "grok models -> not authenticated; default model grok-4.5; available model grok-composer-2.5-fast"
+      "summary": "xAI docs still position Grok 4.5 as the recommended code/chat model, and the public release-notes surface still points to the July 8, 2026 launch entry rather than a newer Monday model change. On the Ireland Grok host on Monday, July 20, 2026, `grok models` reports a live grok.com login with `grok-4.5` as the default and a direct `grok --single ... -m grok-4.5` probe still returns OK, so the Friday, July 17, 2026 EU-availability confirmation stands unchanged.",
+      "hostProbe": "grok models -> logged in with grok.com; default model grok-4.5; available model grok-4.5",
+      "liveProbe": {
+        "model": "grok-4.5",
+        "result": "OK"
+      }
     }
   },
   "localCatalog": {
     "ollama": {
-      "checkedToday": false,
-      "skipReason": "Wednesday fire; the local/Ollama catalog leg runs only on Monday fires per the operator directive.",
-      "lastMondayObservationDate": "2026-07-13",
+      "checkedToday": true,
+      "lastMondayObservationDate": "2026-07-20",
       "version": "0.31.1",
       "apiVersion": "0.31.1",
-      "installedCatalog": "Unavailable on 2026-07-13: `ollama list` and `curl http://127.0.0.1:11434/api/tags` did not return within 15 seconds.",
-      "onlineWatchSummary": "Carry-forward from 2026-07-13: no local-model alert opened from the Ollama library pass. The front page still highlighted Gemma 4 (e2b/e4b/12b, updated 1 week ago) and Qwen 3.5 (0.8b/2b/4b/9b, updated 1 month ago) as the strongest storm-resilience candidates under the Monday catalog-only rule."
+      "installedCatalog": "`ollama list` returned `gemma3:12b` (8.1 GB, modified 3 weeks ago) and `qwen3:8b` (5.2 GB, modified 3 weeks ago).",
+      "onlineWatchSummary": "Monday, July 20, 2026: the local/Ollama leg recovered and the host now shows `gemma3:12b` and `qwen3:8b` installed. The web library pass did not surface a stronger new sub-12B / <=10GB alert than the existing local storm-resilience watch, so no separate local-model radar issue was opened from today's Monday pass."
     }
   },
   "openRadar": {
-    "grok-4.5": "Unchanged: docs list it and the unauthenticated Grok host now defaults to grok-4.5, but no EU subscription-lane auth flip was confirmed. TSBC-988 remains the parked reprobe issue.",
-    "gemini-catalog-drift": "Narrowed 2026-07-15: the live gemini_local catalog now lists gemini-3.5-flash, gemini-3.5-live-translate-preview, gemini-3.1-flash-lite, and gemini-3.1-flash-live-preview; gemini-3-flash-preview still remains missing.",
-    "agy-gemini-alias-gate": "NEW 2026-07-15: agy 1.1.2 keeps the Gemini lane alive but no longer accepts several raw docs model IDs (`gemini-3.5-flash`, `gemini-3.1-flash-live-preview`, `gemini-3.5-live-translate-preview`, `gemini-3-flash-preview`). Alias probing such as `Gemini 3.5 Flash (Medium)` still returns OK.",
-    "claude-mythos-5": "Unchanged: docs and claude_local catalog list it, but Claude Code returns 404/no access on this lane; this still matches Anthropic's invitation-only positioning rather than a public GA flip."
+    "grok-4.5": "RESOLVED 2026-07-17: the Ireland Grok host is now authenticated, `grok models` lists `grok-4.5`, and `grok --single -m grok-4.5` returns OK. The parked EU-watch should now hand off to a real Grok 4.5 bench.",
+    "gemini-catalog-drift": "Updated 2026-07-20: the live `gemini_local` catalog still omits `gemini-3-flash-preview` and now also still advertises retired `gemini-2.0-flash*` IDs. The retirement half is routed separately in TSBC-1111.",
+    "agy-gemini-routing-drift": "Updated 2026-07-20: AGY 1.1.4 still accepts the tracked raw docs IDs and now also reroutes retired `gemini-2.0-flash*` IDs to Gemini 3.5 Flash instead of proving model-specific execution. Treat this as routing/name-surface drift until a harder probe proves model-specific execution on the Ireland lane.",
+    "gemini-2.0-retirement-drift": "NEW 2026-07-20: Google's official docs mark `gemini-2.0-flash` and `gemini-2.0-flash-lite` shut down as of June 1, 2026, but the live `gemini_local` catalog still advertises both IDs and AGY reroutes both to Gemini 3.5 Flash. Follow-up radar issue: TSBC-1111.",
+    "claude-mythos-5": "Unchanged 2026-07-20: docs and `claude_local` catalog still list it, but Claude Code still returns a model/no-access error on this lane; this still matches Anthropic's limited-availability positioning rather than a public GA flip.",
+    "opencode-gpt-5.6-catalog": "Unchanged 2026-07-20: `opencode_local` still reports 111 models and retains the tracked GPT-5.6 / gemma / Kimi notables including `cloudflare-ai-gateway/moonshotai/kimi-k3`. This remains served-catalog evidence from Ireland; a direct workspace `opencode` probe is still blocked locally by missing `CLOUDFLARE_GATEWAY_ID`.",
+    "codex-gpt-5.6-base-id-gate": "Unchanged 2026-07-20: the adapter catalog still lists `gpt-5.6` and the docs front-door still routes `gpt-5.6` to Sol, but the ChatGPT-backed Codex lane still rejects base `gpt-5.6` while `gpt-5.6-sol`, `gpt-5.6-terra`, and `gpt-5.6-luna` return OK. Keep explicit family IDs in matrices and smoke tests."
   },
   "changesSincePrevious": [
-    "agy upgraded from 1.1.1 to 1.1.2; the Gemini lane still works, but raw docs model IDs now hard-fail on the CLI for gemini-3.5-flash, gemini-3.1-flash-live-preview, gemini-3.5-live-translate-preview, and gemini-3-flash-preview while alias probing still returns OK.",
-    "The live gemini_local adapter catalog now lists gemini-3.5-flash, gemini-3.5-live-translate-preview, gemini-3.1-flash-lite, and gemini-3.1-flash-live-preview; only gemini-3-flash-preview remains missing from the prior drift set.",
-    "The live claude_local adapter catalog now lists claude-sonnet-5.",
-    "claude-fable-5 recovered from yesterday's 429 usage-limit response and now returns OK again on the Ireland Claude Code subscription lane.",
-    "The unauthenticated grok CLI surface now defaults to grok-4.5 and lists grok-composer-2.5-fast; yesterday the same surface defaulted to grok-composer-2.5-fast and exposed grok-build."
+    "Google retirement drift routed on Monday, July 20, 2026: official docs mark `gemini-2.0-flash` and `gemini-2.0-flash-lite` shut down, but `gemini_local` still advertises both IDs and AGY reroutes both to Gemini 3.5 Flash. Radar issue: TSBC-1111.",
+    "Monday local catalog observation recovered on July 20, 2026: Ollama responded again and shows `gemma3:12b` and `qwen3:8b` installed; no separate local-model alert opened."
   ],
   "weeklyLiveness": {
     "fireDates": [
-      "2026-07-13",
-      "2026-07-14",
-      "2026-07-15"
+      "2026-07-20"
     ],
-    "firesThisWeek": 3,
-    "changesThisWeek": 3,
-    "line": "model-watch alive: 3/7 fires this week, changes: 3"
+    "firesThisWeek": 1,
+    "changesThisWeek": 1,
+    "line": "model-watch alive: 1/7 fires this week, changes: 1"
   }
 }

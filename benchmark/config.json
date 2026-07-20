@@ -86,7 +86,7 @@
       "lane": "claude"
     }
   ],
-  "_models_catalog_comment": "Validated within-family variants (confirmed callable via their CLI 2026-06-14 unless noted below). `bench.py all` runs the active `models` roster above; as of 2026-07-11 that includes the new codex mini tier (`gpt-5.4-mini`) and the Claude cheap-lane probe (`claude-sonnet-5`). Opt in per run for catalog-only variants such as `claude-haiku`, `gemini-flash`, or `grok-4-fast`. GPT-5.6 family availability was re-confirmed on 2026-07-11 from the EU via Codex OAuth after upgrading codex-cli to 0.144.1. gpt-5.3-codex-spark IS a valid model (same as Paperclip's spark lane, invoked --model gpt-5.3-codex-spark with reasoning_effort=high) but is DAILY RATE-LIMITED \u2014 sweeps including it fail with a usage-limit error while exhausted (resets ~mid-afternoon). Genuinely NOT supported on this ChatGPT account (400 invalid_request, never works): plain gpt-5.3, gpt-5.3-codex, gpt-5-codex.",
+  "_models_catalog_comment": "Validated within-family variants (confirmed callable via their CLI 2026-06-14 unless noted below). `bench.py all` runs the active `models` roster above; as of 2026-07-11 that includes the new codex mini tier (`gpt-5.4-mini`) and the Claude cheap-lane probe (`claude-sonnet-5`). Opt in per run for catalog-only variants such as `claude-haiku`, `gemini-flash`, or the direct-Grok `grok-4.5` flagship. GPT-5.6 family availability was re-confirmed on 2026-07-11 from the EU via Codex OAuth after upgrading codex-cli to 0.144.1. `grok-4.5` was re-confirmed callable on the direct EU `grok.com` lane on 2026-07-17 (`grok --prompt-file ... -m grok-4.5`), but the CLI still exposes no usage block so benchmark token accounting remains estimated on that lane. gpt-5.3-codex-spark IS a valid model (same as Paperclip's spark lane, invoked --model gpt-5.3-codex-spark with reasoning_effort=high) but is DAILY RATE-LIMITED \u2014 sweeps including it fail with a usage-limit error while exhausted (resets ~mid-afternoon). Genuinely NOT supported on this ChatGPT account (400 invalid_request, never works): plain gpt-5.3, gpt-5.3-codex, gpt-5-codex.",
   "models_catalog": [
     {
       "id": "claude-sonnet",
@@ -204,6 +204,14 @@
       "model_arg": "grok-3-mini",
       "label": "Grok 3 mini",
       "lane": "hermes"
+    },
+    {
+      "id": "grok-4.5",
+      "adapter": "grok",
+      "model_arg": "grok-4.5",
+      "label": "Grok 4.5",
+      "lane": "grok",
+      "note": "Direct `grok.com` EU lane confirmed callable on 2026-07-17; token usage is estimated because the CLI stream does not emit usage blocks"
     },
     {
       "id": "gemini-pro-low",
@@ -360,6 +368,17 @@
         "--ignore-rules"
       ]
     },
+    "grok": {
+      "extra_args": [
+        "--always-approve",
+        "--permission-mode",
+        "dontAsk",
+        "--disable-web-search",
+        "--no-subagents",
+        "--tools",
+        ""
+      ]
+    },
     "antigravity": {
       "extra_args": []
     }
@@ -431,6 +450,10 @@
       "out": null
     },
     "grok-3-mini": {
+      "in": null,
+      "out": null
+    },
+    "grok-4.5": {
       "in": null,
       "out": null
     },

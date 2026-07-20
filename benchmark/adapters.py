@@ -10,6 +10,7 @@ Lanes:
   claude  ->  claude -p ... --output-format json     (usage in JSON)
   codex   ->  codex exec ... --json -o last.txt       (cumulative usage in JSONL events)
   gemini  ->  gemini -p ... -o json                   (usage in stats block)
+  grok    ->  grok --prompt-file ... --output-format streaming-json
   hermes  ->  hermes -z ...                            (text only; tokens via sessions export)
 """
 
@@ -60,10 +61,13 @@ def run_model(prompt, model_row, adapters_cfg, timeout_sec):
     # `-c model_reasoning_effort="high"`).
     if effort != "cli_default" and adapter == "codex":
         extra += ["-c", f'model_reasoning_effort="{effort}"']
+    if effort != "cli_default" and adapter == "grok":
+        extra += ["--reasoning-effort", effort]
     fn = {
         "claude": _run_claude,
         "codex": _run_codex,
         "gemini": _run_gemini,
+        "grok": _run_grok,
         "hermes": _run_hermes,
         "antigravity": _run_antigravity,
     }.get(adapter)
@@ -399,6 +403,98 @@ def _gemini_usage(stats):
         tot = (inp or 0) + cand + th if inp is not None else None
     outp = (tot - inp) if (tot is not None and inp is not None) else tokens.get("candidates")
     return name, inp, outp, tot
+
+
+# --------------------------------------------------------------------------
+# grok (direct Grok Build / grok.com CLI)
+# --------------------------------------------------------------------------
+
+def _grok_error_text(value):
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        for key in ("message", "error", "detail", "code"):
+            text = value.get(key)
+            if isinstance(text, str) and text.strip():
+                return text
+        try:
+            return json.dumps(value)
+        except Exception:
+            return ""
+    return ""
+
+
+def _parse_grok_jsonl(stdout):
+    text_parts = []
+    error_message = None
+    stop_reason = None
+    request_id = None
+    session_id = None
+    for raw_line in stdout.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        event = benchlib._try_json(line)
+        if not isinstance(event, dict):
+            continue
+        event_type = str(event.get("type") or "").strip()
+        if event_type == "text":
+            data = event.get("data")
+            if isinstance(data, str) and data:
+                text_parts.append(data)
+            continue
+        if event_type == "end":
+            stop_reason = str(event.get("stopReason") or stop_reason or "").strip() or stop_reason
+            request_id = str(event.get("requestId") or request_id or "").strip() or request_id
+            session_id = str(event.get("sessionId") or session_id or "").strip() or session_id
+            continue
+        if event_type == "error":
+            text = _grok_error_text(
+                event.get("error") or event.get("message") or event.get("detail") or event.get("data")
+            ).strip()
+            if text:
+                error_message = text
+    return {
+        "summary": "".join(text_parts).strip(),
+        "errorMessage": error_message,
+        "stopReason": stop_reason,
+        "requestId": request_id,
+        "sessionId": session_id,
+    }
+
+
+def _run_grok(prompt, model_arg, extra, timeout_sec, effort=None):
+    r = benchlib.empty_result()
+    with tempfile.TemporaryDirectory(prefix="bench-grok-") as cwd:
+        prompt_path = Path(cwd) / "prompt.txt"
+        prompt_path.write_text(prompt)
+        cmd = ["grok", "--prompt-file", str(prompt_path), "--output-format", "streaming-json"]
+        if model_arg:
+            cmd += ["--model", model_arg]
+        cmd += list(extra)
+        r["cmd"] = ["grok", "--prompt-file", "<prompt-file>", "--output-format", "streaming-json"] + (
+            ["--model", model_arg] if model_arg else []
+        )
+        rc, out, err, wall, timed_out = _exec(cmd, timeout_sec, cwd)
+        parsed = _parse_grok_jsonl(out or "")
+        r["wallMs"] = wall
+        r["stderrTail"] = _tail(err)
+        r["output"] = parsed["summary"]
+        r["model"] = model_arg
+        r["inputTokens"] = benchlib.estimate_tokens(prompt)
+        r["outputTokens"] = benchlib.estimate_tokens(r["output"])
+        r["totalTokens"] = (r["inputTokens"] or 0) + (r["outputTokens"] or 0) or None
+        r["tokensEstimated"] = True
+        stop_reason = str(parsed.get("stopReason") or "").strip()
+        parsed_error = str(parsed.get("errorMessage") or "").strip()
+        if timed_out:
+            r["error"] = "timeout"
+        elif parsed_error and stop_reason != "EndTurn":
+            r["error"] = parsed_error
+        elif rc not in (0, None) and not r["output"]:
+            r["error"] = parsed_error or _tail(err, n=240) or f"grok: rc={rc}"
+        r["ok"] = bool(r["output"]) and not r["error"]
+        return r
 
 
 # --------------------------------------------------------------------------

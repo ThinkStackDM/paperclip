@@ -88,3 +88,10 @@ scripts/.claude-preserve/
 # local instance state — never commit
 .secrets/
 artifacts/
+
+# daemon-owned benchmark power posture (rewritten hourly by
+# com.thinkstack.tsbc-power.plist — tracking it guarantees a dirty tree)
+benchmark/.tsbc-power.json
+benchmark/.claude-bench-halt
+# root scratch dir (server/scratch/ already ignored)
+/scratch/
