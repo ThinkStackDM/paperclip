@@ -2019,6 +2019,17 @@ export function issueThreadInteractionService(db: Db) {
                     rejectionReason: reason,
                   },
                 }
+              : row.kind === "request_item_verdicts"
+                ? {
+                    status: "cancelled" as const,
+                    result: {
+                      version: 1 as const,
+                      outcome: "stale_issue_state" as const,
+                      complete: false,
+                      items: (hydrateInteraction(row) as RequestItemVerdictsInteraction).result?.items ?? [],
+                      reason,
+                    } satisfies RequestItemVerdictsResult,
+                  }
               : {
                   status: "cancelled" as const,
                   result: {

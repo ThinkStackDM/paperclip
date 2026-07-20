@@ -1029,10 +1029,13 @@ export const requestItemVerdictsResultItemSchema = z.object({
 
 export const requestItemVerdictsResultSchema = z.object({
   version: z.literal(1),
-  outcome: z.enum(["resolved", "superseded_by_comment", "stale_target", "cancelled"]),
-  complete: z.boolean(),
+  outcome: z.enum(["resolved", "superseded_by_comment", "stale_target", "stale_issue_state", "cancelled"]),
+  complete: z.boolean().optional().default(false),
   items: z.array(requestItemVerdictsResultItemSchema)
-    .max(REQUEST_ITEM_VERDICTS_ITEM_LIMIT),
+    .max(REQUEST_ITEM_VERDICTS_ITEM_LIMIT)
+    .optional()
+    .default([]),
+  reason: z.string().trim().max(4000).nullable().optional(),
   commentId: z.string().uuid().nullable().optional(),
   staleTarget: requestConfirmationTargetSchema.nullable().optional(),
 }).superRefine((value, ctx) => {

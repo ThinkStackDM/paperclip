@@ -1162,9 +1162,10 @@ export interface RequestItemVerdictsResultItem {
 
 export interface RequestItemVerdictsResult {
   version: 1;
-  outcome: "resolved" | "superseded_by_comment" | "stale_target" | "cancelled";
+  outcome: "resolved" | "superseded_by_comment" | "stale_target" | "stale_issue_state" | "cancelled";
   complete: boolean;
   items: RequestItemVerdictsResultItem[];
+  reason?: string | null;
   commentId?: string | null;
   staleTarget?: RequestConfirmationTarget | null;
 }

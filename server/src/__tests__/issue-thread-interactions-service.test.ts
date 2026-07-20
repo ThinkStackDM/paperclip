@@ -2003,6 +2003,133 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
     ]);
   });
 
+  it("hydrates legacy stale_issue_state item verdict rows alongside healthy pending checkbox interactions", async () => {
+    const { companyId, issueId } = await seedConfirmationIssue("Legacy stale issue state");
+
+    await db.insert(issueThreadInteractions).values([
+      {
+        id: randomUUID(),
+        companyId,
+        issueId,
+        kind: "request_item_verdicts",
+        status: "cancelled",
+        continuationPolicy: "wake_assignee",
+        title: "Review outputs",
+        payload: {
+          version: 1,
+          prompt: "Review these generated items.",
+          items: [{ id: "artifact", label: "Artifact" }],
+        },
+        result: {
+          version: 1,
+          outcome: "stale_issue_state",
+          reason: "Issue closed as done.",
+        },
+      },
+      {
+        id: randomUUID(),
+        companyId,
+        issueId,
+        kind: "request_checkbox_confirmation",
+        status: "pending",
+        continuationPolicy: "wake_assignee",
+        title: "Approve artifact set",
+        payload: {
+          version: 1,
+          prompt: "Approve the artifact set?",
+          options: [{ id: "ship", label: "Ship" }],
+        },
+      },
+    ]);
+
+    const listed = await interactionsSvc.listForIssue(issueId);
+    const legacyVerdicts = listed.find((interaction) => interaction.kind === "request_item_verdicts");
+    const pendingCheckbox = listed.find((interaction) => interaction.kind === "request_checkbox_confirmation");
+
+    expect(listed).toHaveLength(2);
+    expect(legacyVerdicts).toEqual(expect.objectContaining({
+      kind: "request_item_verdicts",
+      status: "cancelled",
+      result: expect.objectContaining({
+        version: 1,
+        outcome: "stale_issue_state",
+        complete: false,
+        items: [],
+        reason: "Issue closed as done.",
+      }),
+    }));
+    expect(pendingCheckbox).toEqual(expect.objectContaining({
+      kind: "request_checkbox_confirmation",
+      status: "pending",
+      result: null,
+    }));
+  });
+
+  it("writes stale_issue_state item verdict results in-schema when expiring pending interactions", async () => {
+    const { companyId, issueId } = await seedConfirmationIssue("Stale issue state item verdicts");
+    const creatorAgentId = "11111111-1111-4111-8111-111111111111";
+
+    await db.insert(agents).values({
+      id: creatorAgentId,
+      companyId,
+      name: "CodexCoder",
+      role: "engineer",
+      status: "active",
+      adapterType: "codex_local",
+      adapterConfig: {},
+      runtimeConfig: {},
+      permissions: {},
+    });
+
+    const interaction = await interactionsSvc.create({ id: issueId, companyId }, {
+      kind: "request_item_verdicts",
+      continuationPolicy: "wake_assignee",
+      payload: {
+        version: 1,
+        prompt: "Review these generated items.",
+        items: [{ id: "artifact", label: "Artifact" }],
+      },
+      summary: "ASK: review. WHY: issue changed. ACTION: decide.",
+    }, {
+      agentId: creatorAgentId,
+    });
+
+    const expired = await interactionsSvc.expirePendingInteractionsForStaleIssueState({
+      previousIssue: {
+        id: issueId,
+        companyId,
+        status: "in_progress",
+        assigneeAgentId: creatorAgentId,
+        assigneeUserId: null,
+      },
+      issue: {
+        id: issueId,
+        companyId,
+        status: "done",
+        assigneeAgentId: creatorAgentId,
+        assigneeUserId: null,
+      },
+      actor: {
+        userId: "local-board",
+      },
+    });
+
+    expect(expired).toEqual([
+      expect.objectContaining({
+        id: interaction.id,
+        kind: "request_item_verdicts",
+        status: "cancelled",
+        result: expect.objectContaining({
+          version: 1,
+          outcome: "stale_issue_state",
+          complete: false,
+          items: [],
+          reason: "Issue closed as done.",
+        }),
+      }),
+    ]);
+  });
+
   it("preserves resolved request_item_verdicts items when the watched issue document revision changes", async () => {
     const companyId = randomUUID();
     const goalId = randomUUID();
